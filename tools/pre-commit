@@ -61,18 +61,28 @@ if [ "$HITS" -eq 1 ]; then
   exit 1
 fi
 
-# --- Fixture suite ---
-# Run bin/wiki-test if it exists and any staged file might affect it
-# (bin/* or tests/*). Skip otherwise so doc-only commits stay fast.
+# --- Test suite (unit + fixtures) ---
+# Run if any staged file is under bin/, tests/, schemas/, or docs/SCHEMA.md.
+# Skip otherwise so doc-only commits stay fast.
 WIKI_TEST="$REPO/bin/wiki-test"
-if [ -x "$WIKI_TEST" ]; then
-  RELEVANT=0
-  while IFS= read -r f; do
-    case "$f" in
-      bin/*|tests/*|schemas/*|docs/SCHEMA.md) RELEVANT=1 ;;
-    esac
-  done <<< "$STAGED"
-  if [ "$RELEVANT" -eq 1 ]; then
+RELEVANT=0
+while IFS= read -r f; do
+  case "$f" in
+    bin/*|tests/*|schemas/*|docs/SCHEMA.md) RELEVANT=1 ;;
+  esac
+done <<< "$STAGED"
+
+if [ "$RELEVANT" -eq 1 ]; then
+  # Unit tests first (fast; ~100ms). Only if any unit-test files exist.
+  if ls "$REPO"/tests/unit/*.test.js >/dev/null 2>&1; then
+    if ! (cd "$REPO" && node --test 'tests/unit/*.test.js' >/dev/null 2>&1); then
+      echo "pre-commit: unit tests failed. Run directly to see which:" >&2
+      echo "  cd $REPO && node --test 'tests/unit/*.test.js'" >&2
+      exit 1
+    fi
+  fi
+  # Fixture suite (slower; full vault per test).
+  if [ -x "$WIKI_TEST" ]; then
     if ! "$WIKI_TEST" >/dev/null 2>&1; then
       echo "pre-commit: bin/wiki-test failed. Run it directly to see which fixtures broke:" >&2
       echo "  $WIKI_TEST" >&2

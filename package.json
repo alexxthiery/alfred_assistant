@@ -1,0 +1,14 @@
+{
+  "name": "alfred-assistant",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted personal-knowledge agent: a typed-graph wiki CLI + Telegram-driven LLM driver.",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test 'tests/unit/*.test.js' && bin/wiki-test",
+    "test:unit": "node --test 'tests/unit/*.test.js'",
+    "test:fixtures": "bin/wiki-test"
+  }
+}
