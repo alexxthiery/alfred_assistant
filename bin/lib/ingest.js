@@ -16,7 +16,7 @@
 'use strict';
 
 const { validSlug, isReserved, KNOWN_TYPES, ENTITY_KIND_TAGS } = require('./schema.js');
-const { parseRelations, parseObservations } = require('./graph.js');
+const { strictRuleErrors } = require('./audit.js');
 
 const FUZZY_DUP_THRESHOLD = 0.7;
 
@@ -196,91 +196,13 @@ function validateIngestSpec(spec, deps) {
 }
 
 // ─── per-page body validator ───────────────────────────────────────────────
+// validateBody iterates the `strict: true` subset of AUDIT_RULES (defined in
+// ./audit.js). Single source of truth shared with `wiki audit` — only the
+// output shape differs (validateBody emits {rule, message}; auditPage emits
+// {rule, severity, detail}).
 
-const STRICT_PROV_TYPES = new Set(['entity', 'event', 'concept', 'synthesis']);
-
-function validateBody({ slug, title, type, tags, body, fm }, deps) {
-  const { schema, knownVerbs } = deps;
-  const errors = [];
-
-  // Event-keyword title with wrong type.
-  if (type !== 'event' && title && schema.eventKeywords && schema.eventKeywords.size) {
-    const titleLower = title.toLowerCase();
-    const hits = [];
-    for (const kw of schema.eventKeywords) {
-      const re = new RegExp(`\\b${kw}\\b`, 'i');
-      if (re.test(titleLower)) hits.push(kw);
-    }
-    if (hits.length) {
-      errors.push({
-        rule: 'mislabeled-event',
-        message: `Title "${title}" contains event keyword(s) (${hits.join(', ')}) but type=${type}. Use --type event. (Override with --soft if intentional.)`,
-      });
-    }
-  }
-
-  // type=event must have 'event' tag and 'when' frontmatter.
-  if (type === 'event') {
-    if (!Array.isArray(tags) || !tags.includes('event')) {
-      errors.push({ rule: 'event-tag', message: `type=event requires tag "event" in --tags` });
-    }
-    if (!fm || !fm.when) {
-      errors.push({ rule: 'event-when', message: `type=event requires --when YYYY-MM-DD (or ISO8601 for timed events)` });
-    }
-  }
-
-  // Uncategorized bullets in body.
-  if (body) {
-    const uncat = [];
-    for (const line of body.split('\n')) {
-      if (!/^- /.test(line)) continue;
-      if (/^- (?:~~)?\[(?:fact|hypothesis|opinion|claim|quote|question|decision|todo|idea)\]/.test(line)) continue;
-      if (/^- (?:[a-z][a-z_]+|"[^"]+") \[\[[a-z0-9][a-z0-9-]*\]\]/.test(line)) continue;
-      uncat.push(line.trim().slice(0, 80));
-    }
-    if (uncat.length) {
-      errors.push({
-        rule: 'uncategorized-bullets',
-        message: `${uncat.length} body bullet(s) lack [fact]/[hypothesis]/etc. category prefix AND aren't relations. ` +
-          `Each "- " line must be either a categorized observation ("- [fact] ...") or a relation ("- verb [[slug]]"). ` +
-          `Offenders (first 3): ${uncat.slice(0, 3).map((l) => `"${l}"`).join('; ')}`,
-      });
-    }
-  }
-
-  // Invented verbs in body relations.
-  if (body) {
-    const invented = new Set();
-    for (const r of parseRelations(body)) {
-      if (!knownVerbs.has(r.verb)) invented.add(r.verb);
-    }
-    if (invented.size) {
-      errors.push({
-        rule: 'invented-verb',
-        message: `Relation verb(s) not in SCHEMA registries: ${[...invented].join(', ')}. ` +
-          `Use a verb from symmetric, inverse-pairs, or one-way allowlist. Edit SCHEMA.md to add new verbs.`,
-      });
-    }
-  }
-
-  // Missing provenance on substantive types with observations.
-  if (body && STRICT_PROV_TYPES.has(type)) {
-    const obs = parseObservations(body);
-    if (obs.length > 0) {
-      const pageHasProv = /\^\[[^\]]+\]/.test(body)
-        || (fm && fm.raw_path)
-        || (fm && Array.isArray(fm.derived_from) && fm.derived_from.length > 0);
-      if (!pageHasProv) {
-        errors.push({
-          rule: 'missing-provenance',
-          message: `Page has ${obs.length} observation(s) but no ^[...] provenance marker. ` +
-            `Add ^[telegram:YYYY-MM-DD] or ^[raw/<kind>/<slug>.md] in body, or set raw_path / derived_from in frontmatter.`,
-        });
-      }
-    }
-  }
-
-  return errors;
+function validateBody(input, deps) {
+  return strictRuleErrors(input, deps);
 }
 
 module.exports = {

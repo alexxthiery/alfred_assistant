@@ -41,6 +41,7 @@ const {
   scoreSlugCandidates,
 } = require('./lib/graph.js');
 const { validateIngestSpec, validateBody: _validateBody } = require('./lib/ingest.js');
+const { auditPage } = require('./lib/audit.js');
 
 function detectVaultRoot() {
   // 1. Explicit env override.
@@ -1935,11 +1936,14 @@ function cmdIngest(args) {
 
 // Audit a single page. Returns { score, issues: [{rule, severity, detail}] }.
 // Excludes auto-files (index, log) — they return { score: 0, issues: [] }.
+// Per-page audit: read page from disk, build input, delegate to ./lib/audit.js's
+// auditPage which iterates the shared AUDIT_RULES table. Cross-page rules
+// (hot-text-mention, lonely) live in auditAll below since they need vault-wide
+// context.
 function auditSlug(slug, opts = {}) {
-  const issues = [];
-  if (slug === 'index' || slug === 'log') return { score: 0, issues };
+  if (slug === 'index' || slug === 'log') return { score: 0, issues: [] };
   const p = wikiPath(slug);
-  if (!fs.existsSync(p)) return { score: 0, issues };
+  if (!fs.existsSync(p)) return { score: 0, issues: [] };
   const raw = fs.readFileSync(p, 'utf-8');
   const { fm, body } = parseFrontmatter(raw);
   const schema = opts.schema || loadSchema();
@@ -1947,98 +1951,7 @@ function auditSlug(slug, opts = {}) {
   const type = fm.type || 'note';
   const tags = Array.isArray(fm.tags) ? fm.tags : [];
   const title = String(fm.title || slug);
-
-  // Rule 1: mislabeled-event — title contains event keyword but type != event
-  if (type !== 'event' && schema.eventKeywords && schema.eventKeywords.size) {
-    const titleLower = title.toLowerCase();
-    const hits = [];
-    for (const kw of schema.eventKeywords) {
-      const re = new RegExp(`\\b${kw}\\b`, 'i');
-      if (re.test(titleLower)) hits.push(kw);
-    }
-    if (hits.length) {
-      issues.push({ rule: 'mislabeled-event', severity: 'high', detail: `title contains: ${hits.join(', ')} but type=${type}` });
-    }
-  }
-
-  // Rule 2: mislabeled-entity — type=note with entity-kind tag
-  if (type === 'note' && tags.some((t) => ENTITY_KIND_TAGS.has(t))) {
-    const ek = tags.filter((t) => ENTITY_KIND_TAGS.has(t));
-    issues.push({ rule: 'mislabeled-entity', severity: 'high', detail: `type=note but tagged: ${ek.join(', ')} (should be type=entity)` });
-  }
-
-  // Rule 3: uncategorized-bullets — `- ` lines that aren't relations or categorized observations
-  const uncat = [];
-  for (const line of body.split('\n')) {
-    if (!/^- /.test(line)) continue;
-    if (/^- (?:~~)?\[(?:fact|hypothesis|opinion|claim|quote|question|decision|todo|idea)\]/.test(line)) continue;
-    if (/^- (?:[a-z][a-z_]+|"[^"]+") \[\[[a-z0-9][a-z0-9-]*\]\]/.test(line)) continue;
-    uncat.push(line.trim().slice(0, 80));
-  }
-  if (uncat.length) {
-    issues.push({ rule: 'uncategorized-bullets', severity: 'medium', detail: `${uncat.length} bullet(s) without [category] prefix or relation form`, examples: uncat.slice(0, 3) });
-  }
-
-  // Rule 4: missing-provenance — entity/event/concept/synthesis with observations but no ^[...] markers
-  const PROV_TYPES = new Set(['entity', 'event', 'concept', 'synthesis']);
-  if (PROV_TYPES.has(type)) {
-    const obs = parseObservations(body);
-    if (obs.length > 0) {
-      const hasProv = /\^\[[^\]]+\]/.test(body) || fm.raw_path || (Array.isArray(fm.derived_from) && fm.derived_from.length > 0);
-      if (!hasProv) {
-        issues.push({ rule: 'missing-provenance', severity: 'high', detail: `${obs.length} observation(s) with no ^[...] marker on page` });
-      }
-    }
-  }
-
-  // Rule 5: invented-verb — relation verbs not in known set
-  const invented = [];
-  for (const r of parseRelations(body)) {
-    if (!knownVerbs.has(r.verb)) invented.push(r.verb);
-  }
-  if (invented.length) {
-    issues.push({ rule: 'invented-verb', severity: 'high', detail: `verb(s) not in SCHEMA registries: ${[...new Set(invented)].join(', ')}` });
-  }
-
-  // Rule 6: long-observation — > 120 chars of CLEANED body (excludes date tags, hashtags, provenance)
-  // The cleaned body is the real descriptive content; raw text inflates with structure.
-  const long = [];
-  for (const o of parseObservations(body)) {
-    if (o.body.length > 120) long.push(o.body.slice(0, 60) + '…');
-  }
-  if (long.length) {
-    issues.push({ rule: 'long-observation', severity: 'low', detail: `${long.length} observation(s) >120 chars of body (multi-fact suspect)` });
-  }
-
-  // Rule 7: hot-text-mention — left to vault-wide audit (cross-page evidence needed); skip per-page
-
-  // Rule 8: empty-page — entity/event/concept page with NO observations AND NO relations.
-  // Semantic check, not byte count: a page with 1 [fact] + 1 relation is "thin but real".
-  // EXCEPT: skip if body matches the stub template produced by `wiki ingest` (Stub. ^[source]) —
-  // stubs are intentionally minimal placeholders; flagging them trains Alfred to ignore the audit.
-  const SUBSTANTIVE_TYPES = new Set(['entity', 'event', 'concept']);
-  const isStubTemplate = /^\s*Stub\.\s*\^\[[^\]]+\]\s*$/.test(body.trim());
-  if (SUBSTANTIVE_TYPES.has(type) && !isStubTemplate) {
-    const obsCount = parseObservations(body).length;
-    const relCount = parseRelations(body).length;
-    if (obsCount === 0 && relCount === 0) {
-      issues.push({ rule: 'empty-page', severity: 'medium', detail: `no observations or relations; type=${type} expected to have at least one [fact] or typed relation` });
-    }
-  }
-
-  // Rule 9: lonely — done by vault-wide audit (needs all pages); skip per-page
-
-  // Rule 10: event-frontmatter — type=event missing 'when'
-  if (type === 'event' && !fm.when) {
-    issues.push({ rule: 'event-frontmatter', severity: 'high', detail: `type=event but 'when' field missing` });
-  }
-  // event must have 'event' tag
-  if (type === 'event' && !tags.includes('event')) {
-    issues.push({ rule: 'event-frontmatter', severity: 'medium', detail: `type=event but 'event' tag missing` });
-  }
-
-  const score = issues.reduce((acc, i) => acc + (i.severity === 'high' ? 3 : i.severity === 'medium' ? 2 : 1), 0);
-  return { score, issues };
+  return auditPage({ slug, title, type, tags, body, fm }, { schema, knownVerbs });
 }
 
 // Vault-wide audit — also computes cross-page rules (hot-text, lonely).
