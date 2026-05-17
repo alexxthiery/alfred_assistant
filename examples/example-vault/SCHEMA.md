@@ -535,6 +535,16 @@ Modifies an existing page.
 
 The compiler validates the entire spec upfront. Any validation error halts before any page is written — no partial state is created from an invalid spec. Once validation passes, writes proceed best-effort, page by page: a runtime error on page #3 (e.g. disk full) does not roll back pages #1-#2. In practice, the upfront validation gate catches the failure modes that matter; runtime errors during writes are rare. Provenance is auto-stamped from `source` on every observation that doesn't already carry one. After all writes, bidirectional autolink runs on touched slugs; then `wiki audit` runs on each; result is returned.
 
+### Validation edge cases
+
+Three rules are enforced by the validator and easy to trip over the first time:
+
+- **Self-relations are rejected.** An entity or event spec cannot have a relation whose `target` equals its own `slug` (e.g. `{slug: "alice", relations: [{verb: "knows", target: "alice"}]}` is refused). A page never relates to itself — model whatever you meant as an observation (`facts`/`hypotheses`/`opinions`) instead.
+
+- **Fuzzy duplicate detection fires at confidence ≥ 0.7.** For every *new* slug in the spec (no existing file yet), the compiler runs `resolveSlugCandidates` on the spec's `title` against the existing vault. If any candidate scores ≥ 0.7, the write is refused with the suggestion to run `wiki resolve "<title>"` first. The threshold is hardcoded; lower it only by editing `DUP_THRESHOLD` in `bin/wiki`. The check is a duplication prevention guardrail, not a strict identity check — a high score means "you may be creating a near-duplicate," not "this *is* a duplicate."
+
+- **`--allow-duplicates` bypasses the fuzzy check.** Use when the duplication is intentional (e.g. creating a person page whose name happens to overlap an existing slug). The flag turns off the entire fuzzy-duplicate pass for the whole spec; it does not affect any other validation. Slug-uniqueness within the spec (the same slug listed twice across `stubs`/`entities`/`events`) is still enforced.
+
 ## Frontmatter ordering
 
 The CLI writes frontmatter in this order: `id, title, type, created, updated, tags`, then extras (`summary`, `aliases`, `status`, `due`, `decided_on`, `derived_from`, `raw_path`, `sha256`, `when`, `duration`, `location`, `attendees`, `recurrence`, etc.). Manual edits should preserve this for diff readability.
