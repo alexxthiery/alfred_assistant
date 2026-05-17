@@ -3,6 +3,10 @@
 #
 # Usage:
 #   echo "body text" | email-digest --subject "Subject line" --to "recipient@example.com"
+#   email-digest --dry-run --subject "test" --to "recipient@example.com"
+#       (validates env vars + recipient format + Gmail SMTP reachability;
+#        does NOT send mail; stdin is read but ignored. Suitable for container
+#        startup checks and weekly-digest pre-flight.)
 #
 # Required env vars:
 #   EMAIL_FROM             — sender address (must match the Gmail account that owns the app password)
@@ -16,12 +20,14 @@ set -euo pipefail
 
 SUBJECT=""
 TO=""
+DRY_RUN=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --subject) SUBJECT="$2"; shift 2 ;;
     --subject=*) SUBJECT="${1#*=}"; shift ;;
     --to) TO="$2"; shift 2 ;;
     --to=*) TO="${1#*=}"; shift ;;
+    --dry-run) DRY_RUN=1; shift ;;
     -h|--help)
       sed -n '2,/^set/p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
@@ -41,6 +47,40 @@ fi
 if [ -z "${GMAIL_APP_PASSWORD:-}" ]; then
   echo "email-digest: GMAIL_APP_PASSWORD env var not set (generate at https://myaccount.google.com/apppasswords)" >&2
   exit 2
+fi
+# Sanity: an app password without a 16-char shape is almost certainly wrong
+# (Google emits them as 16 lowercase letters, sometimes with spaces). Don't
+# enforce strictly; just warn.
+APP_PW_NOSPACES=${GMAIL_APP_PASSWORD// /}
+if [ ${#APP_PW_NOSPACES} -ne 16 ]; then
+  echo "email-digest: warning — GMAIL_APP_PASSWORD is ${#APP_PW_NOSPACES} chars (expected 16). Likely wrong; mint a new one at https://myaccount.google.com/apppasswords" >&2
+fi
+
+# Minimal recipient sanity. Not RFC-strict — just catches obvious typos.
+if ! printf '%s' "$TO" | grep -Eq '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'; then
+  echo "email-digest: --to \"$TO\" does not look like an email address" >&2
+  exit 1
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  # Probe Gmail SMTP without sending. `curl --url smtps://smtp.gmail.com:465`
+  # with no upload still completes the SSL+AUTH handshake; failure here means
+  # the credentials are wrong OR the network can't reach Gmail.
+  if curl --silent --show-error --fail \
+       --url 'smtps://smtp.gmail.com:465' \
+       --ssl-reqd \
+       --user "${EMAIL_FROM}:${GMAIL_APP_PASSWORD}" \
+       --max-time 15 \
+       --output /dev/null </dev/null; then
+    echo "email-digest --dry-run: OK (env vars set, recipient parseable, SMTP+auth reachable). Would send subject=\"$SUBJECT\" to=\"$TO\"."
+    # Drain stdin so the caller's pipe doesn't break, but don't store the body.
+    cat >/dev/null
+    exit 0
+  else
+    echo "email-digest --dry-run: SMTP/auth check failed. Verify EMAIL_FROM matches the Gmail account that owns GMAIL_APP_PASSWORD, and that the app password hasn't been revoked." >&2
+    cat >/dev/null
+    exit 3
+  fi
 fi
 
 BODY=$(cat)
