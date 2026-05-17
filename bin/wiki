@@ -13,7 +13,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { loadConfig } = require('./lib/config.js');
 
 function detectVaultRoot() {
   // 1. Explicit env override.
@@ -36,9 +35,6 @@ function detectVaultRoot() {
 }
 
 const VAULT_ROOT = detectVaultRoot();
-const CFG = loadConfig(VAULT_ROOT);
-const USER_SLUG = CFG.user.slug;
-const ASSISTANT_NAME = CFG.assistant.name;
 const WIKI_DIR = path.join(VAULT_ROOT, 'wiki');
 const SCHEMA_PATH = path.join(VAULT_ROOT, 'SCHEMA.md');
 const INDEX_PATH = path.join(WIKI_DIR, 'index.md');
