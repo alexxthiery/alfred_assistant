@@ -40,6 +40,7 @@ const {
   levenshtein,
   scoreSlugCandidates,
 } = require('./lib/graph.js');
+const { validateIngestSpec, validateBody: _validateBody } = require('./lib/ingest.js');
 
 function detectVaultRoot() {
   // 1. Explicit env override.
@@ -274,93 +275,12 @@ function validateForWrite({ slug, type, tags, derivedFrom }, { isAppend }) {
 
 // Strict body+frontmatter validators (run on full intended page content).
 // Returns array of {rule, message} error objects.
-// soft=true demotes everything to warnings (caller decides to print, not exit).
-function validateBody({ slug, title, type, tags, body, fm }) {
-  const errors = [];
+// Thin wrapper over ./lib/ingest.js's validateBody — fetches schema +
+// knownVerbs from the live SCHEMA.md and delegates to the pure core.
+function validateBody(args) {
   const schema = loadSchema();
   const knownVerbs = knownRelationVerbs(schema);
-  const STRICT_PROV_TYPES = new Set(['entity', 'event', 'concept', 'synthesis']);
-
-  // Event-keyword title with wrong type
-  if (type !== 'event' && title && schema.eventKeywords && schema.eventKeywords.size) {
-    const titleLower = title.toLowerCase();
-    const hits = [];
-    for (const kw of schema.eventKeywords) {
-      const re = new RegExp(`\\b${kw}\\b`, 'i');
-      if (re.test(titleLower)) hits.push(kw);
-    }
-    if (hits.length) {
-      errors.push({
-        rule: 'mislabeled-event',
-        message: `Title "${title}" contains event keyword(s) (${hits.join(', ')}) but type=${type}. Use --type event. (Override with --soft if intentional.)`,
-      });
-    }
-  }
-
-  // type=event must have 'event' tag and 'when' frontmatter
-  if (type === 'event') {
-    if (!Array.isArray(tags) || !tags.includes('event')) {
-      errors.push({ rule: 'event-tag', message: `type=event requires tag "event" in --tags` });
-    }
-    if (!fm || !fm.when) {
-      errors.push({ rule: 'event-when', message: `type=event requires --when YYYY-MM-DD (or ISO8601 for timed events)` });
-    }
-  }
-
-  // Uncategorized bullets in body
-  if (body) {
-    const uncat = [];
-    for (const line of body.split('\n')) {
-      if (!/^- /.test(line)) continue;
-      // Allowed: categorized observation
-      if (/^- (?:~~)?\[(?:fact|hypothesis|opinion|claim|quote|question|decision|todo|idea)\]/.test(line)) continue;
-      // Allowed: relation (- verb [[slug]] or - "multi word" [[slug]])
-      if (/^- (?:[a-z][a-z_]+|"[^"]+") \[\[[a-z0-9][a-z0-9-]*\]\]/.test(line)) continue;
-      uncat.push(line.trim().slice(0, 80));
-    }
-    if (uncat.length) {
-      errors.push({
-        rule: 'uncategorized-bullets',
-        message: `${uncat.length} body bullet(s) lack [fact]/[hypothesis]/etc. category prefix AND aren't relations. ` +
-          `Each "- " line must be either a categorized observation ("- [fact] ...") or a relation ("- verb [[slug]]"). ` +
-          `Offenders (first 3): ${uncat.slice(0, 3).map((l) => `"${l}"`).join('; ')}`,
-      });
-    }
-  }
-
-  // Invented verbs in body relations
-  if (body) {
-    const invented = new Set();
-    for (const r of parseRelations(body)) {
-      if (!knownVerbs.has(r.verb)) invented.add(r.verb);
-    }
-    if (invented.size) {
-      errors.push({
-        rule: 'invented-verb',
-        message: `Relation verb(s) not in SCHEMA registries: ${[...invented].join(', ')}. ` +
-          `Use a verb from symmetric, inverse-pairs, or one-way allowlist. Edit SCHEMA.md to add new verbs.`,
-      });
-    }
-  }
-
-  // Missing provenance on substantive types with observations
-  if (body && STRICT_PROV_TYPES.has(type)) {
-    const obs = parseObservations(body);
-    if (obs.length > 0) {
-      const pageHasProv = /\^\[[^\]]+\]/.test(body)
-        || (fm && fm.raw_path)
-        || (fm && Array.isArray(fm.derived_from) && fm.derived_from.length > 0);
-      if (!pageHasProv) {
-        errors.push({
-          rule: 'missing-provenance',
-          message: `Page has ${obs.length} observation(s) but no ^[...] provenance marker. ` +
-            `Add ^[telegram:YYYY-MM-DD] or ^[raw/<kind>/<slug>.md] in body, or set raw_path / derived_from in frontmatter.`,
-        });
-      }
-    }
-  }
-
-  return errors;
+  return _validateBody(args, { schema, knownVerbs });
 }
 
 // ─── read verbs ────────────────────────────────────────────────────────────
@@ -1819,166 +1739,19 @@ function cmdIngest(args) {
   const replayMsgId = spec && spec.msg_id;
   if (replayMsgId && !args.replay) captureReplaySpec(replayMsgId, jsonText);
 
+  // ─── VALIDATE ─────────────────────────────────────────────────────────
+  // Pure validator (./lib/ingest.js) — caller injects schema, vault state,
+  // and fuzzy resolver; gets back {errors, parsed sections, createdSlugs}.
   const schema = loadSchema();
   const knownVerbs = knownRelationVerbs(schema);
-  const errors = [];
-
-  // ─── VALIDATE ─────────────────────────────────────────────────────────
-  if (!spec.source || typeof spec.source !== 'string') {
-    errors.push('top-level: "source" string is required (e.g. "telegram:2026-05-17")');
-  }
-  const stubs = Array.isArray(spec.stubs) ? spec.stubs : [];
-  const entities = Array.isArray(spec.entities) ? spec.entities : [];
-  const events = Array.isArray(spec.events) ? spec.events : [];
-  const patches = Array.isArray(spec.patches) ? spec.patches : [];
-  if (stubs.length + entities.length + events.length + patches.length === 0) {
-    errors.push('spec is empty: provide at least one of stubs/entities/events/patches');
-  }
-
-  // Build the set of slugs this spec will create + detect duplicates
-  const createdSlugs = new Set();
-  const slugSeen = new Map(); // slug -> [section names]
-  const addSlug = (slug, section) => {
-    if (!slug) return;
-    createdSlugs.add(slug);
-    if (!slugSeen.has(slug)) slugSeen.set(slug, []);
-    slugSeen.get(slug).push(section);
-  };
-  for (const s of stubs)    if (s) addSlug(s.slug, 'stubs');
-  for (const e of entities) if (e) addSlug(e.slug, 'entities');
-  for (const e of events)   if (e) addSlug(e.slug, 'events');
-  for (const [slug, locs] of slugSeen.entries()) {
-    if (locs.length > 1) errors.push(`duplicate slug "${slug}" appears in: ${locs.join(', ')} — each slug can only be written once per spec`);
-  }
-
-  // Pre-write fuzzy duplicate check: for every new slug (no file yet), see if title
-  // resembles an existing page. Catches "alice-smith" being created when "alice" exists.
-  // Bypass with --allow-duplicates.
-  if (!args['allow-duplicates']) {
-    const DUP_THRESHOLD = 0.7;
-    const checkNewSlug = (slug, title, section) => {
-      if (!slug || !title || title.length < 3) return;
-      if (fs.existsSync(wikiPath(slug))) return; // page already exists; not a "new" slug
-      const matches = resolveSlugCandidates(title, { excludeSlug: slug });
-      const hit = matches.find((m) => m.confidence >= DUP_THRESHOLD && m.slug !== slug);
-      if (hit) {
-        errors.push(`${section} "${slug}" (title "${title}") may duplicate existing [[${hit.slug}]] (confidence ${hit.confidence.toFixed(2)}, ${hit.reason}). Use \`wiki resolve "${title}"\` first, or pass --allow-duplicates if intentional.`);
-      }
-    };
-    for (const s of stubs)    if (s) checkNewSlug(s.slug, s.title, 'stubs');
-    for (const e of entities) if (e) checkNewSlug(e.slug, e.title, 'entities');
-    for (const e of events)   if (e) checkNewSlug(e.slug, e.title, 'events');
-  }
-
-  const validateSlug = (s) => validSlug(s) && !isReserved(s) && !schema.forbidden.has(s);
-
-  const validateRelations = (rels, context, selfSlug) => {
-    if (!Array.isArray(rels)) return;
-    for (const r of rels) {
-      if (!r || !r.verb || !r.target) {
-        errors.push(`${context}: relation needs {verb, target}, got ${JSON.stringify(r)}`);
-        continue;
-      }
-      if (!knownVerbs.has(r.verb) && !/\s/.test(r.verb)) {
-        errors.push(`${context}: invented verb "${r.verb}" — not in SCHEMA registries`);
-      }
-      if (selfSlug && r.target === selfSlug) {
-        errors.push(`${context}: self-relation not allowed (target "${r.target}" equals page slug)`);
-        continue;
-      }
-      if (!validateSlug(r.target)) {
-        errors.push(`${context}: relation target "${r.target}" is not a valid slug`);
-      } else if (!createdSlugs.has(r.target) && !fs.existsSync(wikiPath(r.target))) {
-        errors.push(`${context}: relation target [[${r.target}]] does not exist — add a stub or create the page`);
-      }
-    }
-  };
-
-  const validateTags = (tags, context) => {
-    if (!Array.isArray(tags)) { errors.push(`${context}: tags must be an array`); return; }
-    if (schema.tags) {
-      const unknown = tags.filter((t) => !schema.tags.has(t));
-      if (unknown.length) errors.push(`${context}: unknown tag(s) ${unknown.map((t) => `"${t}"`).join(', ')} — add to SCHEMA.md first`);
-    }
-  };
-
-  // Validate stubs
-  for (const [i, s] of stubs.entries()) {
-    const ctx = `stubs[${i}]`;
-    if (!s || typeof s !== 'object') { errors.push(`${ctx}: must be object`); continue; }
-    if (!s.slug || !validateSlug(s.slug)) errors.push(`${ctx}: invalid slug "${s.slug}"`);
-    if (!s.title) errors.push(`${ctx}: title required`);
-    if (s.type && !KNOWN_TYPES.has(s.type)) errors.push(`${ctx}: unknown type "${s.type}"`);
-    validateTags(s.tags || [], ctx);
-  }
-
-  // Validate entities
-  for (const [i, e] of entities.entries()) {
-    const ctx = `entities[${i}] (${e && e.slug ? e.slug : '?'})`;
-    if (!e || typeof e !== 'object') { errors.push(`${ctx}: must be object`); continue; }
-    if (!e.slug || !validateSlug(e.slug)) errors.push(`${ctx}: invalid slug`);
-    if (!e.title) errors.push(`${ctx}: title required`);
-    if (e.type && e.type !== 'entity' && e.type !== 'concept' && e.type !== 'decision') {
-      errors.push(`${ctx}: type must be entity/concept/decision (or omit for entity)`);
-    }
-    validateTags(e.tags || [], ctx);
-    const type = e.type || 'entity';
-    if (type === 'entity') {
-      const ek = (e.tags || []).find((t) => ENTITY_KIND_TAGS.has(t));
-      if (!ek) errors.push(`${ctx}: type=entity requires one of tags: ${[...ENTITY_KIND_TAGS].join('/')}`);
-    }
-    const hasContent = (e.facts && e.facts.length) || (e.hypotheses && e.hypotheses.length)
-      || (e.opinions && e.opinions.length) || (e.claims && e.claims.length)
-      || (e.relations && e.relations.length);
-    if (!hasContent) errors.push(`${ctx}: entity needs ≥1 fact/hypothesis/opinion/claim/relation`);
-    validateRelations(e.relations || [], ctx, e.slug);
-  }
-
-  // Validate events
-  for (const [i, e] of events.entries()) {
-    const ctx = `events[${i}] (${e && e.slug ? e.slug : '?'})`;
-    if (!e || typeof e !== 'object') { errors.push(`${ctx}: must be object`); continue; }
-    if (!e.slug || !validateSlug(e.slug)) errors.push(`${ctx}: invalid slug`);
-    if (!e.title) errors.push(`${ctx}: title required`);
-    if (!e.when) {
-      errors.push(`${ctx}: "when" required (YYYY-MM-DD or ISO8601)`);
-    } else {
-      // Accept: YYYY, YYYY-MM, YYYY-MM-DD, YYYY-MM-DDTHH:MM(:SS)?(Z|±HH:MM)?
-      const ok = /^\d{4}(-\d{2}(-\d{2}(T\d{2}:\d{2}(:\d{2})?(Z|[+-]\d{2}:?\d{2})?)?)?)?$/.test(String(e.when));
-      if (!ok) errors.push(`${ctx}: "when" must be YYYY-MM-DD or ISO8601; got "${e.when}"`);
-    }
-    validateTags(e.tags || [], ctx);
-    if (!Array.isArray(e.tags) || !e.tags.includes('event')) errors.push(`${ctx}: tags must include "event"`);
-    // Validate attendees are slugs that exist or will exist
-    if (Array.isArray(e.attendees)) {
-      for (const a of e.attendees) {
-        if (!validateSlug(a)) errors.push(`${ctx}: attendee "${a}" is not a valid slug`);
-        else if (!createdSlugs.has(a) && !fs.existsSync(wikiPath(a))) {
-          errors.push(`${ctx}: attendee [[${a}]] does not exist — add as stub or create the page`);
-        }
-      }
-    }
-    // Location, if a slug, should resolve
-    if (e.location && /^[a-z0-9][a-z0-9-]*$/.test(e.location)) {
-      if (!createdSlugs.has(e.location) && !fs.existsSync(wikiPath(e.location))) {
-        errors.push(`${ctx}: location "${e.location}" looks like a slug but page does not exist — add as stub or use free text`);
-      }
-    }
-    validateRelations(e.relations || [], ctx, e.slug);
-  }
-
-  // Validate patches
-  for (const [i, p] of patches.entries()) {
-    const ctx = `patches[${i}] (${p && p.slug ? p.slug : '?'})`;
-    if (!p || typeof p !== 'object') { errors.push(`${ctx}: must be object`); continue; }
-    if (!p.slug || !validateSlug(p.slug)) errors.push(`${ctx}: invalid slug`);
-    else if (!fs.existsSync(wikiPath(p.slug)) && !createdSlugs.has(p.slug)) errors.push(`${ctx}: target page does not exist (and is not being created in this spec)`);
-    const hasOps = (p.add_facts && p.add_facts.length) || (p.add_hypotheses && p.add_hypotheses.length)
-      || (p.add_opinions && p.add_opinions.length) || (p.add_relations && p.add_relations.length)
-      || (p.supersede && p.supersede.length);
-    if (!hasOps) errors.push(`${ctx}: patch needs ≥1 operation`);
-    validateRelations(p.add_relations || [], ctx, p.slug);
-  }
+  const existingSlugs = new Set(listWikiPages().map((f) => f.replace(/\.md$/, '')));
+  const { errors, stubs, entities, events, patches, createdSlugs } = validateIngestSpec(spec, {
+    schema,
+    knownVerbs,
+    existingSlugs,
+    fuzzyMatchFn: (title, opts) => resolveSlugCandidates(title, opts),
+    allowDuplicates: !!args['allow-duplicates'],
+  });
 
   if (errors.length) {
     if (replayMsgId && !args.replay) {

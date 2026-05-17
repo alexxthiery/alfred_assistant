@@ -1,0 +1,290 @@
+// ingest.js — pure write-time validators.
+//
+// Two surfaces, both lifted out of bin/wiki for unit-testability:
+//
+//   validateIngestSpec(spec, deps)
+//     The top-level JSON-spec validator used by `wiki ingest`. Caller injects
+//     schema + vault state + a fuzzy resolver; gets back errors + parsed
+//     sections (stubs/entities/events/patches/createdSlugs).
+//
+//   validateBody({slug,title,type,tags,body,fm}, deps)
+//     The per-page body validator used by `wiki write` and `wiki audit`.
+//     Caller injects schema + knownVerbs; gets back a list of {rule, message}
+//     entries (empty list = clean). Rules: mislabeled-event, event-tag,
+//     event-when, uncategorized-bullets, invented-verb, missing-provenance.
+
+'use strict';
+
+const { validSlug, isReserved, KNOWN_TYPES, ENTITY_KIND_TAGS } = require('./schema.js');
+const { parseRelations, parseObservations } = require('./graph.js');
+
+const FUZZY_DUP_THRESHOLD = 0.7;
+
+// Date format the validator accepts on event.when: YYYY, YYYY-MM, YYYY-MM-DD,
+// or full ISO-8601 with optional time zone.
+const WHEN_RE = /^\d{4}(-\d{2}(-\d{2}(T\d{2}:\d{2}(:\d{2})?(Z|[+-]\d{2}:?\d{2})?)?)?)?$/;
+
+function validateIngestSpec(spec, deps) {
+  const {
+    schema,
+    knownVerbs,
+    existingSlugs,                   // Set<string> — slugs whose page is already on disk
+    fuzzyMatchFn = () => [],         // (query, opts) => [{slug, confidence, reason}]
+    allowDuplicates = false,
+  } = deps;
+
+  const errors = [];
+
+  // ─── top-level shape ────────────────────────────────────────────────────
+  if (!spec || typeof spec !== 'object') {
+    return { errors: ['top-level: spec must be an object'], stubs: [], entities: [], events: [], patches: [], createdSlugs: new Set() };
+  }
+  if (!spec.source || typeof spec.source !== 'string') {
+    errors.push('top-level: "source" string is required (e.g. "telegram:2026-05-17")');
+  }
+  const stubs    = Array.isArray(spec.stubs)    ? spec.stubs    : [];
+  const entities = Array.isArray(spec.entities) ? spec.entities : [];
+  const events   = Array.isArray(spec.events)   ? spec.events   : [];
+  const patches  = Array.isArray(spec.patches)  ? spec.patches  : [];
+  if (stubs.length + entities.length + events.length + patches.length === 0) {
+    errors.push('spec is empty: provide at least one of stubs/entities/events/patches');
+  }
+
+  // ─── slug uniqueness within spec + created-slugs set ────────────────────
+  const createdSlugs = new Set();
+  const slugSeen = new Map();
+  const addSlug = (slug, section) => {
+    if (!slug) return;
+    createdSlugs.add(slug);
+    if (!slugSeen.has(slug)) slugSeen.set(slug, []);
+    slugSeen.get(slug).push(section);
+  };
+  for (const s of stubs)    if (s) addSlug(s.slug, 'stubs');
+  for (const e of entities) if (e) addSlug(e.slug, 'entities');
+  for (const e of events)   if (e) addSlug(e.slug, 'events');
+  for (const [slug, locs] of slugSeen.entries()) {
+    if (locs.length > 1) {
+      errors.push(`duplicate slug "${slug}" appears in: ${locs.join(', ')} — each slug can only be written once per spec`);
+    }
+  }
+
+  // ─── fuzzy duplicate check against existing vault ───────────────────────
+  if (!allowDuplicates) {
+    const checkNewSlug = (slug, title, section) => {
+      if (!slug || !title || title.length < 3) return;
+      if (existingSlugs.has(slug)) return;
+      const matches = fuzzyMatchFn(title, { excludeSlug: slug }) || [];
+      const hit = matches.find((m) => m.confidence >= FUZZY_DUP_THRESHOLD && m.slug !== slug);
+      if (hit) {
+        errors.push(`${section} "${slug}" (title "${title}") may duplicate existing [[${hit.slug}]] (confidence ${hit.confidence.toFixed(2)}, ${hit.reason}). Use \`wiki resolve "${title}"\` first, or pass --allow-duplicates if intentional.`);
+      }
+    };
+    for (const s of stubs)    if (s) checkNewSlug(s.slug, s.title, 'stubs');
+    for (const e of entities) if (e) checkNewSlug(e.slug, e.title, 'entities');
+    for (const e of events)   if (e) checkNewSlug(e.slug, e.title, 'events');
+  }
+
+  // ─── shared helpers (closed over schema + errors) ───────────────────────
+  const validateSlugStrict = (s) => validSlug(s) && !isReserved(s) && !schema.forbidden.has(s);
+
+  const validateRelations = (rels, ctx, selfSlug) => {
+    if (!Array.isArray(rels)) return;
+    for (const r of rels) {
+      if (!r || !r.verb || !r.target) {
+        errors.push(`${ctx}: relation needs {verb, target}, got ${JSON.stringify(r)}`);
+        continue;
+      }
+      if (!knownVerbs.has(r.verb) && !/\s/.test(r.verb)) {
+        errors.push(`${ctx}: invented verb "${r.verb}" — not in SCHEMA registries`);
+      }
+      if (selfSlug && r.target === selfSlug) {
+        errors.push(`${ctx}: self-relation not allowed (target "${r.target}" equals page slug)`);
+        continue;
+      }
+      if (!validateSlugStrict(r.target)) {
+        errors.push(`${ctx}: relation target "${r.target}" is not a valid slug`);
+      } else if (!createdSlugs.has(r.target) && !existingSlugs.has(r.target)) {
+        errors.push(`${ctx}: relation target [[${r.target}]] does not exist — add a stub or create the page`);
+      }
+    }
+  };
+
+  const validateTags = (tags, ctx) => {
+    if (!Array.isArray(tags)) { errors.push(`${ctx}: tags must be an array`); return; }
+    if (schema.tags) {
+      const unknown = tags.filter((t) => !schema.tags.has(t));
+      if (unknown.length) {
+        errors.push(`${ctx}: unknown tag(s) ${unknown.map((t) => `"${t}"`).join(', ')} — add to SCHEMA.md first`);
+      }
+    }
+  };
+
+  // ─── per-section validation ─────────────────────────────────────────────
+  for (const [i, s] of stubs.entries()) {
+    const ctx = `stubs[${i}]`;
+    if (!s || typeof s !== 'object') { errors.push(`${ctx}: must be object`); continue; }
+    if (!s.slug || !validateSlugStrict(s.slug)) errors.push(`${ctx}: invalid slug "${s.slug}"`);
+    if (!s.title) errors.push(`${ctx}: title required`);
+    if (s.type && !KNOWN_TYPES.has(s.type)) errors.push(`${ctx}: unknown type "${s.type}"`);
+    validateTags(s.tags || [], ctx);
+  }
+
+  for (const [i, e] of entities.entries()) {
+    const ctx = `entities[${i}] (${e && e.slug ? e.slug : '?'})`;
+    if (!e || typeof e !== 'object') { errors.push(`${ctx}: must be object`); continue; }
+    if (!e.slug || !validateSlugStrict(e.slug)) errors.push(`${ctx}: invalid slug`);
+    if (!e.title) errors.push(`${ctx}: title required`);
+    if (e.type && e.type !== 'entity' && e.type !== 'concept' && e.type !== 'decision') {
+      errors.push(`${ctx}: type must be entity/concept/decision (or omit for entity)`);
+    }
+    validateTags(e.tags || [], ctx);
+    const type = e.type || 'entity';
+    if (type === 'entity') {
+      const ek = (e.tags || []).find((t) => ENTITY_KIND_TAGS.has(t));
+      if (!ek) errors.push(`${ctx}: type=entity requires one of tags: ${[...ENTITY_KIND_TAGS].join('/')}`);
+    }
+    const hasContent = (e.facts && e.facts.length) || (e.hypotheses && e.hypotheses.length)
+      || (e.opinions && e.opinions.length) || (e.claims && e.claims.length)
+      || (e.relations && e.relations.length);
+    if (!hasContent) errors.push(`${ctx}: entity needs ≥1 fact/hypothesis/opinion/claim/relation`);
+    validateRelations(e.relations || [], ctx, e.slug);
+  }
+
+  for (const [i, e] of events.entries()) {
+    const ctx = `events[${i}] (${e && e.slug ? e.slug : '?'})`;
+    if (!e || typeof e !== 'object') { errors.push(`${ctx}: must be object`); continue; }
+    if (!e.slug || !validateSlugStrict(e.slug)) errors.push(`${ctx}: invalid slug`);
+    if (!e.title) errors.push(`${ctx}: title required`);
+    if (!e.when) {
+      errors.push(`${ctx}: "when" required (YYYY-MM-DD or ISO8601)`);
+    } else if (!WHEN_RE.test(String(e.when))) {
+      errors.push(`${ctx}: "when" must be YYYY-MM-DD or ISO8601; got "${e.when}"`);
+    }
+    validateTags(e.tags || [], ctx);
+    if (!Array.isArray(e.tags) || !e.tags.includes('event')) errors.push(`${ctx}: tags must include "event"`);
+    if (Array.isArray(e.attendees)) {
+      for (const a of e.attendees) {
+        if (!validateSlugStrict(a)) errors.push(`${ctx}: attendee "${a}" is not a valid slug`);
+        else if (!createdSlugs.has(a) && !existingSlugs.has(a)) {
+          errors.push(`${ctx}: attendee [[${a}]] does not exist — add as stub or create the page`);
+        }
+      }
+    }
+    if (e.location && /^[a-z0-9][a-z0-9-]*$/.test(e.location)) {
+      if (!createdSlugs.has(e.location) && !existingSlugs.has(e.location)) {
+        errors.push(`${ctx}: location "${e.location}" looks like a slug but page does not exist — add as stub or use free text`);
+      }
+    }
+    validateRelations(e.relations || [], ctx, e.slug);
+  }
+
+  for (const [i, p] of patches.entries()) {
+    const ctx = `patches[${i}] (${p && p.slug ? p.slug : '?'})`;
+    if (!p || typeof p !== 'object') { errors.push(`${ctx}: must be object`); continue; }
+    if (!p.slug || !validateSlugStrict(p.slug)) errors.push(`${ctx}: invalid slug`);
+    else if (!existingSlugs.has(p.slug) && !createdSlugs.has(p.slug)) {
+      errors.push(`${ctx}: target page does not exist (and is not being created in this spec)`);
+    }
+    const hasOps = (p.add_facts && p.add_facts.length) || (p.add_hypotheses && p.add_hypotheses.length)
+      || (p.add_opinions && p.add_opinions.length) || (p.add_relations && p.add_relations.length)
+      || (p.supersede && p.supersede.length);
+    if (!hasOps) errors.push(`${ctx}: patch needs ≥1 operation`);
+    validateRelations(p.add_relations || [], ctx, p.slug);
+  }
+
+  return { errors, stubs, entities, events, patches, createdSlugs };
+}
+
+// ─── per-page body validator ───────────────────────────────────────────────
+
+const STRICT_PROV_TYPES = new Set(['entity', 'event', 'concept', 'synthesis']);
+
+function validateBody({ slug, title, type, tags, body, fm }, deps) {
+  const { schema, knownVerbs } = deps;
+  const errors = [];
+
+  // Event-keyword title with wrong type.
+  if (type !== 'event' && title && schema.eventKeywords && schema.eventKeywords.size) {
+    const titleLower = title.toLowerCase();
+    const hits = [];
+    for (const kw of schema.eventKeywords) {
+      const re = new RegExp(`\\b${kw}\\b`, 'i');
+      if (re.test(titleLower)) hits.push(kw);
+    }
+    if (hits.length) {
+      errors.push({
+        rule: 'mislabeled-event',
+        message: `Title "${title}" contains event keyword(s) (${hits.join(', ')}) but type=${type}. Use --type event. (Override with --soft if intentional.)`,
+      });
+    }
+  }
+
+  // type=event must have 'event' tag and 'when' frontmatter.
+  if (type === 'event') {
+    if (!Array.isArray(tags) || !tags.includes('event')) {
+      errors.push({ rule: 'event-tag', message: `type=event requires tag "event" in --tags` });
+    }
+    if (!fm || !fm.when) {
+      errors.push({ rule: 'event-when', message: `type=event requires --when YYYY-MM-DD (or ISO8601 for timed events)` });
+    }
+  }
+
+  // Uncategorized bullets in body.
+  if (body) {
+    const uncat = [];
+    for (const line of body.split('\n')) {
+      if (!/^- /.test(line)) continue;
+      if (/^- (?:~~)?\[(?:fact|hypothesis|opinion|claim|quote|question|decision|todo|idea)\]/.test(line)) continue;
+      if (/^- (?:[a-z][a-z_]+|"[^"]+") \[\[[a-z0-9][a-z0-9-]*\]\]/.test(line)) continue;
+      uncat.push(line.trim().slice(0, 80));
+    }
+    if (uncat.length) {
+      errors.push({
+        rule: 'uncategorized-bullets',
+        message: `${uncat.length} body bullet(s) lack [fact]/[hypothesis]/etc. category prefix AND aren't relations. ` +
+          `Each "- " line must be either a categorized observation ("- [fact] ...") or a relation ("- verb [[slug]]"). ` +
+          `Offenders (first 3): ${uncat.slice(0, 3).map((l) => `"${l}"`).join('; ')}`,
+      });
+    }
+  }
+
+  // Invented verbs in body relations.
+  if (body) {
+    const invented = new Set();
+    for (const r of parseRelations(body)) {
+      if (!knownVerbs.has(r.verb)) invented.add(r.verb);
+    }
+    if (invented.size) {
+      errors.push({
+        rule: 'invented-verb',
+        message: `Relation verb(s) not in SCHEMA registries: ${[...invented].join(', ')}. ` +
+          `Use a verb from symmetric, inverse-pairs, or one-way allowlist. Edit SCHEMA.md to add new verbs.`,
+      });
+    }
+  }
+
+  // Missing provenance on substantive types with observations.
+  if (body && STRICT_PROV_TYPES.has(type)) {
+    const obs = parseObservations(body);
+    if (obs.length > 0) {
+      const pageHasProv = /\^\[[^\]]+\]/.test(body)
+        || (fm && fm.raw_path)
+        || (fm && Array.isArray(fm.derived_from) && fm.derived_from.length > 0);
+      if (!pageHasProv) {
+        errors.push({
+          rule: 'missing-provenance',
+          message: `Page has ${obs.length} observation(s) but no ^[...] provenance marker. ` +
+            `Add ^[telegram:YYYY-MM-DD] or ^[raw/<kind>/<slug>.md] in body, or set raw_path / derived_from in frontmatter.`,
+        });
+      }
+    }
+  }
+
+  return errors;
+}
+
+module.exports = {
+  validateIngestSpec,
+  validateBody,
+  FUZZY_DUP_THRESHOLD,
+};
