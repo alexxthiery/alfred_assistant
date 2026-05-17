@@ -223,19 +223,28 @@ function appendLog(op, detail) {
 }
 
 // Auto-commit every CLI mutation to the vault's git repo. Best-effort:
-// if .git doesn't exist (vault not initialised), we silently no-op. Any git
-// failure logs to stderr but never breaks the CLI flow — git is a recovery
-// layer, not a precondition for correctness.
+// if .git doesn't exist (vault not initialised), we silently no-op. Git failures
+// are loud (multi-line stderr block) but never crash the verb — git is a recovery
+// layer, not a precondition for correctness. Skipping auto-commit is also legal,
+// via either the per-invocation flag --no-auto-commit or the env var
+// WIKI_NO_AUTO_COMMIT (both honored at the global-args layer; see below).
+function autoCommitDisabled() {
+  return !!(process.env.WIKI_NO_AUTO_COMMIT && process.env.WIKI_NO_AUTO_COMMIT !== '0' && process.env.WIKI_NO_AUTO_COMMIT !== 'false');
+}
+
 function autoCommit(op, detail) {
+  if (autoCommitDisabled()) {
+    console.error('auto-commit: skipped (WIKI_NO_AUTO_COMMIT / --no-auto-commit). Run `git -C $VAULT_ROOT add -A && git commit` to capture this write.');
+    return;
+  }
   const gitDir = path.join(VAULT_ROOT, '.git');
   if (!fs.existsSync(gitDir)) return;
   try {
     const { execSync } = require('child_process');
     const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
-    // Pre-commit tamper sentinel: if there are dirty files BEFORE we write log.md,
-    // those are bypass writes that will get folded into this commit. Note them.
-    // (We've already written log.md by this point, so git sees both our write
-    //  and any pre-existing dirty files. We can't separate them perfectly here.)
+    // See tamperCheck for the race-window discussion: by the time we hit
+    // `git add -A`, log.md has already been written and any concurrent
+    // out-of-CLI edit gets folded into the same commit indistinguishably.
     execSync('git add -A', { cwd: VAULT_ROOT, env, stdio: 'pipe' });
     // Skip commit if nothing staged (e.g. only ignored files changed).
     const staged = execSync('git diff --cached --name-only', { cwd: VAULT_ROOT, env, stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
@@ -243,8 +252,19 @@ function autoCommit(op, detail) {
     const safeMsg = `${op} | ${detail}`.replace(/"/g, "'").slice(0, 200);
     execSync(`git -c commit.gpgsign=false commit -m "${safeMsg}"`, { cwd: VAULT_ROOT, env, stdio: 'pipe' });
   } catch (e) {
+    // Loud failure: stderr block that any human or scraper-of-stderr will see.
     const msg = e && e.message ? e.message.split('\n')[0] : String(e);
-    console.error(`(auto-commit failed: ${msg})`);
+    console.error('');
+    console.error('!!! auto-commit failed !!!');
+    console.error(`    error: ${msg}`);
+    console.error(`    vault: ${VAULT_ROOT}`);
+    console.error('    The write succeeded but is uncommitted. Recover with:');
+    console.error('      cd ' + VAULT_ROOT + ' && git status   # see the dirty state');
+    console.error('      git add -A && git commit -m "<message>"');
+    console.error('    Or skip auto-commit entirely on subsequent writes:');
+    console.error('      wiki <verb> --no-auto-commit ...   # per invocation');
+    console.error('      WIKI_NO_AUTO_COMMIT=1 wiki ...     # process-scoped');
+    console.error('');
   }
 }
 
@@ -4250,8 +4270,20 @@ if (!verb || !cmds[verb]) {
   console.error('  revert [<commit>|HEAD]                    revert a commit (refuses if working tree dirty)');
   console.error('  (auto-commit batches all dirty files into one commit; revert may undo more than expected)');
   console.error('');
+  console.error('GLOBAL FLAGS');
+  console.error('  --no-auto-commit                          skip the post-write git commit (or set WIKI_NO_AUTO_COMMIT=1)');
+  console.error('');
   console.error(`vault: ${VAULT_ROOT}`);
   process.exit(1);
+}
+
+// Global flag: --no-auto-commit. Honored across every write verb by setting
+// the env var that autoCommitDisabled() reads. Equivalent to invoking with
+// WIKI_NO_AUTO_COMMIT=1 in the shell. Removed from args before dispatch so
+// per-verb arg parsers don't see it.
+if (args['no-auto-commit']) {
+  process.env.WIKI_NO_AUTO_COMMIT = '1';
+  delete args['no-auto-commit'];
 }
 
 // Tamper check: run BEFORE write-class verbs so users see bypass writes
