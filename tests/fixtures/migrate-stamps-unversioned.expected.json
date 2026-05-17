@@ -1,0 +1,15 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "migrate: 12 pages scanned",
+    "12 unversioned → v1 (stamp)"
+  ],
+  "wikiAssertions": {
+    "alice": {
+      "bodyContains": ["schema_version: 1"]
+    },
+    "mcmc": {
+      "bodyContains": ["schema_version: 1"]
+    }
+  }
+}

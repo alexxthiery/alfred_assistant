@@ -551,6 +551,7 @@ This table lists every frontmatter field the CLI actively reads. **`stable`** fi
 | `created`        | ISO date    | all pages                   | list, recent, audit                    | stable        | Writer-stamped on first write                                  |
 | `updated`        | ISO datetime| all pages                   | list, recent, lint, audit              | stable        | Writer-stamped on every write                                  |
 | `tags`           | string list | all pages                   | all verbs                              | stable        | Closed set; see "Tag taxonomy" section                         |
+| `schema_version` | integer     | all pages (auto-stamped)    | migrate                                | stable        | Writer-stamps the current schema version; missing = v1 (pre-versioning). `wiki migrate` walks unversioned pages and stamps them. |
 | `summary`        | string      | —                           | list, preview, index, context          | stable        | One-line description; falls back to first body line            |
 | `aliases`        | string list | —                           | mv, merge, resolve, autolink           | stable        | Auto-populated by mv (old slug) and patch --title (old title)  |
 | `source_file`    | string path | measurement-series pages    | patch (blocks), write (blocks), measure| stable        | Pages with this field are auto-rendered; direct write refused  |
