@@ -39,14 +39,14 @@ One concept per page. One person per page. One organization per page. One event 
 
 Concretely: before adding a slug to `stubs` or `entities`, ask yourself *"what one fact about this person would I write on their page that isn't already implied by the relation?"* If you have nothing, don't create the page. If you have one fact (school, city, age bracket, distinguishing detail, role), create a stub with that fact in the body.
 
-**Aggregation lookup (mandatory before deciding a name is fact-less).** Information accumulates across conversations. Before concluding "Ada has zero facts, so plain text on Maya", run `wiki search-content "<firstname>"` (or `grep -ri "ada" wiki/`) to see whether the same name appears in earlier pages with surrounding context. Read each hit — the assembled picture across mentions often crosses the information floor even when no single mention is rich:
+**Aggregation lookup (mandatory before deciding a name is fact-less).** Information accumulates across conversations. Before concluding "Ada has zero facts, so plain text on Maya", run `wiki search "<firstname>"` (or `grep -ri "ada" wiki/`) to see whether the same name appears in earlier pages with surrounding context. Read each hit — the assembled picture across mentions often crosses the information floor even when no single mention is rich:
 
 > First conversation: "Maya's friends are Ada, Beth, Cleo" — no facts.
 > Second conversation, weeks later: "Ada's family moved from Capitol this year" — one fact.
 > Third conversation: "Ada plays piano at the school recital."
 >
 > At the third conversation Alfred should NOT just append a plain-text mention again. He should:
-> 1. `wiki search-content "Ada"` → finds the two prior mentions.
+> 1. `wiki search "Ada"` → finds the two prior mentions.
 > 2. Realise the **combined** info (Example School friend of Maya, family moved from Capitol, plays piano) is enough for a page.
 > 3. `wiki ingest` Ada as a real entity carrying all three facts, with `friend_of [[maya-smith]]`.
 > 4. Edit Maya's earlier "[[Ada]]"-less fact line to use `[[ada]]` now that the wikilink resolves to real content.
@@ -252,7 +252,7 @@ Events live in the vault as `type=event` pages. To read: `wiki agenda today|week
 - `wiki audit --all` — vault-wide quality score; ranked offenders + hot-text candidates.
 - `wiki audit <slug>` — single-page detail.
 - `wiki groom --mechanical` — auto-fixes safe stuff (missing inverse relations, bidirectional autolink, stub-debt report). Idempotent.
-- `wiki lint --only provenance,hypotheses` — recurring discipline checks.
+- `wiki audit --all` — recurring discipline checks (provenance, hypotheses, all rules).
 - `wiki sql "<query>"` — for ad-hoc questions across the vault that don't match any other verb ("postdocs since 2020 with no recent contact", "all pages with >10 facts", etc.). DuckDB view auto-rebuilt; `wiki sql --schema` to see columns.
 - `wiki replay <msg-id>` / `wiki replay --all` — re-runs captured Telegram-driven ingest specs through the current pipeline to surface persona/CLI drift on past cases. Captures live at `raw/telegram-replay/<YYYY-MM>/`.
 - `wiki review` — **periodic discovery digest** (run weekly-ish). Surfaces (1) capitalized names appearing as plain text in ≥2 pages — promotion candidates under the stub-floor rule; (2) pairs of existing pages co-mentioned in ≥3 pages with no typed relation — missing edges; (3) topic tags used ≥8 times with no canonical concept page; (4) stale `[as-of YYYY-MM]` markers > 6 months old and unsuperseded `[until YYYY-MM-DD]` hypotheses past today; (5) decisions without recorded rationale; (6) orphan sources; (7) open todos stalled >60 days. Read-only — emit a Markdown digest, then triage. When {{USER_NAME}} asks "what's accumulating in the vault that I should look at?" — start here.
