@@ -1666,7 +1666,7 @@ function autolinkSlug(slug, { direction = 'both', dryRun = false, verbose = true
 }
 
 function cmdAutolink(args) {
-  const direction = args.direction || 'both';
+  let direction = args.direction || 'both';
   if (!['in', 'out', 'both'].includes(direction)) {
     console.error(`Invalid --direction: ${direction}. Must be in|out|both.`);
     process.exit(1);
@@ -1677,6 +1677,14 @@ function cmdAutolink(args) {
 
   const targets = args.all ? listWikiPages().map((f) => f.replace(/\.md$/, '')) : (args._[0] ? [args._[0]] : null);
   if (!targets) { console.error('Usage: wiki autolink <slug> | wiki autolink --all [--direction in|out|both] [--dry-run]'); process.exit(1); }
+
+  // With --all, inbound scans are mathematically redundant with the outbound
+  // pass across the full target set (every page Y's outbound scan against the
+  // full titleMap already injects [[X]] wherever X is mentioned in Y, which is
+  // exactly what X's inbound scan would produce). Force direction to 'out' to
+  // collapse the work from N² page reads to N. The single-slug case still
+  // needs both directions.
+  if (args.all && direction !== 'out') direction = 'out';
 
   let totalOut = 0, totalIn = 0;
   for (const slug of targets) {
