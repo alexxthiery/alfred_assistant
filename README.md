@@ -1,3 +1,5 @@
+<!-- TODO before public release: replace <your-username> placeholders below with your actual GitHub handle, and fill in <nanoclaw-maintainer> with the upstream attribution. -->
+
 # Alfred Assistant
 
 A self-hosted personal-knowledge agent backed by a Karpathy-style LLM wiki.
@@ -7,7 +9,7 @@ You message Alfred on Telegram; he extracts structured facts into a versioned, s
 Verbs (`wiki ingest`, `wiki patch`, `wiki review`, …) do the writing — never markdown by hand.
 
 > This repository contains the CLIs, schema, persona template, and tests.
-> It assumes you run Alfred inside a [nanoclaw](https://github.com/your-fork/nanoclaw) container connected to a Telegram bot.
+> It assumes you run Alfred inside a [nanoclaw](https://github.com/<your-username>/nanoclaw) container connected to a Telegram bot.
 > The vault content (your actual `wiki/*.md`, `raw/*`) lives outside this repo, on your machine.
 
 ## Status
@@ -55,7 +57,7 @@ alfred_assistant/
 
 ```bash
 # 1. Clone
-git clone https://github.com/your-fork/alfred_assistant.git
+git clone https://github.com/<your-username>/alfred_assistant.git
 cd alfred_assistant
 
 # 2. Create a vault directory and configure it
@@ -108,4 +110,4 @@ MIT — see `LICENSE`.
 ## Acknowledgments
 
 Inspired by [Andrej Karpathy's tweet](https://twitter.com/karpathy) about LLMs as wiki-maintainers,
-and built on [nanoclaw](https://github.com/your-fork/nanoclaw) by [author].
+and built on [nanoclaw](https://github.com/<your-username>/nanoclaw) by <nanoclaw-maintainer>.
