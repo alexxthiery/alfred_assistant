@@ -20,6 +20,17 @@ const {
   CURRENT_SCHEMA_VERSION,
   SCHEMA_MIGRATIONS,
 } = require('./lib/frontmatter.js');
+const {
+  KNOWN_TYPES,
+  ENTITY_KIND_TAGS,
+  STALE_THRESHOLDS,
+  STALE_DEFAULT_DAYS,
+  SLUG_RE,
+  validSlug,
+  isReserved,
+  loadSchema: _loadSchema,
+  knownRelationVerbs,
+} = require('./lib/schema.js');
 
 function detectVaultRoot() {
   // 1. Explicit env override.
@@ -47,21 +58,12 @@ const SCHEMA_PATH = path.join(VAULT_ROOT, 'SCHEMA.md');
 const INDEX_PATH = path.join(WIKI_DIR, 'index.md');
 const LOG_PATH = path.join(WIKI_DIR, 'log.md');
 
-const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
-const validSlug = (s) => SLUG_RE.test(s);
 const nowISO = () => new Date().toISOString();
 const wikiPath = (slug) => path.join(WIKI_DIR, `${slug}.md`);
-const isReserved = (slug) => slug === 'index' || slug === 'log';
+// SLUG_RE, validSlug, isReserved, KNOWN_TYPES, ENTITY_KIND_TAGS, STALE_THRESHOLDS,
+// STALE_DEFAULT_DAYS live in ./lib/schema.js (imported above).
 
-const KNOWN_TYPES = new Set(['entity', 'concept', 'decision', 'source', 'synthesis', 'todo', 'note', 'event']);
-const ENTITY_KIND_TAGS = new Set(['person', 'org', 'tool', 'paper', 'media']);
-
-const STALE_THRESHOLDS = [
-  { days: 180, tags: ['paper', 'tool', 'research', 'reading'] },
-  { days: 365, tags: ['project', 'recurring', 'meta'] },
-  { days: 730, tags: ['person', 'org', 'family', 'health', 'principle', 'decision'] },
-];
-const STALE_DEFAULT_DAYS = 365;
+const loadSchema = () => _loadSchema(SCHEMA_PATH);
 
 // ─── frontmatter ───────────────────────────────────────────────────────────
 // parseFrontmatter, serializeFrontmatter, migratePage and the schema-version
@@ -176,72 +178,9 @@ function levenshtein(a, b) {
 }
 
 // ─── schema loading ────────────────────────────────────────────────────────
-
-function loadSchema() {
-  if (!fs.existsSync(SCHEMA_PATH)) return { tags: null, forbidden: new Set(), symmetric: new Set(), inverses: new Map() };
-  const content = fs.readFileSync(SCHEMA_PATH, 'utf-8');
-  let tags = null;
-  const tagM = content.match(/##\s+Tag taxonomy[\s\S]*?```\s*([\s\S]*?)```/);
-  if (tagM) {
-    const tokens = tagM[1].split(/\s+/).map((s) => s.trim())
-      .filter((s) => s && /^[a-z][a-z0-9_-]*$/.test(s));
-    tags = new Set(tokens);
-  }
-  let forbidden = new Set();
-  const fbM = content.match(/##\s+Forbidden aggregator slugs[\s\S]*?```\s*([\s\S]*?)```/);
-  if (fbM) {
-    const tokens = fbM[1].split(/\s+/).map((s) => s.trim())
-      .filter((s) => s && /^[a-z][a-z0-9_-]*$/.test(s));
-    forbidden = new Set(tokens);
-  }
-  // Symmetric verbs: code block under "### Symmetric"
-  let symmetric = new Set();
-  const symM = content.match(/###\s+Symmetric[\s\S]*?```\s*([\s\S]*?)```/);
-  if (symM) {
-    const tokens = symM[1].split(/\s+/).map((s) => s.trim())
-      .filter((s) => s && /^[a-z][a-z_]+$/.test(s));
-    symmetric = new Set(tokens);
-  }
-  // Inverse pairs: code block under "### Inverse pairs", two verbs per line
-  // Map is bidirectional: a -> b AND b -> a
-  const inverses = new Map();
-  const invM = content.match(/###\s+Inverse pairs[\s\S]*?```\s*([\s\S]*?)```/);
-  if (invM) {
-    for (const line of invM[1].split('\n')) {
-      const parts = line.trim().split(/\s+/).filter(Boolean);
-      if (parts.length !== 2) continue;
-      const [a, b] = parts;
-      if (!/^[a-z][a-z_]+$/.test(a) || !/^[a-z][a-z_]+$/.test(b)) continue;
-      inverses.set(a, b);
-    }
-  }
-  // One-way verbs: code block under "### One-way verbs"
-  let oneWay = new Set();
-  const owM = content.match(/###\s+One-way verbs[\s\S]*?```\s*([\s\S]*?)```/);
-  if (owM) {
-    const tokens = owM[1].split(/\s+/).map((s) => s.trim())
-      .filter((s) => s && /^[a-z][a-z_]+$/.test(s));
-    oneWay = new Set(tokens);
-  }
-  // Event-keyword title regex: code block under "## Event-keyword title regex"
-  let eventKeywords = new Set();
-  const ekM = content.match(/##\s+Event-keyword title regex[\s\S]*?```\s*([\s\S]*?)```/);
-  if (ekM) {
-    const tokens = ekM[1].split(/\s+/).map((s) => s.trim().toLowerCase())
-      .filter((s) => s && /^[a-z][a-z-]+$/.test(s));
-    eventKeywords = new Set(tokens);
-  }
-  return { tags, forbidden, symmetric, inverses, oneWay, eventKeywords };
-}
-
-// Combined set of all legitimate relation verbs (for invented-verb detection)
-function knownRelationVerbs(schema) {
-  const all = new Set();
-  for (const v of schema.symmetric) all.add(v);
-  for (const v of schema.oneWay) all.add(v);
-  for (const [a, b] of schema.inverses) { all.add(a); all.add(b); }
-  return all;
-}
+// loadSchema and knownRelationVerbs live in ./lib/schema.js (imported at the
+// top). loadSchema is wrapped at the top so existing call-sites still work
+// with no-arg invocation; the underlying function takes a path.
 
 // ─── auto-maintained files ─────────────────────────────────────────────────
 
