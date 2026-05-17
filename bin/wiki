@@ -3167,11 +3167,35 @@ function replayPathFor(msgId, suffix) {
   return path.join(dir, `${safe}-${suffix}`);
 }
 
+// Bump when the JSON ingest-spec shape changes in a way that older captures
+// can't replay cleanly. Add a transform from each old version to the current
+// in REPLAY_SPEC_MIGRATIONS below. Captures without a spec_version field are
+// treated as v1 (the shape at the time this versioning was introduced).
+const CURRENT_SPEC_VERSION = 1;
+const REPLAY_SPEC_MIGRATIONS = {
+  // Example for future use:
+  // 1: (spec) => { spec.someNewField = []; return spec; },  // 1 → 2
+};
+
 function captureReplaySpec(msgId, specJson) {
   const p = replayPathFor(msgId, 'spec.json');
   if (!p) return;
-  try { fs.writeFileSync(p, specJson); }
-  catch (e) { console.error(`(replay capture failed: ${e.message.split('\n')[0]})`); }
+  try {
+    // Stamp spec_version onto the captured JSON if missing. We re-serialize
+    // through JSON.parse/stringify so the field lands at the top level
+    // regardless of where the source had it (or didn't).
+    let toWrite = specJson;
+    try {
+      const obj = JSON.parse(specJson);
+      if (obj && typeof obj === 'object' && obj.spec_version == null) {
+        obj.spec_version = CURRENT_SPEC_VERSION;
+        toWrite = JSON.stringify(obj, null, 2) + '\n';
+      }
+    } catch (_) {
+      // Spec wasn't valid JSON — fall back to writing as-is and let replay handle it.
+    }
+    fs.writeFileSync(p, toWrite);
+  } catch (e) { console.error(`(replay capture failed: ${e.message.split('\n')[0]})`); }
 }
 
 function captureReplayResult(msgId, result) {
@@ -3262,6 +3286,35 @@ function runReplayOne(msgId) {
   const resultPath = replayPathFor(msgId, 'result.json');
   const captured = fs.existsSync(resultPath) ? JSON.parse(fs.readFileSync(resultPath, 'utf-8')) : null;
 
+  // Spec version check + migration. Captures without spec_version are treated
+  // as v1 (the pre-versioning shape). If we don't know how to migrate from
+  // the captured version up to CURRENT_SPEC_VERSION, skip+warn rather than
+  // produce false drift.
+  let migratedSpecPath = specPath;
+  try {
+    const raw = JSON.parse(fs.readFileSync(specPath, 'utf-8'));
+    let v = raw && typeof raw === 'object' && Number.isInteger(raw.spec_version) ? raw.spec_version : 1;
+    if (v > CURRENT_SPEC_VERSION) {
+      return { msgId, ok: false, reason: `spec_version ${v} > current ${CURRENT_SPEC_VERSION} (capture from a newer CLI)` };
+    }
+    if (v < CURRENT_SPEC_VERSION) {
+      let migrated = raw;
+      while (v < CURRENT_SPEC_VERSION) {
+        const xform = REPLAY_SPEC_MIGRATIONS[v];
+        if (typeof xform !== 'function') {
+          return { msgId, ok: false, reason: `spec_version ${v} has no migration to v${v + 1}` };
+        }
+        migrated = xform(migrated);
+        v++;
+      }
+      migrated.spec_version = CURRENT_SPEC_VERSION;
+      migratedSpecPath = path.join(require('os').tmpdir(), `replay-migrated-${msgId.replace(/[^a-zA-Z0-9]/g, '_')}.json`);
+      fs.writeFileSync(migratedSpecPath, JSON.stringify(migrated, null, 2) + '\n');
+    }
+  } catch (_) {
+    // Not valid JSON — let the downstream ingest call produce a real error.
+  }
+
   const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), `vault-replay-${msgId.replace(/[^a-zA-Z0-9]/g, '_')}-`));
   try {
     copyVaultForReplay(VAULT_ROOT, tmp);
@@ -3275,7 +3328,7 @@ function runReplayOne(msgId) {
       }
     }
     const { spawnSync } = require('child_process');
-    const res = spawnSync('node', [__filename, 'ingest', '--file', specPath, '--replay'], {
+    const res = spawnSync('node', [__filename, 'ingest', '--file', migratedSpecPath, '--replay'], {
       cwd: tmp,
       env: { ...process.env, WIKI_ROOT: tmp },
       encoding: 'utf-8',
