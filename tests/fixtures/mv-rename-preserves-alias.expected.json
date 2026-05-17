@@ -1,0 +1,14 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["renamed: bob -> bob-singlename", "bob added to aliases"],
+  "wikiAssertions": {
+    "bob-singlename": {
+      "bodyContains": [
+        "id: bob-singlename",
+        "aliases: [Bob, bob]",
+        "schema_version: 1"
+      ]
+    },
+    "bob": { "fileExists": false }
+  }
+}

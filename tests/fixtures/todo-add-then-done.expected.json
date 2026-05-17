@@ -1,0 +1,15 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["done: todo-buy-groceries"],
+  "wikiAssertions": {
+    "todo-buy-groceries": {
+      "bodyContains": [
+        "id: todo-buy-groceries",
+        "type: todo",
+        "status: done",
+        "due: 2026-05-20",
+        "done_at:"
+      ]
+    }
+  }
+}

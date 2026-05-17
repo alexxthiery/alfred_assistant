@@ -1,0 +1,11 @@
+{
+  "exitCode": 3,
+  "stderrContains": [
+    "Refusing: alice has",
+    "inbound link(s)",
+    "Use --force to delete anyway"
+  ],
+  "wikiAssertions": {
+    "alice": { "bodyContains": ["id: alice"] }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "note-meeting: +2 link(s)",
+    "(dry-run) would inject 2 link(s)"
+  ],
+  "wikiAssertions": {
+    "note-meeting": {
+      "bodyMissing": ["[[bob-jones]]", "[[alice]]"]
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "# Loneliness — pages with < 2 graph connections",
+    "example-school (0 connections)",
+    "use-vault-native-calendar (0 connections)"
+  ]
+}

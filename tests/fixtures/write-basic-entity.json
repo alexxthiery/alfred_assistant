@@ -1,0 +1,9 @@
+{
+  "cmd": [
+    "write", "carol-lee",
+    "--title", "Carol Lee",
+    "--type", "entity",
+    "--tags", "person",
+    "--content", "- [fact] Smoke fixture for the write verb ^[telegram:2026-05-17]"
+  ]
+}

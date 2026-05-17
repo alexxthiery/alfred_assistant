@@ -1,0 +1,10 @@
+{
+  "exitCode": 2,
+  "stdoutContains": [
+    "# vault audit: 12 pages",
+    "## by rule",
+    "lonely",
+    "## top offenders",
+    "score=1"
+  ]
+}

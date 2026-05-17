@@ -1,0 +1,6 @@
+{
+  "setup": [
+    ["todo", "add", "Buy groceries", "--due", "2026-05-20"]
+  ],
+  "cmd": ["todo", "done", "todo-buy-groceries"]
+}
