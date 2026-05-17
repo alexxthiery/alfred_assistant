@@ -1,0 +1,3 @@
+{
+  "cmd": ["patch", "test-growth", "--observation", "[fact] Should be rejected ^[telegram:2026-05-17]"]
+}

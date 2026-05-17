@@ -1,0 +1,11 @@
+{
+  "source": "telegram:2026-05-17",
+  "patches": [
+    {
+      "slug": "alice",
+      "add_facts": [
+        { "body": "Loves cycling" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "source": "telegram:2026-05-17",
+  "events": [
+    {
+      "slug": "mystery-event",
+      "title": "Mystery event",
+      "tags": ["event"],
+      "facts": [
+        { "body": "Missing when field" }
+      ]
+    }
+  ]
+}

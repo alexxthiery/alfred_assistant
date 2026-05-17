@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# pre-commit — block commits that would leak PII.
+#
+# Install:
+#   ln -sfn ../../tools/pre-commit .git/hooks/pre-commit
+#
+# Runs tools/scan-pii.sh on every staged file. If any hit, prints the
+# offending file:line and aborts.
+
+set -euo pipefail
+
+REPO=$(git rev-parse --show-toplevel)
+SCAN="$REPO/tools/scan-pii.sh"
+PII="$REPO/tools/pii-list.local.txt"
+
+if [ ! -x "$SCAN" ]; then
+  echo "pre-commit: missing or non-executable $SCAN" >&2
+  exit 1
+fi
+if [ ! -f "$PII" ]; then
+  echo "pre-commit: missing $PII (your local PII list — gitignored)" >&2
+  echo "  Build one with the patterns specific to your private content." >&2
+  exit 1
+fi
+
+# Collect staged text files
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR | \
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    # skip binaries with `file` heuristic
+    if file --mime "$f" 2>/dev/null | grep -q 'charset=binary'; then continue; fi
+    echo "$f"
+  done)
+
+if [ -z "$STAGED" ]; then
+  exit 0
+fi
+
+HITS=0
+HIT_OUT=""
+while IFS= read -r f; do
+  out=$("$SCAN" "$REPO/$f" 2>&1 || true)
+  if echo "$out" | grep -q "HIT"; then
+    HITS=1
+    HIT_OUT="${HIT_OUT}${out}\n"
+  fi
+done <<< "$STAGED"
+
+if [ "$HITS" -eq 1 ]; then
+  echo "pre-commit: PII scanner found matches in staged files:" >&2
+  printf '%b' "$HIT_OUT" >&2
+  echo "" >&2
+  echo "Abort. Either:" >&2
+  echo "  (a) redact the offending content, or" >&2
+  echo "  (b) if it's a false positive, add the pattern's category exclusion to tools/build-pii-list.sh and regenerate." >&2
+  exit 1
+fi
+
+exit 0

@@ -1,0 +1,7 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "bob-jones": { "fileExists": false },
+    "bob": { "bodyContains": ["Unique fact: lastname revealed"] }
+  }
+}

@@ -1,0 +1,4132 @@
+#!/usr/bin/env node
+// wiki — verb CLI for Karpathy-style personal knowledge vaults.
+//
+// Read:  list, search, recent, print, sources, related
+// Write: write, link, mv, delete
+// Todo:  todo {add,list,done,defer}
+// Graph: links, backlinks, relations, observations, autolink
+// Health: lint, sync-ids, size, reindex
+//
+// Auto-maintained: wiki/index.md, wiki/log.md
+// Schema-aware: rejects unknown tags/types, refuses forbidden aggregator slugs.
+// No deps. Node stdlib only.
+
+const fs = require('fs');
+const path = require('path');
+const { loadConfig } = require('./lib/config.js');
+
+function detectVaultRoot() {
+  // 1. Explicit env override.
+  if (process.env.WIKI_ROOT) return process.env.WIKI_ROOT;
+  // 2. Walk up from cwd looking for .alfred.yml (vault root marker).
+  let dir = process.cwd();
+  while (true) {
+    if (fs.existsSync(path.join(dir, '.alfred.yml'))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  // 3. Resolve from script location: <vault>/.bin/wiki → <vault>.
+  try {
+    const scriptDir = path.dirname(fs.realpathSync(process.argv[1]));
+    if (path.basename(scriptDir) === '.bin') return path.dirname(scriptDir);
+  } catch {}
+  // 4. Fall back to cwd.
+  return process.cwd();
+}
+
+const VAULT_ROOT = detectVaultRoot();
+const CFG = loadConfig(VAULT_ROOT);
+const USER_SLUG = CFG.user.slug;
+const ASSISTANT_NAME = CFG.assistant.name;
+const WIKI_DIR = path.join(VAULT_ROOT, 'wiki');
+const SCHEMA_PATH = path.join(VAULT_ROOT, 'SCHEMA.md');
+const INDEX_PATH = path.join(WIKI_DIR, 'index.md');
+const LOG_PATH = path.join(WIKI_DIR, 'log.md');
+
+const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
+const validSlug = (s) => SLUG_RE.test(s);
+const nowISO = () => new Date().toISOString();
+const wikiPath = (slug) => path.join(WIKI_DIR, `${slug}.md`);
+const isReserved = (slug) => slug === 'index' || slug === 'log';
+
+const KNOWN_TYPES = new Set(['entity', 'concept', 'decision', 'source', 'synthesis', 'todo', 'note', 'event']);
+const ENTITY_KIND_TAGS = new Set(['person', 'org', 'tool', 'paper', 'media']);
+
+const STALE_THRESHOLDS = [
+  { days: 180, tags: ['paper', 'tool', 'research', 'reading'] },
+  { days: 365, tags: ['project', 'recurring', 'meta'] },
+  { days: 730, tags: ['person', 'org', 'family', 'health', 'principle', 'decision'] },
+];
+const STALE_DEFAULT_DAYS = 365;
+
+// ─── frontmatter ───────────────────────────────────────────────────────────
+
+function parseFrontmatter(content) {
+  const m = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  if (!m) return { fm: {}, body: content };
+  const fm = {};
+  for (const line of m[1].split('\n')) {
+    const kv = line.match(/^(\w+):\s*(.*)$/);
+    if (!kv) continue;
+    const k = kv[1];
+    let v = kv[2].trim();
+    if (v.startsWith('[') && v.endsWith(']')) {
+      v = v.slice(1, -1).split(',').map((s) => s.trim()).filter(Boolean);
+    }
+    fm[k] = v;
+  }
+  return { fm, body: m[2] };
+}
+
+function serializeFrontmatter(fm, body) {
+  const ordered = ['id', 'title', 'type', 'created', 'updated', 'tags'];
+  const lines = ['---'];
+  for (const k of ordered) {
+    if (!(k in fm)) continue;
+    const v = fm[k];
+    lines.push(Array.isArray(v) ? `${k}: [${v.join(', ')}]` : `${k}: ${v}`);
+  }
+  for (const [k, v] of Object.entries(fm)) {
+    if (ordered.includes(k)) continue;
+    lines.push(Array.isArray(v) ? `${k}: [${v.join(', ')}]` : `${k}: ${v}`);
+  }
+  lines.push('---');
+  return lines.join('\n') + '\n' + body.replace(/^\n+/, '');
+}
+
+// ─── vault iteration ──────────────────────────────────────────────────────
+
+function listWikiPages() {
+  if (!fs.existsSync(WIKI_DIR)) return [];
+  return fs.readdirSync(WIKI_DIR)
+    .filter((f) => f.endsWith('.md') && !['index.md', 'log.md'].includes(f))
+    .sort();
+}
+
+function readPage(slug) {
+  const p = wikiPath(slug);
+  if (!fs.existsSync(p)) return null;
+  return parseFrontmatter(fs.readFileSync(p, 'utf-8'));
+}
+
+function firstBodyLine(body) {
+  for (const line of body.split('\n')) {
+    const t = line.trim();
+    if (t && !t.startsWith('#') && !t.startsWith('---')) return t.slice(0, 120);
+  }
+  return '';
+}
+
+function extractWikilinks(body) {
+  const re = /\[\[([a-z0-9][a-z0-9-]*)\]\]/g;
+  const out = new Set();
+  let m;
+  while ((m = re.exec(body)) !== null) out.add(m[1]);
+  return [...out].sort();
+}
+
+function extractProvenanceMarkers(body) {
+  const re = /\^\[(?:raw|telegram|lab|conversation|external)[:\/][^\]]+\]/g;
+  return body.match(re) || [];
+}
+
+// Parse observations: list items of the form `- [category] body`
+function parseObservations(body) {
+  const out = [];
+  // Categories: fact, hypothesis, opinion, claim, quote, question, decision, todo, idea
+  // Optional strikethrough wrap: ~~[cat] ...~~
+  const re = /^- (~~)?\[(fact|hypothesis|opinion|claim|quote|question|decision|todo|idea)\] (.+?)$/gm;
+  let m;
+  while ((m = re.exec(body)) !== null) {
+    const superseded = !!m[1];
+    const category = m[2];
+    let text = m[3].trim();
+    // Strip trailing strikethrough close if matched separately
+    if (superseded) text = text.replace(/~~\s*(?=(?:\[(?:since|until|on|as-of)\s|\^\[|$))/, '');
+    // Extract date tags
+    const dates = {};
+    const dateRe = /\[(since|until|on|as-of)\s+(\d{4}(?:-\d{2}(?:-\d{2})?)?)\]/g;
+    let dm;
+    while ((dm = dateRe.exec(text)) !== null) {
+      const key = dm[1] === 'as-of' ? 'asOf' : dm[1];
+      dates[key] = dm[2];
+    }
+    // Extract provenance
+    const provenance = [];
+    const provRe = /\^\[([^\]]+)\]/g;
+    let pm;
+    while ((pm = provRe.exec(text)) !== null) provenance.push(pm[1]);
+    // Cleaned body: strip date tags + provenance for display
+    const cleaned = text
+      .replace(/\[(since|until|on|as-of)\s+\d{4}(?:-\d{2}(?:-\d{2})?)?\]/g, '')
+      .replace(/\^\[[^\]]+\]/g, '')
+      .replace(/~~/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    out.push({ category, body: cleaned, text, dates, provenance, superseded });
+  }
+  return out;
+}
+
+// Parse relations: list items of the form `- relation_verb [[slug]]`
+// or `- "multi word" [[slug]]`
+function parseRelations(body) {
+  const out = [];
+  // bare verb
+  const re1 = /^- ([a-z][a-z_]+) \[\[([a-z0-9][a-z0-9-]*)\]\]/gm;
+  // quoted multi-word
+  const re2 = /^- "([^"]+)" \[\[([a-z0-9][a-z0-9-]*)\]\]/gm;
+  let m;
+  while ((m = re1.exec(body)) !== null) out.push({ verb: m[1], target: m[2] });
+  while ((m = re2.exec(body)) !== null) out.push({ verb: m[1], target: m[2] });
+  return out;
+}
+
+// Classic Levenshtein distance (small inputs only — page titles)
+function levenshtein(a, b) {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const m = a.length, n = b.length;
+  let prev = new Array(n + 1);
+  let curr = new Array(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[n];
+}
+
+// ─── schema loading ────────────────────────────────────────────────────────
+
+function loadSchema() {
+  if (!fs.existsSync(SCHEMA_PATH)) return { tags: null, forbidden: new Set(), symmetric: new Set(), inverses: new Map() };
+  const content = fs.readFileSync(SCHEMA_PATH, 'utf-8');
+  let tags = null;
+  const tagM = content.match(/##\s+Tag taxonomy[\s\S]*?```\s*([\s\S]*?)```/);
+  if (tagM) {
+    const tokens = tagM[1].split(/\s+/).map((s) => s.trim())
+      .filter((s) => s && /^[a-z][a-z0-9_-]*$/.test(s));
+    tags = new Set(tokens);
+  }
+  let forbidden = new Set();
+  const fbM = content.match(/##\s+Forbidden aggregator slugs[\s\S]*?```\s*([\s\S]*?)```/);
+  if (fbM) {
+    const tokens = fbM[1].split(/\s+/).map((s) => s.trim())
+      .filter((s) => s && /^[a-z][a-z0-9_-]*$/.test(s));
+    forbidden = new Set(tokens);
+  }
+  // Symmetric verbs: code block under "### Symmetric"
+  let symmetric = new Set();
+  const symM = content.match(/###\s+Symmetric[\s\S]*?```\s*([\s\S]*?)```/);
+  if (symM) {
+    const tokens = symM[1].split(/\s+/).map((s) => s.trim())
+      .filter((s) => s && /^[a-z][a-z_]+$/.test(s));
+    symmetric = new Set(tokens);
+  }
+  // Inverse pairs: code block under "### Inverse pairs", two verbs per line
+  // Map is bidirectional: a -> b AND b -> a
+  const inverses = new Map();
+  const invM = content.match(/###\s+Inverse pairs[\s\S]*?```\s*([\s\S]*?)```/);
+  if (invM) {
+    for (const line of invM[1].split('\n')) {
+      const parts = line.trim().split(/\s+/).filter(Boolean);
+      if (parts.length !== 2) continue;
+      const [a, b] = parts;
+      if (!/^[a-z][a-z_]+$/.test(a) || !/^[a-z][a-z_]+$/.test(b)) continue;
+      inverses.set(a, b);
+    }
+  }
+  // One-way verbs: code block under "### One-way verbs"
+  let oneWay = new Set();
+  const owM = content.match(/###\s+One-way verbs[\s\S]*?```\s*([\s\S]*?)```/);
+  if (owM) {
+    const tokens = owM[1].split(/\s+/).map((s) => s.trim())
+      .filter((s) => s && /^[a-z][a-z_]+$/.test(s));
+    oneWay = new Set(tokens);
+  }
+  // Event-keyword title regex: code block under "## Event-keyword title regex"
+  let eventKeywords = new Set();
+  const ekM = content.match(/##\s+Event-keyword title regex[\s\S]*?```\s*([\s\S]*?)```/);
+  if (ekM) {
+    const tokens = ekM[1].split(/\s+/).map((s) => s.trim().toLowerCase())
+      .filter((s) => s && /^[a-z][a-z-]+$/.test(s));
+    eventKeywords = new Set(tokens);
+  }
+  return { tags, forbidden, symmetric, inverses, oneWay, eventKeywords };
+}
+
+// Combined set of all legitimate relation verbs (for invented-verb detection)
+function knownRelationVerbs(schema) {
+  const all = new Set();
+  for (const v of schema.symmetric) all.add(v);
+  for (const v of schema.oneWay) all.add(v);
+  for (const [a, b] of schema.inverses) { all.add(a); all.add(b); }
+  return all;
+}
+
+// ─── auto-maintained files ─────────────────────────────────────────────────
+
+function regenerateIndex() {
+  fs.mkdirSync(WIKI_DIR, { recursive: true });
+  const files = listWikiPages();
+  const byType = {};
+  for (const f of files) {
+    const parsed = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    const slug = parsed.fm.id || f.replace(/\.md$/, '');
+    const title = parsed.fm.title || slug;
+    const type = parsed.fm.type || 'note';
+    const summary = firstBodyLine(parsed.body);
+    (byType[type] ||= []).push({ slug, title, summary });
+  }
+  const sections = Object.keys(byType).sort();
+  const out = ['# Wiki Index', '', `_Regenerated ${nowISO()}_`, ''];
+  if (sections.length === 0) out.push('_(empty)_');
+  for (const type of sections) {
+    out.push(`## ${type}`);
+    out.push('');
+    for (const p of byType[type]) {
+      out.push(`- [[${p.slug}]] — ${p.title}${p.summary ? `: ${p.summary}` : ''}`);
+    }
+    out.push('');
+  }
+  fs.writeFileSync(INDEX_PATH, out.join('\n'));
+}
+
+function appendLog(op, detail) {
+  fs.mkdirSync(WIKI_DIR, { recursive: true });
+  const ts = nowISO().replace('T', ' ').slice(0, 19);
+  const line = `## [${ts}] ${op} | ${detail}\n`;
+  if (!fs.existsSync(LOG_PATH)) {
+    fs.writeFileSync(LOG_PATH, `# Wiki Log\n\n${line}`);
+  } else {
+    fs.appendFileSync(LOG_PATH, line);
+  }
+  autoCommit(op, detail);
+}
+
+// Auto-commit every CLI mutation to the vault's git repo. Best-effort:
+// if .git doesn't exist (vault not initialised), we silently no-op. Any git
+// failure logs to stderr but never breaks the CLI flow — git is a recovery
+// layer, not a precondition for correctness.
+function autoCommit(op, detail) {
+  const gitDir = path.join(VAULT_ROOT, '.git');
+  if (!fs.existsSync(gitDir)) return;
+  try {
+    const { execSync } = require('child_process');
+    const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+    // Pre-commit tamper sentinel: if there are dirty files BEFORE we write log.md,
+    // those are bypass writes that will get folded into this commit. Note them.
+    // (We've already written log.md by this point, so git sees both our write
+    //  and any pre-existing dirty files. We can't separate them perfectly here.)
+    execSync('git add -A', { cwd: VAULT_ROOT, env, stdio: 'pipe' });
+    // Skip commit if nothing staged (e.g. only ignored files changed).
+    const staged = execSync('git diff --cached --name-only', { cwd: VAULT_ROOT, env, stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
+    if (!staged) return;
+    const safeMsg = `${op} | ${detail}`.replace(/"/g, "'").slice(0, 200);
+    execSync(`git -c commit.gpgsign=false commit -m "${safeMsg}"`, { cwd: VAULT_ROOT, env, stdio: 'pipe' });
+  } catch (e) {
+    const msg = e && e.message ? e.message.split('\n')[0] : String(e);
+    console.error(`(auto-commit failed: ${msg})`);
+  }
+}
+
+// Tamper detection: check for uncommitted vault changes that weren't logged.
+// Called at startup of write-class verbs so the user sees bypass writes
+// before they get folded silently into the next commit.
+function tamperCheck() {
+  const gitDir = path.join(VAULT_ROOT, '.git');
+  if (!fs.existsSync(gitDir)) return;
+  try {
+    const { execSync } = require('child_process');
+    const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+    const dirty = execSync('git status --porcelain', { cwd: VAULT_ROOT, env, stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
+    if (!dirty) return;
+    // Filter to vault content (ignore alfred/scratchpad.md, tamper.log etc which are gitignored)
+    const lines = dirty.split('\n').filter((l) => /\s(wiki|inbox|raw|SCHEMA\.md|\.bin)\//.test(l));
+    if (lines.length === 0) return;
+    const tamperLog = path.join(VAULT_ROOT, 'alfred', 'tamper.log');
+    fs.mkdirSync(path.dirname(tamperLog), { recursive: true });
+    const ts = nowISO();
+    for (const l of lines) fs.appendFileSync(tamperLog, `${ts}\ttamper-or-uncommitted\t${l.trim()}\n`);
+    console.error(`(tamper: ${lines.length} uncommitted vault file(s) detected — see alfred/tamper.log)`);
+  } catch (e) {
+    const msg = e && e.message ? e.message.split('\n')[0] : String(e);
+    console.error(`(tamper-check failed: ${msg})`);
+  }
+}
+
+// ─── write validation ──────────────────────────────────────────────────────
+
+function validateForWrite({ slug, type, tags, derivedFrom }, { isAppend, isReplace }) {
+  const errors = [];
+  if (!validSlug(slug)) errors.push(`Invalid slug: "${slug}" (lowercase, alphanumeric, hyphens; must start with letter or digit)`);
+  if (isReserved(slug)) errors.push(`Slug "${slug}" is reserved (auto-maintained file).`);
+
+  const schema = loadSchema();
+
+  // Forbidden aggregator slug — refuse on create/replace, allow append for migration
+  if (!isAppend && schema.forbidden.has(slug)) {
+    errors.push(
+      `Slug "${slug}" is a forbidden aggregator slug (see SCHEMA.md). ` +
+      `Atomicity rule: one entity per page. Create atomic pages and link them with relations instead.`
+    );
+  }
+
+  // Validate type
+  if (!isAppend && type && !KNOWN_TYPES.has(type)) {
+    errors.push(`Unknown type "${type}". Must be one of: ${[...KNOWN_TYPES].join(', ')}`);
+  }
+
+  // Validate tags against SCHEMA taxonomy
+  if (!isAppend && schema.tags && Array.isArray(tags)) {
+    const unknown = tags.filter((t) => !schema.tags.has(t));
+    if (unknown.length) {
+      errors.push(
+        `Unknown tag(s): ${unknown.map((t) => `"${t}"`).join(', ')}. ` +
+        `Add to SCHEMA.md tag taxonomy first, or use an existing tag. ` +
+        `Known: ${[...schema.tags].slice(0, 15).join(', ')}...`
+      );
+    }
+  }
+
+  // Reject type:note for entity-kind-tagged pages
+  if (!isAppend && type === 'note' && Array.isArray(tags)) {
+    const entityKindMatch = tags.find((t) => ENTITY_KIND_TAGS.has(t));
+    if (entityKindMatch) {
+      errors.push(
+        `Page is tagged "${entityKindMatch}" — use type=entity, not type=note. ` +
+        `(See SCHEMA.md page types table.)`
+      );
+    }
+  }
+
+  // synthesis requires derived_from with ≥2 entries
+  if (!isAppend && type === 'synthesis') {
+    const df = Array.isArray(derivedFrom) ? derivedFrom : (typeof derivedFrom === 'string' && derivedFrom ? derivedFrom.split(',').map((s) => s.trim()).filter(Boolean) : []);
+    if (df.length < 2) {
+      errors.push(`type=synthesis requires --derived_from with at least 2 slugs (the atomic pages this synthesis is built from).`);
+    }
+  }
+
+  // decision requires decided_on
+  // (skipped here — handled by warning in lint, not hard-rejected, to keep flow flexible)
+
+  return errors;
+}
+
+// Strict body+frontmatter validators (run on full intended page content).
+// Returns array of {rule, message} error objects.
+// soft=true demotes everything to warnings (caller decides to print, not exit).
+function validateBody({ slug, title, type, tags, body, fm }) {
+  const errors = [];
+  const schema = loadSchema();
+  const knownVerbs = knownRelationVerbs(schema);
+  const STRICT_PROV_TYPES = new Set(['entity', 'event', 'concept', 'synthesis']);
+
+  // Event-keyword title with wrong type
+  if (type !== 'event' && title && schema.eventKeywords && schema.eventKeywords.size) {
+    const titleLower = title.toLowerCase();
+    const hits = [];
+    for (const kw of schema.eventKeywords) {
+      const re = new RegExp(`\\b${kw}\\b`, 'i');
+      if (re.test(titleLower)) hits.push(kw);
+    }
+    if (hits.length) {
+      errors.push({
+        rule: 'mislabeled-event',
+        message: `Title "${title}" contains event keyword(s) (${hits.join(', ')}) but type=${type}. Use --type event. (Override with --soft if intentional.)`,
+      });
+    }
+  }
+
+  // type=event must have 'event' tag and 'when' frontmatter
+  if (type === 'event') {
+    if (!Array.isArray(tags) || !tags.includes('event')) {
+      errors.push({ rule: 'event-tag', message: `type=event requires tag "event" in --tags` });
+    }
+    if (!fm || !fm.when) {
+      errors.push({ rule: 'event-when', message: `type=event requires --when YYYY-MM-DD (or ISO8601 for timed events)` });
+    }
+  }
+
+  // Uncategorized bullets in body
+  if (body) {
+    const uncat = [];
+    for (const line of body.split('\n')) {
+      if (!/^- /.test(line)) continue;
+      // Allowed: categorized observation
+      if (/^- (?:~~)?\[(?:fact|hypothesis|opinion|claim|quote|question|decision|todo|idea)\]/.test(line)) continue;
+      // Allowed: relation (- verb [[slug]] or - "multi word" [[slug]])
+      if (/^- (?:[a-z][a-z_]+|"[^"]+") \[\[[a-z0-9][a-z0-9-]*\]\]/.test(line)) continue;
+      uncat.push(line.trim().slice(0, 80));
+    }
+    if (uncat.length) {
+      errors.push({
+        rule: 'uncategorized-bullets',
+        message: `${uncat.length} body bullet(s) lack [fact]/[hypothesis]/etc. category prefix AND aren't relations. ` +
+          `Each "- " line must be either a categorized observation ("- [fact] ...") or a relation ("- verb [[slug]]"). ` +
+          `Offenders (first 3): ${uncat.slice(0, 3).map((l) => `"${l}"`).join('; ')}`,
+      });
+    }
+  }
+
+  // Invented verbs in body relations
+  if (body) {
+    const invented = new Set();
+    for (const r of parseRelations(body)) {
+      if (!knownVerbs.has(r.verb)) invented.add(r.verb);
+    }
+    if (invented.size) {
+      errors.push({
+        rule: 'invented-verb',
+        message: `Relation verb(s) not in SCHEMA registries: ${[...invented].join(', ')}. ` +
+          `Use a verb from symmetric, inverse-pairs, or one-way allowlist. Edit SCHEMA.md to add new verbs.`,
+      });
+    }
+  }
+
+  // Missing provenance on substantive types with observations
+  if (body && STRICT_PROV_TYPES.has(type)) {
+    const obs = parseObservations(body);
+    if (obs.length > 0) {
+      const pageHasProv = /\^\[[^\]]+\]/.test(body)
+        || (fm && fm.raw_path)
+        || (fm && Array.isArray(fm.derived_from) && fm.derived_from.length > 0);
+      if (!pageHasProv) {
+        errors.push({
+          rule: 'missing-provenance',
+          message: `Page has ${obs.length} observation(s) but no ^[...] provenance marker. ` +
+            `Add ^[telegram:YYYY-MM-DD] or ^[raw/<kind>/<slug>.md] in body, or set raw_path / derived_from in frontmatter.`,
+        });
+      }
+    }
+  }
+
+  return errors;
+}
+
+// ─── read verbs ────────────────────────────────────────────────────────────
+
+function cmdList(args) {
+  const files = listWikiPages();
+  for (const f of files) {
+    const { fm } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    const slug = fm.id || f.replace(/\.md$/, '');
+    const tags = Array.isArray(fm.tags) ? fm.tags : [];
+    if (args.tag && !tags.includes(args.tag)) continue;
+    if (args.type && fm.type !== args.type) continue;
+    const tagStr = tags.length ? `  [${tags.join(', ')}]` : '';
+    console.log(`${slug}\t${fm.title || ''}${tagStr}`);
+  }
+}
+
+function cmdSearch(args) {
+  const query = args._[0];
+  if (!query && !args.tag) {
+    console.error('Usage: wiki search <query> [--tag tag] [--title-only]');
+    process.exit(1);
+  }
+  const files = listWikiPages();
+  const re = query ? new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') : null;
+  let count = 0;
+  for (const f of files) {
+    const { fm, body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    if (args.tag) {
+      const tags = Array.isArray(fm.tags) ? fm.tags : [];
+      if (!tags.includes(args.tag)) continue;
+    }
+    const slug = fm.id || f.replace(/\.md$/, '');
+    const title = fm.title || '';
+    if (re) {
+      if (args['title-only']) {
+        if (!re.test(title)) continue;
+      } else {
+        const titleMatch = re.test(title);
+        const idx = body.search(re);
+        if (!titleMatch && idx < 0) continue;
+        console.log(`${slug}\t${title}`);
+        if (idx >= 0) {
+          const start = Math.max(0, idx - 40);
+          const end = Math.min(body.length, idx + 80);
+          console.log(`    …${body.slice(start, end).replace(/\s+/g, ' ').trim()}…`);
+        }
+        count++;
+        continue;
+      }
+    }
+    console.log(`${slug}\t${title}`);
+    count++;
+  }
+  if (count === 0) console.log('(no matches)');
+}
+
+function cmdAgenda(args) {
+  // Windows: today | week | upcoming (default) | past | all
+  // Accept either positional (wiki agenda today) or --window flag
+  const win = (args._[0] || args.window || 'upcoming').toLowerCase();
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const endOfToday = startOfToday + 86400 * 1000 - 1;
+  const endOfWeek = startOfToday + 7 * 86400 * 1000;
+
+  const events = [];
+  for (const f of listWikiPages()) {
+    const { fm, body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    if (fm.type !== 'event') continue;
+    if (!fm.when) continue;
+    const ts = Date.parse(fm.when);
+    if (isNaN(ts)) continue;
+    const slug = fm.id || f.replace(/\.md$/, '');
+    events.push({
+      slug,
+      title: fm.title || slug,
+      when: fm.when,
+      ts,
+      duration: fm.duration || '',
+      location: fm.location || '',
+      attendees: Array.isArray(fm.attendees) ? fm.attendees : [],
+      tags: Array.isArray(fm.tags) ? fm.tags : [],
+    });
+  }
+
+  let filtered;
+  switch (win) {
+    case 'today':
+      filtered = events.filter((e) => e.ts >= startOfToday && e.ts <= endOfToday);
+      break;
+    case 'week':
+      filtered = events.filter((e) => e.ts >= startOfToday && e.ts < endOfWeek);
+      break;
+    case 'past':
+      filtered = events.filter((e) => e.ts < startOfToday);
+      filtered.sort((a, b) => b.ts - a.ts);
+      break;
+    case 'all':
+      filtered = events;
+      break;
+    case 'upcoming':
+    default:
+      filtered = events.filter((e) => e.ts >= startOfToday);
+      break;
+  }
+  if (win !== 'past') filtered.sort((a, b) => a.ts - b.ts);
+
+  if (filtered.length === 0) { console.log(`(no events in window: ${win})`); return; }
+
+  for (const e of filtered) {
+    const whenShort = e.when.length > 10 ? e.when.replace('T', ' ').slice(0, 16) : e.when;
+    const parts = [whenShort];
+    if (e.duration) parts.push(`(${e.duration})`);
+    parts.push(`[[${e.slug}]]`);
+    if (e.location) parts.push(`@ ${e.location}`);
+    if (e.attendees.length) parts.push(`w/ ${e.attendees.map((a) => `[[${a}]]`).join(', ')}`);
+    console.log(parts.join('  '));
+  }
+}
+
+function cmdRecent(args) {
+  const days = parseInt(args.days || '7', 10);
+  const cutoff = Date.now() - days * 86400 * 1000;
+  const files = listWikiPages();
+  const rows = [];
+  for (const f of files) {
+    const { fm } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    if (args.type && fm.type !== args.type) continue;
+    const updated = fm.updated || fm.created;
+    if (!updated) continue;
+    const ts = Date.parse(updated);
+    if (isNaN(ts) || ts < cutoff) continue;
+    const slug = fm.id || f.replace(/\.md$/, '');
+    rows.push({ slug, title: fm.title || '', type: fm.type || 'note', updated });
+  }
+  rows.sort((a, b) => b.updated.localeCompare(a.updated));
+  if (rows.length === 0) { console.log(`(no pages updated in last ${days} days)`); return; }
+  for (const r of rows) console.log(`${r.updated.slice(0, 10)}\t${r.type}\t${r.slug}\t${r.title}`);
+}
+
+function cmdPrint(args) {
+  const slug = args._[0];
+  if (!slug) { console.error('Usage: wiki print <slug> [--backlinks] [--links]'); process.exit(1); }
+  const p = wikiPath(slug);
+  if (!fs.existsSync(p)) { console.error(`Page ${slug} does not exist.`); process.exit(2); }
+  process.stdout.write(fs.readFileSync(p, 'utf-8'));
+  const { body } = parseFrontmatter(fs.readFileSync(p, 'utf-8'));
+  if (args.links) {
+    console.log('\n## Outbound (computed)\n');
+    const out = extractWikilinks(body);
+    for (const s of out) console.log(`- [[${s}]]${fs.existsSync(wikiPath(s)) ? '' : ' (stub)'}`);
+    if (out.length === 0) console.log('_(none)_');
+  }
+  if (args.backlinks) {
+    console.log('\n## Backlinks (computed)\n');
+    const re = new RegExp(`\\[\\[${slug}\\]\\]`);
+    const hits = [];
+    for (const f of listWikiPages()) {
+      const from = f.replace(/\.md$/, '');
+      if (from === slug) continue;
+      const { body: b } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+      if (re.test(b)) hits.push(from);
+    }
+    for (const s of hits) console.log(`- [[${s}]]`);
+    if (hits.length === 0) console.log('_(none)_');
+  }
+}
+
+function cmdSources() { cmdList({ _: [], type: 'source' }); }
+
+function cmdRelated(args) {
+  const slug = args._[0];
+  if (!slug) { console.error('Usage: wiki related <slug>'); process.exit(1); }
+  const page = readPage(slug);
+  if (!page) { console.error(`Page ${slug} does not exist.`); process.exit(2); }
+  const myTags = new Set(Array.isArray(page.fm.tags) ? page.fm.tags : []);
+  const myOutbound = new Set(extractWikilinks(page.body));
+  const backlinks = new Set();
+  const re = new RegExp(`\\[\\[${slug}\\]\\]`);
+  for (const f of listWikiPages()) {
+    const from = f.replace(/\.md$/, '');
+    if (from === slug) continue;
+    const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    if (re.test(body)) backlinks.add(from);
+  }
+  const scores = {};
+  for (const f of listWikiPages()) {
+    const other = f.replace(/\.md$/, '');
+    if (other === slug) continue;
+    const { fm, body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    const otherTags = new Set(Array.isArray(fm.tags) ? fm.tags : []);
+    let score = 0;
+    for (const t of myTags) if (otherTags.has(t)) score += 2;
+    if (myOutbound.has(other)) score += 3;
+    if (backlinks.has(other)) score += 3;
+    const otherOutbound = new Set(extractWikilinks(body));
+    for (const t of myOutbound) if (otherOutbound.has(t)) score += 1;
+    if (score > 0) scores[other] = { score, title: fm.title || '', type: fm.type || 'note' };
+  }
+  const ranked = Object.entries(scores).sort((a, b) => b[1].score - a[1].score);
+  if (ranked.length === 0) { console.log('(no related pages)'); return; }
+  for (const [s, info] of ranked.slice(0, 20)) {
+    console.log(`${info.score}\t${info.type}\t${s}\t${info.title}`);
+  }
+}
+
+function cmdPreview(args) {
+  const slug = args._[0];
+  if (!slug) { console.error('Usage: wiki preview <slug>'); process.exit(1); }
+  const page = readPage(slug);
+  if (!page) { console.error(`Page ${slug} does not exist.`); process.exit(2); }
+  const { fm, body } = page;
+  const tags = Array.isArray(fm.tags) ? fm.tags.join(', ') : '';
+  const aliases = Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []);
+  const updated = (fm.updated || '').slice(0, 10);
+  // First 3 non-heading, non-microsyntax body lines
+  const lines = body.split('\n').filter((l) => {
+    const t = l.trim();
+    return t && !t.startsWith('#') && !t.startsWith('- [') && !t.startsWith('- "') && !/^- [a-z][a-z_]+ \[\[/.test(t);
+  }).slice(0, 3);
+  const obs = parseObservations(body).length;
+  const rels = parseRelations(body).length;
+  // Inbound wikilinks
+  const re = new RegExp(`\\[\\[${slug}\\]\\]`);
+  let inbound = 0;
+  for (const f of listWikiPages()) {
+    const from = f.replace(/\.md$/, '');
+    if (from === slug) continue;
+    const { body: b } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    if (re.test(b)) inbound++;
+  }
+  console.log(`${slug} · ${fm.title || ''} · ${fm.type || 'note'} · ${updated} · [${tags}]`);
+  if (aliases.length) console.log(`aliases: ${aliases.join(', ')}`);
+  if (fm.summary) console.log(`summary: ${fm.summary}`);
+  if (lines.length) {
+    console.log('');
+    for (const l of lines) console.log(`  ${l.trim().slice(0, 120)}`);
+  }
+  console.log('');
+  console.log(`${obs} observations · ${rels} outbound relations · ${inbound} inbound wikilinks`);
+}
+
+function cmdContext(args) {
+  const slug = args._[0];
+  if (!slug) { console.error('Usage: wiki context <slug>'); process.exit(1); }
+  const page = readPage(slug);
+  if (!page) { console.error(`Page ${slug} does not exist.`); process.exit(2); }
+  const { fm, body } = page;
+  const tags = Array.isArray(fm.tags) ? fm.tags.join(', ') : '';
+  const aliases = Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []);
+
+  // Frontmatter section
+  console.log(`# ${slug}`);
+  console.log(`title:   ${fm.title || ''}`);
+  console.log(`type:    ${fm.type || 'note'}`);
+  console.log(`tags:    [${tags}]`);
+  console.log(`updated: ${(fm.updated || '').slice(0, 10)}`);
+  if (aliases.length) console.log(`aliases: ${aliases.join(', ')}`);
+  if (fm.summary) console.log(`summary: ${fm.summary}`);
+
+  // External-link fields (mainly for person entities; surface them inline)
+  const EXTERNAL_LINK_FIELDS = ['homepage', 'scholar', 'orcid', 'github', 'linkedin', 'twitter', 'arxiv', 'email'];
+  const extLinks = EXTERNAL_LINK_FIELDS.filter((f) => fm[f]);
+  if (extLinks.length) {
+    console.log('');
+    console.log('# external');
+    for (const f of extLinks) console.log(`  ${f}: ${fm[f]}`);
+  }
+
+  // First 5 observations
+  const obs = parseObservations(body);
+  if (obs.length) {
+    console.log('');
+    console.log('# observations');
+    for (const o of obs.slice(0, 5)) {
+      const marks = [];
+      if (o.superseded) marks.push('superseded');
+      if (o.dates.since) marks.push(`since ${o.dates.since}`);
+      if (o.dates.until) marks.push(`until ${o.dates.until}`);
+      if (o.dates.on) marks.push(`on ${o.dates.on}`);
+      if (o.dates.asOf) marks.push(`as-of ${o.dates.asOf}`);
+      const annot = marks.length ? `  (${marks.join(', ')})` : '';
+      console.log(`- [${o.category}] ${o.body}${annot}`);
+    }
+    if (obs.length > 5) console.log(`  (...${obs.length - 5} more)`);
+  }
+
+  // Outbound relations grouped by verb
+  const outRels = parseRelations(body);
+  if (outRels.length) {
+    console.log('');
+    console.log('# outbound relations');
+    const grouped = {};
+    for (const r of outRels) (grouped[r.verb] ||= []).push(r.target);
+    for (const v of Object.keys(grouped).sort()) {
+      console.log(`- ${v}: ${grouped[v].map((s) => `[[${s}]]`).join(', ')}`);
+    }
+  }
+
+  // Inbound relations + wikilinks
+  const incomingRels = {};
+  const incomingLinks = new Set();
+  for (const f of listWikiPages()) {
+    const from = f.replace(/\.md$/, '');
+    if (from === slug) continue;
+    const { body: b } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    for (const r of parseRelations(b)) {
+      if (r.target === slug) (incomingRels[r.verb] ||= []).push(from);
+    }
+    if (new RegExp(`\\[\\[${slug}\\]\\]`).test(b)) incomingLinks.add(from);
+  }
+  if (Object.keys(incomingRels).length) {
+    console.log('');
+    console.log('# inbound relations');
+    for (const v of Object.keys(incomingRels).sort()) {
+      console.log(`- ${v}: ${incomingRels[v].map((s) => `[[${s}]]`).join(', ')}`);
+    }
+  }
+
+  // 1-hop neighbors (union of outbound + inbound)
+  const neighbors = new Set();
+  for (const r of outRels) neighbors.add(r.target);
+  for (const s of extractWikilinks(body)) neighbors.add(s);
+  for (const s of incomingLinks) neighbors.add(s);
+  for (const v of Object.values(incomingRels)) for (const s of v) neighbors.add(s);
+  neighbors.delete(slug);
+  if (neighbors.size) {
+    console.log('');
+    console.log('# 1-hop neighbors');
+    console.log([...neighbors].sort().map((s) => `[[${s}]]`).join(' '));
+  }
+}
+
+// ─── write verbs ───────────────────────────────────────────────────────────
+
+function cmdWrite(args) {
+  const slug = args._[0];
+  if (!slug) {
+    console.error('Usage: wiki write <slug> --title "..." --type <type> [--tags a,b] [--content "..." | --stdin] [--append|--replace]');
+    console.error(`  types: ${[...KNOWN_TYPES].join('|')}`);
+    process.exit(1);
+  }
+
+  fs.mkdirSync(WIKI_DIR, { recursive: true });
+  const filePath = wikiPath(slug);
+  const exists = fs.existsSync(filePath);
+
+  if (exists && !args.append && !args.replace) {
+    console.error(`Page ${slug} exists. Use --append (add to body) or --replace (overwrite).`);
+    process.exit(2);
+  }
+  if (exists) {
+    const existingFm = parseFrontmatter(fs.readFileSync(filePath, 'utf-8')).fm;
+    if (existingFm.source_file) {
+      console.error(`Page ${slug} is auto-rendered from ${existingFm.source_file}. Use \`wiki measure\` to add a row, or edit the source file directly.`);
+      process.exit(2);
+    }
+  }
+
+  // For create / replace: validate.
+  const isAppend = !!args.append && exists;
+  const isReplace = !!args.replace && exists;
+  const explicitType = args.type;
+  const tags = args.tags ? String(args.tags).split(',').map((s) => s.trim()).filter(Boolean) : [];
+
+  if (!isAppend) {
+    const validationErrors = validateForWrite({
+      slug,
+      type: explicitType,
+      tags,
+      derivedFrom: args.derived_from,
+    }, { isAppend, isReplace });
+    if (validationErrors.length) {
+      console.error('Rejected:');
+      for (const e of validationErrors) console.error(`  ${e}`);
+      process.exit(3);
+    }
+  }
+
+  let body = '';
+  if (args.stdin) body = fs.readFileSync(0, 'utf-8');
+  else if (args.content) body = args.content;
+
+  // Strict body-level validation (rejects unless --soft)
+  // For append: validate the FULL resulting body (existing + new).
+  if (!args.soft) {
+    let validateFm = {};
+    let validateBodyText = body;
+    if (isAppend) {
+      const cur = parseFrontmatter(fs.readFileSync(filePath, 'utf-8'));
+      validateFm = { ...cur.fm };
+      validateBodyText = cur.body.trimEnd() + (body ? '\n\n' + body : '') + '\n';
+    } else {
+      // Build the prospective frontmatter shape (only fields validateBody inspects)
+      validateFm = { ...args };
+      // Normalize fields that come in as flags
+      if (args.derived_from && typeof args.derived_from === 'string') {
+        validateFm.derived_from = args.derived_from.split(',').map((s) => s.trim()).filter(Boolean);
+      }
+    }
+    const bodyErrors = validateBody({
+      slug,
+      title: args.title || (isAppend ? validateFm.title : slug),
+      type: isAppend ? (validateFm.type || 'note') : (explicitType || 'note'),
+      tags: isAppend ? (Array.isArray(validateFm.tags) ? validateFm.tags : tags) : tags,
+      body: validateBodyText,
+      fm: validateFm,
+    });
+    if (bodyErrors.length) {
+      console.error('Rejected (strict body validation; bypass with --soft):');
+      for (const e of bodyErrors) console.error(`  [${e.rule}] ${e.message}`);
+      process.exit(3);
+    }
+  }
+
+  let op = 'create';
+  if (isAppend) {
+    const { fm, body: curBody } = parseFrontmatter(fs.readFileSync(filePath, 'utf-8'));
+    fm.updated = nowISO();
+    applyExtraFrontmatter(fm, args);
+    const newBody = curBody.trimEnd() + (body ? '\n\n' + body : '') + '\n';
+    fs.writeFileSync(filePath, serializeFrontmatter(fm, newBody));
+    op = 'append';
+  } else {
+    let created = nowISO();
+    if (exists && args.replace) {
+      const cur = parseFrontmatter(fs.readFileSync(filePath, 'utf-8'));
+      if (cur.fm.created) created = cur.fm.created;
+      op = 'replace';
+    }
+    const title = args.title || slug;
+    const fm = {
+      id: slug,
+      title,
+      type: explicitType || 'note',
+      created,
+      updated: nowISO(),
+      tags,
+    };
+    applyExtraFrontmatter(fm, args);
+    fs.writeFileSync(filePath, serializeFrontmatter(fm, body.endsWith('\n') ? body : body + '\n'));
+  }
+
+  regenerateIndex();
+  appendLog(op, slug);
+  console.log(filePath);
+
+  // Post-write audit hook
+  postWriteAudit(slug);
+
+  // Warn on orphan-by-construction (create only, not append/replace)
+  if (op === 'create' && !args['no-anchor']) {
+    const writtenBody = body;
+    const hasOutbound = extractWikilinks(writtenBody).length > 0;
+    let hasInbound = false;
+    if (!hasOutbound) {
+      const re = new RegExp(`\\[\\[${slug}\\]\\]`);
+      for (const f of listWikiPages()) {
+        const fromSlug = f.replace(/\.md$/, '');
+        if (fromSlug === slug) continue;
+        const { body: b } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+        if (re.test(b)) { hasInbound = true; break; }
+      }
+    }
+    if (!hasOutbound && !hasInbound && listWikiPages().length > 1) {
+      console.error('');
+      console.error(`WARNING: ${slug} is being created with no inbound or outbound graph connections.`);
+      console.error('This page will be an orphan. Consider:');
+      console.error(`  - Adding a relation in body (e.g. - works_at [[some-slug]])`);
+      console.error(`  - Running 'wiki place "<title>"' to find a better home`);
+      console.error(`  - Running 'wiki autolink ${slug}' to scan for bidirectional links`);
+      console.error('Use --no-anchor to suppress this warning for genuine root pages.');
+      appendLog('orphan-warning', slug);
+    }
+  }
+}
+
+function applyExtraFrontmatter(fm, args) {
+  const FIELDS = [
+    'status', 'due', 'priority', 'decided_on', 'supersedes', 'derived_from',
+    'raw_path', 'sha256', 'aliases', 'source',
+    'homepage', 'scholar', 'orcid', 'github', 'linkedin', 'twitter', 'arxiv', 'email',
+    'when', 'duration', 'location', 'attendees', 'recurrence',
+  ];
+  for (const f of FIELDS) {
+    if (args[f] !== undefined && args[f] !== false) {
+      if (['derived_from', 'supersedes', 'aliases', 'attendees'].includes(f) && typeof args[f] === 'string') {
+        fm[f] = args[f].split(',').map((s) => s.trim()).filter(Boolean);
+      } else {
+        fm[f] = args[f];
+      }
+    }
+  }
+}
+
+function cmdLink(args) {
+  const from = args._[0];
+  const to = args._[1];
+  if (!from || !to) { console.error('Usage: wiki link <from-slug> <to-slug>'); process.exit(1); }
+  if (!validSlug(to)) { console.error(`Invalid target slug: ${to}`); process.exit(1); }
+  const fromPath = wikiPath(from);
+  if (!fs.existsSync(fromPath)) { console.error(`Page ${from} does not exist.`); process.exit(2); }
+  const { fm, body } = parseFrontmatter(fs.readFileSync(fromPath, 'utf-8'));
+  if (new RegExp(`\\[\\[${to}\\]\\]`).test(body)) { console.log(`already linked: ${from} -> ${to}`); return; }
+  let newBody;
+  if (/^## Links\b/m.test(body)) {
+    newBody = body.replace(/^(## Links[\s\S]*?)(?=\n## |\s*$)/m, (m) => m.trimEnd() + `\n- [[${to}]]`);
+  } else {
+    newBody = body.trimEnd() + '\n\n## Links\n\n- [[' + to + ']]\n';
+  }
+  fm.updated = nowISO();
+  fs.writeFileSync(fromPath, serializeFrontmatter(fm, newBody));
+  appendLog('link', `${from} -> ${to}`);
+  console.log(`linked: ${from} -> ${to}`);
+}
+
+function cmdLinks(args) {
+  const slug = args._[0];
+  if (!slug) { console.error('Usage: wiki links <slug>'); process.exit(1); }
+  const page = readPage(slug);
+  if (!page) { console.error(`Page ${slug} does not exist.`); process.exit(2); }
+  const out = extractWikilinks(page.body);
+  for (const s of out) {
+    const exists = fs.existsSync(wikiPath(s));
+    console.log(`${s}${exists ? '' : ' (stub)'}`);
+  }
+  if (out.length === 0) console.log('(no outbound links)');
+}
+
+function cmdBacklinks(args) {
+  const slug = args._[0];
+  if (!slug) { console.error('Usage: wiki backlinks <slug>'); process.exit(1); }
+  const re = new RegExp(`\\[\\[${slug}\\]\\]`);
+  const files = listWikiPages();
+  const hits = [];
+  for (const f of files) {
+    const fromSlug = f.replace(/\.md$/, '');
+    if (fromSlug === slug) continue;
+    const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    if (re.test(body)) hits.push(fromSlug);
+  }
+  for (const s of hits) console.log(s);
+  if (hits.length === 0) console.log('(no inbound links)');
+}
+
+function cmdMv(args) {
+  const oldSlug = args._[0];
+  const newSlug = args._[1];
+  if (!oldSlug || !newSlug) { console.error('Usage: wiki mv <old-slug> <new-slug>'); process.exit(1); }
+  if (!validSlug(newSlug)) { console.error(`Invalid new slug: ${newSlug}`); process.exit(1); }
+  if (isReserved(newSlug)) { console.error(`Slug "${newSlug}" is reserved.`); process.exit(1); }
+  const { forbidden } = loadSchema();
+  if (forbidden.has(newSlug)) { console.error(`Slug "${newSlug}" is a forbidden aggregator slug.`); process.exit(1); }
+
+  const oldPath = wikiPath(oldSlug);
+  const newPath = wikiPath(newSlug);
+  if (!fs.existsSync(oldPath)) { console.error(`Page ${oldSlug} does not exist.`); process.exit(2); }
+  if (fs.existsSync(newPath)) { console.error(`Page ${newSlug} already exists.`); process.exit(2); }
+
+  fs.renameSync(oldPath, newPath);
+  const { fm, body } = parseFrontmatter(fs.readFileSync(newPath, 'utf-8'));
+  fm.id = newSlug;
+  fm.updated = nowISO();
+  // Preserve old slug as an alias for autolink robustness
+  const aliases = Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []);
+  if (!aliases.includes(oldSlug)) aliases.push(oldSlug);
+  fm.aliases = aliases;
+  fs.writeFileSync(newPath, serializeFrontmatter(fm, body));
+
+  const linkRe = new RegExp(`\\[\\[${oldSlug}\\]\\]`, 'g');
+  let touched = 0;
+  for (const f of listWikiPages()) {
+    const p = path.join(WIKI_DIR, f);
+    const cur = fs.readFileSync(p, 'utf-8');
+    if (linkRe.test(cur)) {
+      const updated = cur.replace(linkRe, `[[${newSlug}]]`);
+      const parsed = parseFrontmatter(updated);
+      parsed.fm.updated = nowISO();
+      fs.writeFileSync(p, serializeFrontmatter(parsed.fm, parsed.body));
+      touched++;
+    }
+  }
+
+  regenerateIndex();
+  appendLog('mv', `${oldSlug} -> ${newSlug} (rewrote ${touched} backlinks)`);
+  console.log(`renamed: ${oldSlug} -> ${newSlug} (${touched} backlinks rewritten, ${oldSlug} added to aliases)`);
+}
+
+function cmdDelete(args) {
+  const slug = args._[0];
+  if (!slug) { console.error('Usage: wiki delete <slug> [--force]'); process.exit(1); }
+  if (isReserved(slug)) { console.error(`Cannot delete reserved page ${slug}.`); process.exit(1); }
+  const p = wikiPath(slug);
+  if (!fs.existsSync(p)) { console.error(`Page ${slug} does not exist.`); process.exit(2); }
+  const re = new RegExp(`\\[\\[${slug}\\]\\]`);
+  const incoming = [];
+  for (const f of listWikiPages()) {
+    const fromSlug = f.replace(/\.md$/, '');
+    if (fromSlug === slug) continue;
+    const body = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8')).body;
+    if (re.test(body)) incoming.push(fromSlug);
+  }
+  if (incoming.length && !args.force) {
+    console.error(`Refusing: ${slug} has ${incoming.length} inbound link(s) from: ${incoming.join(', ')}`);
+    console.error('Use --force to delete anyway (links will become dead).');
+    process.exit(3);
+  }
+  fs.unlinkSync(p);
+  regenerateIndex();
+  appendLog('delete', `${slug}${incoming.length ? ` (orphaned ${incoming.length} links)` : ''}`);
+  console.log(`deleted: ${slug}`);
+}
+
+function cmdMerge(args) {
+  const source = args._[0];
+  const target = args._[1];
+  if (!source || !target) {
+    console.error('Usage: wiki merge <source-slug> <target-slug> [--dry-run]');
+    console.error('  Merges source into target: rewrites all [[source]] to [[target]],');
+    console.error('  appends source body to target, adds source title/aliases as target aliases,');
+    console.error('  deletes source.');
+    process.exit(1);
+  }
+  if (source === target) { console.error('Source and target must differ.'); process.exit(1); }
+  const srcPath = wikiPath(source);
+  const tgtPath = wikiPath(target);
+  if (!fs.existsSync(srcPath)) { console.error(`Source ${source} does not exist.`); process.exit(2); }
+  if (!fs.existsSync(tgtPath)) { console.error(`Target ${target} does not exist.`); process.exit(2); }
+  if (isReserved(source) || isReserved(target)) { console.error('Cannot merge reserved pages.'); process.exit(1); }
+
+  const dry = !!args['dry-run'];
+  const srcParsed = parseFrontmatter(fs.readFileSync(srcPath, 'utf-8'));
+  const tgtParsed = parseFrontmatter(fs.readFileSync(tgtPath, 'utf-8'));
+
+  // 1. Compose merged body for target
+  const mergedBody = tgtParsed.body.trimEnd() + '\n\n## Merged from ' + source + '\n\n' + srcParsed.body.trimEnd() + '\n';
+
+  // 2. Compose merged frontmatter
+  const newFm = { ...tgtParsed.fm };
+  // Merge tags (union, preserve order)
+  const tgtTags = Array.isArray(tgtParsed.fm.tags) ? tgtParsed.fm.tags : [];
+  const srcTags = Array.isArray(srcParsed.fm.tags) ? srcParsed.fm.tags : [];
+  const mergedTags = [...tgtTags];
+  for (const t of srcTags) if (!mergedTags.includes(t)) mergedTags.push(t);
+  newFm.tags = mergedTags;
+  // Merge aliases: target's existing + source slug + source title + source aliases
+  const tgtAliases = Array.isArray(tgtParsed.fm.aliases) ? tgtParsed.fm.aliases : (tgtParsed.fm.aliases ? [tgtParsed.fm.aliases] : []);
+  const srcAliases = Array.isArray(srcParsed.fm.aliases) ? srcParsed.fm.aliases : (srcParsed.fm.aliases ? [srcParsed.fm.aliases] : []);
+  const newAliases = [...tgtAliases];
+  for (const a of [source, srcParsed.fm.title, ...srcAliases]) {
+    if (a && !newAliases.includes(a)) newAliases.push(a);
+  }
+  if (newAliases.length) newFm.aliases = newAliases;
+  newFm.updated = nowISO();
+
+  // 3. Rewrite [[source]] → [[target]] across all wiki pages, dedup if both appear
+  const linkRe = new RegExp(`\\[\\[${source}\\]\\]`, 'g');
+  const filesToRewrite = [];
+  for (const f of listWikiPages()) {
+    const fromSlug = f.replace(/\.md$/, '');
+    if (fromSlug === source) continue; // source will be deleted
+    const fp = path.join(WIKI_DIR, f);
+    const cur = fs.readFileSync(fp, 'utf-8');
+    if (linkRe.test(cur)) filesToRewrite.push(fp);
+  }
+
+  // 4. Dry-run report
+  if (dry) {
+    console.log(`--- dry-run: merge ${source} -> ${target} ---`);
+    console.log(`  target body grows by ${srcParsed.body.length} chars`);
+    console.log(`  new aliases on target: ${newAliases.join(', ')}`);
+    console.log(`  merged tags: [${mergedTags.join(', ')}]`);
+    console.log(`  pages with [[${source}]] to rewrite: ${filesToRewrite.length}`);
+    for (const fp of filesToRewrite) console.log(`    ${path.basename(fp)}`);
+    console.log(`  source ${source}.md to be deleted`);
+    return;
+  }
+
+  // 5. Write target with merged content + frontmatter
+  fs.writeFileSync(tgtPath, serializeFrontmatter(newFm, mergedBody));
+
+  // 6. Rewrite each file
+  let rewrittenLines = 0;
+  for (const fp of filesToRewrite) {
+    const cur = fs.readFileSync(fp, 'utf-8');
+    let updated = cur.replace(linkRe, `[[${target}]]`);
+    // Dedup adjacent identical relation lines that could result
+    // (cheap pass: collapse exact duplicate lines)
+    const lines = updated.split('\n');
+    const seen = new Set();
+    const dedup = [];
+    for (const l of lines) {
+      const t = l.trim();
+      // Only dedup microsyntax lines to avoid removing legitimate repeated prose
+      if (/^- (?:\[[a-z]+\]|"[^"]+"|[a-z_]+) (?:[A-Z]|\[\[)/.test(t) || /^- [a-z_]+ \[\[/.test(t)) {
+        if (seen.has(t)) continue;
+        seen.add(t);
+      }
+      dedup.push(l);
+    }
+    updated = dedup.join('\n');
+    const parsed = parseFrontmatter(updated);
+    parsed.fm.updated = nowISO();
+    fs.writeFileSync(fp, serializeFrontmatter(parsed.fm, parsed.body));
+    rewrittenLines++;
+  }
+
+  // 7. Delete source
+  fs.unlinkSync(srcPath);
+
+  regenerateIndex();
+  appendLog('merge', `${source} -> ${target} (rewrote ${rewrittenLines} files, added aliases ${newAliases.slice(tgtAliases.length).join(',')})`);
+  console.log(`merged: ${source} -> ${target} (${rewrittenLines} files rewritten, source deleted)`);
+}
+
+function cmdPatch(args) {
+  const slug = args._[0];
+  if (!slug) {
+    console.error('Usage: wiki patch <slug> [--observation "[fact] body #tag"] [--relation "verb [[target]]"]');
+    console.error('              [--add-tag <tag>] [--remove-tag <tag>] [--alias <name>]');
+    console.error('              [--summary "..."] [--title "..."]');
+    process.exit(1);
+  }
+  const p = wikiPath(slug);
+  if (!fs.existsSync(p)) { console.error(`Page ${slug} does not exist.`); process.exit(2); }
+  const { fm, body } = parseFrontmatter(fs.readFileSync(p, 'utf-8'));
+  if (fm.source_file) {
+    console.error(`Page ${slug} is auto-rendered from ${fm.source_file}. Use \`wiki measure\` to add a row, or edit the source file directly.`);
+    process.exit(2);
+  }
+  const schema = loadSchema();
+
+  const ops = [];
+  let newBody = body;
+
+  // Supersede an old observation (do this BEFORE appending the replacement)
+  if (args.supersede) {
+    const needle = String(args.supersede);
+    const lines = newBody.split('\n');
+    const idx = lines.findIndex((l) => /^- (?:~~)?\[/.test(l) && l.includes(needle));
+    if (idx < 0) {
+      console.error(`No observation matching: ${needle}`);
+      process.exit(3);
+    }
+    if (/^- ~~/.test(lines[idx])) {
+      console.error(`Already superseded: ${lines[idx]}`);
+      process.exit(3);
+    }
+    const today = nowISO().slice(0, 10);
+    // - [cat] body  →  - ~~[cat] body~~ [until YYYY-MM-DD]
+    lines[idx] = lines[idx].replace(/^- (\[[a-z]+\][\s\S]+?)\s*$/, `- ~~$1~~ [until ${today}]`);
+    newBody = lines.join('\n');
+    ops.push(`supersede:${needle.slice(0, 30)}`);
+  }
+
+  // Append observation
+  if (args.observation) {
+    const obs = String(args.observation).trim();
+    // Allow "fact: body" or full "- [fact] body" or just "[fact] body"
+    let line;
+    if (/^- \[/.test(obs)) line = obs;
+    else if (/^\[/.test(obs)) line = `- ${obs}`;
+    else line = `- [fact] ${obs}`;
+    newBody = newBody.trimEnd() + '\n' + line + '\n';
+    ops.push(`obs:${line.slice(0, 50)}`);
+  }
+
+  // Append relation
+  if (args.relation) {
+    const rel = String(args.relation).trim();
+    let line;
+    if (/^- /.test(rel)) line = rel;
+    else if (/^[a-z][a-z_]+ \[\[/.test(rel) || /^"[^"]+" \[\[/.test(rel)) line = `- ${rel}`;
+    else if (/=/.test(rel)) {
+      const [v, t] = rel.split('=').map((s) => s.trim());
+      line = `- ${v} [[${t}]]`;
+    } else {
+      console.error(`Invalid --relation: ${rel}. Use 'verb [[target]]' or 'verb=target'.`);
+      process.exit(1);
+    }
+    newBody = newBody.trimEnd() + '\n' + line + '\n';
+    ops.push(`rel:${line.slice(0, 50)}`);
+  }
+
+  // Tag mutations
+  let tags = Array.isArray(fm.tags) ? [...fm.tags] : [];
+  if (args['add-tag']) {
+    const t = String(args['add-tag']);
+    if (schema.tags && !schema.tags.has(t)) {
+      console.error(`Tag "${t}" not in SCHEMA.md taxonomy. Add to SCHEMA first.`);
+      process.exit(3);
+    }
+    if (!tags.includes(t)) { tags.push(t); ops.push(`+tag:${t}`); }
+  }
+  if (args['remove-tag']) {
+    const t = String(args['remove-tag']);
+    const before = tags.length;
+    tags = tags.filter((x) => x !== t);
+    if (tags.length !== before) ops.push(`-tag:${t}`);
+  }
+  fm.tags = tags;
+
+  // Alias
+  if (args.alias) {
+    const aliases = Array.isArray(fm.aliases) ? [...fm.aliases] : (fm.aliases ? [fm.aliases] : []);
+    const a = String(args.alias);
+    if (!aliases.includes(a)) { aliases.push(a); ops.push(`+alias:${a}`); }
+    fm.aliases = aliases;
+  }
+
+  // Summary
+  if (args.summary !== undefined && args.summary !== false) {
+    fm.summary = String(args.summary);
+    ops.push('summary');
+  }
+
+  // External-link fields (homepage, scholar, orcid, github, etc.)
+  const EXTERNAL_LINK_FIELDS = ['homepage', 'scholar', 'orcid', 'github', 'linkedin', 'twitter', 'arxiv', 'email'];
+  for (const f of EXTERNAL_LINK_FIELDS) {
+    if (args[f] !== undefined && args[f] !== false) {
+      fm[f] = String(args[f]);
+      ops.push(`${f}`);
+    }
+  }
+
+  // Title rename — also adds old title to aliases
+  let titleChanged = false;
+  if (args.title !== undefined && args.title !== false) {
+    const oldTitle = fm.title;
+    const newTitle = String(args.title);
+    if (oldTitle && oldTitle !== newTitle) {
+      const aliases = Array.isArray(fm.aliases) ? [...fm.aliases] : (fm.aliases ? [fm.aliases] : []);
+      if (!aliases.includes(oldTitle)) aliases.push(oldTitle);
+      fm.aliases = aliases;
+      ops.push(`title:${oldTitle}->${newTitle}`);
+      titleChanged = true;
+    }
+    fm.title = newTitle;
+  }
+
+  if (ops.length === 0) {
+    console.error('Nothing to patch. Pass at least one of --observation, --relation, --add-tag, --remove-tag, --alias, --summary, --title.');
+    process.exit(1);
+  }
+
+  fm.updated = nowISO();
+  fs.writeFileSync(p, serializeFrontmatter(fm, newBody));
+  regenerateIndex();
+  appendLog('patch', `${slug} (${ops.join(', ')})`);
+  console.log(`patched: ${slug} (${ops.join(', ')})`);
+
+  // Post-write audit hook
+  postWriteAudit(slug);
+
+  // If title/alias changed, run reverse-autolink so other pages can link to new title
+  if (titleChanged || args.alias) {
+    console.log('(running reverse-autolink for new title/alias...)');
+    autolinkSlug(slug, { direction: 'in', verbose: false });
+  }
+}
+
+// ─── todo verbs ────────────────────────────────────────────────────────────
+
+function cmdTodo(args) {
+  const sub = args._[0];
+  const subArgs = { ...args, _: args._.slice(1) };
+  const subs = { add: todoAdd, list: todoList, done: todoDone, defer: todoDefer };
+  if (!sub || !subs[sub]) {
+    console.error('Usage: wiki todo <add|list|done|defer> ...');
+    process.exit(1);
+  }
+  subs[sub](subArgs);
+}
+
+function todoSlugify(title) {
+  const base = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+  return `todo-${base || 'untitled'}`;
+}
+
+function todoAdd(args) {
+  const title = args._[0];
+  if (!title) { console.error('Usage: wiki todo add "title" [--due ...] [--priority ...]'); process.exit(1); }
+  const baseSlug = todoSlugify(title);
+  let slug = baseSlug;
+  let n = 2;
+  while (fs.existsSync(wikiPath(slug))) { slug = `${baseSlug}-${n}`; n++; }
+  const tags = args.tags ? String(args.tags).split(',').map((s) => s.trim()).filter(Boolean) : [];
+  const fm = {
+    id: slug, title, type: 'todo',
+    created: nowISO(), updated: nowISO(), tags,
+    status: 'open',
+  };
+  if (args.due) fm.due = args.due;
+  if (args.priority) fm.priority = args.priority;
+  fs.mkdirSync(WIKI_DIR, { recursive: true });
+  fs.writeFileSync(wikiPath(slug), serializeFrontmatter(fm, '\n'));
+  regenerateIndex();
+  appendLog('todo:add', slug);
+  console.log(wikiPath(slug));
+}
+
+function todoList(args) {
+  const today = nowISO().slice(0, 10);
+  const files = listWikiPages();
+  const rows = [];
+  for (const f of files) {
+    const { fm } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    if (fm.type !== 'todo') continue;
+    const status = fm.status || 'open';
+    if (args.open && status !== 'open') continue;
+    if (args.done && status !== 'done') continue;
+    if (args['due-today'] && fm.due !== today) continue;
+    if (args.overdue && (!fm.due || fm.due >= today)) continue;
+    const slug = fm.id || f.replace(/\.md$/, '');
+    rows.push({ slug, title: fm.title || '', status, due: fm.due || '', priority: fm.priority || '' });
+  }
+  const prio = { high: 0, med: 1, medium: 1, low: 2 };
+  rows.sort((a, b) => {
+    if (a.status !== b.status) return a.status === 'open' ? -1 : 1;
+    if (a.due !== b.due) return (a.due || '9999') < (b.due || '9999') ? -1 : 1;
+    return (prio[a.priority] ?? 3) - (prio[b.priority] ?? 3);
+  });
+  if (rows.length === 0) { console.log('(no matching todos)'); return; }
+  for (const r of rows) {
+    const dueStr = r.due ? `due ${r.due}` : '';
+    const pStr = r.priority ? `[${r.priority}]` : '';
+    console.log(`${r.status}\t${r.slug}\t${r.title}\t${dueStr}\t${pStr}`);
+  }
+}
+
+function todoDone(args) {
+  const slug = args._[0];
+  if (!slug) { console.error('Usage: wiki todo done <slug>'); process.exit(1); }
+  const p = wikiPath(slug);
+  if (!fs.existsSync(p)) { console.error(`Todo ${slug} not found.`); process.exit(2); }
+  const { fm, body } = parseFrontmatter(fs.readFileSync(p, 'utf-8'));
+  if (fm.type !== 'todo') { console.error(`Page ${slug} is not a todo (type=${fm.type}).`); process.exit(2); }
+  fm.status = 'done';
+  fm.done_at = nowISO();
+  fm.updated = nowISO();
+  fs.writeFileSync(p, serializeFrontmatter(fm, body));
+  regenerateIndex();
+  appendLog('todo:done', slug);
+  console.log(`done: ${slug}`);
+}
+
+function todoDefer(args) {
+  const slug = args._[0];
+  if (!slug || !args.to) { console.error('Usage: wiki todo defer <slug> --to YYYY-MM-DD'); process.exit(1); }
+  const p = wikiPath(slug);
+  if (!fs.existsSync(p)) { console.error(`Todo ${slug} not found.`); process.exit(2); }
+  const { fm, body } = parseFrontmatter(fs.readFileSync(p, 'utf-8'));
+  if (fm.type !== 'todo') { console.error(`Page ${slug} is not a todo.`); process.exit(2); }
+  const oldDue = fm.due || '(none)';
+  fm.due = args.to;
+  fm.updated = nowISO();
+  fs.writeFileSync(p, serializeFrontmatter(fm, body));
+  regenerateIndex();
+  appendLog('todo:defer', `${slug} (${oldDue} -> ${args.to})`);
+  console.log(`deferred: ${slug} → ${args.to}`);
+}
+
+// ─── graph verbs ───────────────────────────────────────────────────────────
+
+function cmdRelations(args) {
+  const slug = args._[0];
+  if (slug) {
+    const page = readPage(slug);
+    if (!page) { console.error(`Page ${slug} does not exist.`); process.exit(2); }
+    const out = parseRelations(page.body);
+    if (out.length) {
+      console.log('# Outbound');
+      for (const r of out) console.log(`  ${slug}\t${r.verb}\t${r.target}${fs.existsSync(wikiPath(r.target)) ? '' : ' (stub)'}`);
+    }
+    // Inbound: scan all pages for relations targeting this slug
+    const incoming = [];
+    for (const f of listWikiPages()) {
+      const from = f.replace(/\.md$/, '');
+      if (from === slug) continue;
+      const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+      for (const r of parseRelations(body)) {
+        if (r.target === slug) incoming.push({ from, verb: r.verb });
+      }
+    }
+    if (incoming.length) {
+      console.log('\n# Inbound');
+      for (const r of incoming) console.log(`  ${r.from}\t${r.verb}\t${slug}`);
+    }
+    if (out.length === 0 && incoming.length === 0) console.log('(no relations)');
+  } else {
+    // Dump whole graph
+    for (const f of listWikiPages()) {
+      const from = f.replace(/\.md$/, '');
+      const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+      for (const r of parseRelations(body)) {
+        console.log(`${from}\t${r.verb}\t${r.target}`);
+      }
+    }
+  }
+}
+
+function cmdObservations(args) {
+  const slug = args._[0];
+  const category = args.category;
+  const collect = (slug, body) => {
+    for (const o of parseObservations(body)) {
+      if (category && o.category !== category) continue;
+      const marks = [];
+      if (o.superseded) marks.push('superseded');
+      if (o.dates.since) marks.push(`since ${o.dates.since}`);
+      if (o.dates.until) marks.push(`until ${o.dates.until}`);
+      if (o.dates.on) marks.push(`on ${o.dates.on}`);
+      if (o.dates.asOf) marks.push(`as-of ${o.dates.asOf}`);
+      const annot = marks.length ? `  (${marks.join(', ')})` : '';
+      console.log(`${slug}\t[${o.category}]\t${o.body}${annot}`);
+    }
+  };
+  if (slug) {
+    const page = readPage(slug);
+    if (!page) { console.error(`Page ${slug} does not exist.`); process.exit(2); }
+    collect(slug, page.body);
+  } else {
+    for (const f of listWikiPages()) {
+      const s = f.replace(/\.md$/, '');
+      const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+      collect(s, body);
+    }
+  }
+}
+
+// ─── autolink ──────────────────────────────────────────────────────────────
+
+function buildTitleMap() {
+  const map = []; // [{ slug, pattern, source }]
+  for (const f of listWikiPages()) {
+    const slug = f.replace(/\.md$/, '');
+    const { fm } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    const title = (fm.title || '').trim();
+    const aliases = Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []);
+    const variants = [title, ...aliases].filter((v) => v && v.length >= 4 && !/^\s*$/.test(v));
+    for (const v of variants) {
+      // Escape regex special chars
+      const escaped = v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      map.push({ slug, pattern: new RegExp(`\\b${escaped}\\b`, 'g'), title: v });
+    }
+  }
+  return map;
+}
+
+function autolinkBody(body, ownSlug, titleMap) {
+  // Split body into segments: code-fence vs prose; only modify prose.
+  const segments = [];
+  let buf = '';
+  let inFence = false;
+  for (const line of body.split('\n')) {
+    if (line.trim().startsWith('```')) {
+      if (buf) segments.push({ kind: inFence ? 'fence' : 'prose', text: buf });
+      buf = line + '\n';
+      // Push the fence line itself as a marker
+      segments.push({ kind: 'fenceMarker', text: buf });
+      buf = '';
+      inFence = !inFence;
+      continue;
+    }
+    buf += line + '\n';
+  }
+  if (buf) segments.push({ kind: inFence ? 'fence' : 'prose', text: buf });
+
+  let injections = 0;
+  const seenSlugs = new Set();
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    if (seg.kind !== 'prose') continue;
+    let text = seg.text;
+    for (const { slug, pattern, title } of titleMap) {
+      if (slug === ownSlug) continue;
+      if (seenSlugs.has(slug)) continue; // first-mention-per-page
+      // Find first match that isn't already inside [[...]]
+      pattern.lastIndex = 0;
+      let m;
+      let replaced = false;
+      while ((m = pattern.exec(text)) !== null) {
+        const idx = m.index;
+        // Check context: not inside [[...]] or wikilink-like
+        const before = text.slice(Math.max(0, idx - 2), idx);
+        const after = text.slice(idx + m[0].length, idx + m[0].length + 2);
+        if (before.endsWith('[[') || after.startsWith(']]')) continue;
+        // Not inside an existing wikilink target
+        if (/\]\([^)]*$/.test(text.slice(0, idx))) continue; // inside markdown link target like [foo](...)
+        // Replace
+        text = text.slice(0, idx) + `[[${slug}]]` + text.slice(idx + m[0].length);
+        injections++;
+        seenSlugs.add(slug);
+        replaced = true;
+        break;
+      }
+      // (continue to next title)
+    }
+    segments[i] = { kind: 'prose', text };
+  }
+  return { body: segments.map((s) => s.text).join(''), injections };
+}
+
+// Autolink a single slug: inject outbound (other titles → [[slug]]) and/or
+// inbound (this title → [[slug]] in other pages) wikilinks.
+// Returns { out: N, in: N, total: N }.
+function autolinkSlug(slug, { direction = 'both', dryRun = false, verbose = true, titleMap = null } = {}) {
+  const tmap = titleMap || (() => { const m = buildTitleMap(); m.sort((a, b) => b.title.length - a.title.length); return m; })();
+  let outCount = 0, inCount = 0;
+  const p = wikiPath(slug);
+  if (!fs.existsSync(p)) { console.error(`Page ${slug} does not exist.`); return { out: 0, in: 0, total: 0 }; }
+
+  // Outbound: scan this page's body for mentions of other titles
+  if (direction === 'out' || direction === 'both') {
+    const { fm, body } = parseFrontmatter(fs.readFileSync(p, 'utf-8'));
+    const { body: newBody, injections } = autolinkBody(body, slug, tmap);
+    if (injections > 0) {
+      outCount = injections;
+      if (!dryRun) {
+        fm.updated = nowISO();
+        fs.writeFileSync(p, serializeFrontmatter(fm, newBody));
+      }
+    }
+  }
+
+  // Inbound: scan OTHER pages' bodies for mentions of THIS page's title/aliases
+  if (direction === 'in' || direction === 'both') {
+    const myEntry = tmap.filter((e) => e.slug === slug);
+    if (myEntry.length) {
+      for (const f of listWikiPages()) {
+        const fromSlug = f.replace(/\.md$/, '');
+        if (fromSlug === slug) continue;
+        const fp = path.join(WIKI_DIR, f);
+        const { fm: ffm, body: fbody } = parseFrontmatter(fs.readFileSync(fp, 'utf-8'));
+        // Pretend titleMap contains only my entries (so we link FROM this page TO `slug`)
+        const { body: newBody, injections } = autolinkBody(fbody, fromSlug, myEntry);
+        if (injections > 0) {
+          inCount += injections;
+          if (!dryRun) {
+            ffm.updated = nowISO();
+            fs.writeFileSync(fp, serializeFrontmatter(ffm, newBody));
+          }
+        }
+      }
+    }
+  }
+
+  const total = outCount + inCount;
+  if (verbose && total > 0) {
+    const parts = [];
+    if (outCount > 0) parts.push(`${outCount} outbound`);
+    if (inCount > 0) parts.push(`${inCount} inbound`);
+    console.log(`${slug}: +${total} link(s) (${parts.join(', ')})`);
+  }
+  if (!dryRun && total > 0) appendLog('autolink', `${slug} (+${outCount}/out, +${inCount}/in)`);
+  return { out: outCount, in: inCount, total };
+}
+
+function cmdAutolink(args) {
+  const direction = args.direction || 'both';
+  if (!['in', 'out', 'both'].includes(direction)) {
+    console.error(`Invalid --direction: ${direction}. Must be in|out|both.`);
+    process.exit(1);
+  }
+
+  const tmap = buildTitleMap();
+  tmap.sort((a, b) => b.title.length - a.title.length);
+
+  const targets = args.all ? listWikiPages().map((f) => f.replace(/\.md$/, '')) : (args._[0] ? [args._[0]] : null);
+  if (!targets) { console.error('Usage: wiki autolink <slug> | wiki autolink --all [--direction in|out|both] [--dry-run]'); process.exit(1); }
+
+  let totalOut = 0, totalIn = 0;
+  for (const slug of targets) {
+    const r = autolinkSlug(slug, { direction, dryRun: !!args['dry-run'], verbose: true, titleMap: tmap });
+    totalOut += r.out;
+    totalIn += r.in;
+  }
+  const total = totalOut + totalIn;
+  if (total === 0) console.log('(no new links to inject)');
+  else if (args['dry-run']) console.log(`(dry-run) would inject ${total} link(s) total (${totalOut} outbound, ${totalIn} inbound)`);
+  else {
+    regenerateIndex();
+    console.log(`injected ${total} link(s) total (${totalOut} outbound, ${totalIn} inbound)`);
+  }
+}
+
+// ─── navigation / placement verbs ──────────────────────────────────────────
+
+function resolveSlugCandidates(query, opts = {}) {
+  const matches = [];
+  const qLower = query.toLowerCase();
+  const qNorm = qLower.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const excludeSlug = opts.excludeSlug || null;
+
+  for (const f of listWikiPages()) {
+    const slug = f.replace(/\.md$/, '');
+    if (excludeSlug && slug === excludeSlug) continue;
+    const { fm } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    const title = (fm.title || '').trim();
+    const aliases = Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []);
+
+    if (slug === query || slug === qNorm) {
+      matches.push({ slug, confidence: 1.0, reason: 'exact slug' });
+      continue;
+    }
+    if (title && title.toLowerCase() === qLower) {
+      matches.push({ slug, confidence: 0.95, reason: `exact title "${title}"` });
+      continue;
+    }
+    const aliasHit = aliases.find((a) => a.toLowerCase() === qLower);
+    if (aliasHit) {
+      matches.push({ slug, confidence: 0.9, reason: `alias "${aliasHit}"` });
+      continue;
+    }
+    const allNames = [title, ...aliases].filter(Boolean);
+    const subHit = allNames.find((n) => n.toLowerCase().includes(qLower) || qLower.includes(n.toLowerCase()));
+    if (subHit && subHit.length >= 3) {
+      matches.push({ slug, confidence: 0.7, reason: `substring "${subHit}"` });
+      continue;
+    }
+    let bestLev = Infinity, bestName = null;
+    for (const n of allNames) {
+      if (Math.abs(n.length - query.length) > 3) continue;
+      const d = levenshtein(n.toLowerCase(), qLower);
+      if (d < bestLev) { bestLev = d; bestName = n; }
+    }
+    if (bestLev <= 2 && bestName) {
+      matches.push({ slug, confidence: 0.5 - 0.1 * bestLev, reason: `Levenshtein ${bestLev} to "${bestName}"` });
+    }
+  }
+
+  matches.sort((a, b) => b.confidence - a.confidence);
+  return matches;
+}
+
+function cmdResolve(args) {
+  const query = args._[0];
+  if (!query) { console.error('Usage: wiki resolve <fuzzy-name>'); process.exit(1); }
+  const top = resolveSlugCandidates(query).slice(0, 5);
+  if (top.length === 0) {
+    console.log('(no matches)');
+    process.exit(2);
+  }
+  for (const m of top) {
+    console.log(`${m.slug}\t${m.confidence.toFixed(2)}\t(${m.reason})`);
+  }
+}
+
+function cmdPath(args) {
+  const from = args._[0];
+  const to = args._[1];
+  const maxHops = parseInt(args['max-hops'] || '3', 10);
+  const directed = !!args.directed;
+  if (!from || !to) { console.error('Usage: wiki path <from> <to> [--max-hops N] [--directed]'); process.exit(1); }
+  if (!fs.existsSync(wikiPath(from))) { console.error(`Page ${from} does not exist.`); process.exit(2); }
+  if (!fs.existsSync(wikiPath(to))) { console.error(`Page ${to} does not exist.`); process.exit(2); }
+
+  // Build adjacency. By default undirected (relation existing in either direction counts as connection).
+  // Each edge: { target, verb, dir: 'out'|'in' } so display can show direction of traversal.
+  const adj = {};
+  for (const f of listWikiPages()) {
+    const slug = f.replace(/\.md$/, '');
+    const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    adj[slug] = adj[slug] || [];
+    for (const r of parseRelations(body)) {
+      adj[slug].push({ target: r.target, verb: r.verb, dir: 'out' });
+      if (!directed) {
+        adj[r.target] = adj[r.target] || [];
+        adj[r.target].push({ target: slug, verb: r.verb, dir: 'in' });
+      }
+    }
+  }
+
+  // BFS
+  const queue = [{ slug: from, path: [from], edges: [] }];
+  const visited = new Set([from]);
+  while (queue.length) {
+    const { slug, path: p, edges: ev } = queue.shift();
+    if (p.length > maxHops + 1) continue;
+    for (const r of (adj[slug] || [])) {
+      if (visited.has(r.target)) continue;
+      const newPath = [...p, r.target];
+      const newEdges = [...ev, r];
+      if (r.target === to) {
+        const display = [];
+        for (let i = 0; i < newPath.length - 1; i++) {
+          const e = newEdges[i];
+          if (e.dir === 'out') display.push(`${newPath[i]} → ${e.verb} → ${newPath[i + 1]}`);
+          else display.push(`${newPath[i]} ← ${e.verb} ← ${newPath[i + 1]}`);
+        }
+        console.log(display.join('\n'));
+        console.log(`(${newPath.length - 1} hop${newPath.length - 1 === 1 ? '' : 's'}${directed ? ', directed' : ''})`);
+        return;
+      }
+      visited.add(r.target);
+      queue.push({ slug: r.target, path: newPath, edges: newEdges });
+    }
+  }
+  console.log(`(no path within ${maxHops} hops${directed ? ', directed' : ''})`);
+  process.exit(2);
+}
+
+function cmdHubs(args) {
+  const topN = parseInt(args.top || '10', 10);
+  const counts = {};
+  for (const f of listWikiPages()) {
+    const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    for (const t of extractWikilinks(body)) {
+      counts[t] = (counts[t] || 0) + 1;
+    }
+  }
+  const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, topN);
+  for (const [slug, n] of ranked) {
+    const p = wikiPath(slug);
+    let title = slug;
+    let type = 'note';
+    if (fs.existsSync(p)) {
+      const { fm } = parseFrontmatter(fs.readFileSync(p, 'utf-8'));
+      title = fm.title || slug;
+      type = fm.type || 'note';
+    } else {
+      title = `${slug} (stub)`;
+    }
+    console.log(`${n}\t${type}\t${slug}\t${title}`);
+  }
+}
+
+function cmdTimeline(args) {
+  const slug = args._[0];
+  if (!slug) { console.error('Usage: wiki timeline <slug>'); process.exit(1); }
+  const page = readPage(slug);
+  if (!page) { console.error(`Page ${slug} does not exist.`); process.exit(2); }
+
+  const events = [];
+  for (const o of parseObservations(page.body)) {
+    if (o.dates.since) events.push({ date: o.dates.since, mark: 'since', obs: o });
+    if (o.dates.until) events.push({ date: o.dates.until, mark: 'until', obs: o });
+    if (o.dates.on)    events.push({ date: o.dates.on,    mark: 'on',    obs: o });
+    if (o.dates.asOf)  events.push({ date: o.dates.asOf,  mark: 'as-of', obs: o });
+  }
+
+  // Also pull type=event pages where this slug is an attendee.
+  for (const f of listWikiPages()) {
+    const { fm } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    if (fm.type !== 'event' || !fm.when) continue;
+    const attendees = Array.isArray(fm.attendees) ? fm.attendees : [];
+    const eventSlug = fm.id || f.replace(/\.md$/, '');
+    if (attendees.includes(slug) || eventSlug === slug) {
+      events.push({
+        date: String(fm.when).slice(0, 10),
+        mark: 'event',
+        obs: { category: 'event', body: `${fm.title || eventSlug} → [[${eventSlug}]]` },
+      });
+    }
+  }
+
+  if (events.length === 0) { console.log(`(no dated observations or events on ${slug})`); return; }
+  events.sort((a, b) => a.date.localeCompare(b.date));
+  for (const e of events) {
+    console.log(`${e.date}  ${e.mark.padEnd(6)} [${e.obs.category}] ${e.obs.body}`);
+  }
+}
+
+function cmdStubs(args) {
+  const topN = parseInt(args.top || '50', 10);
+  const referencedBy = new Map(); // slug -> Set of slugs that link to it
+  for (const f of listWikiPages()) {
+    const from = f.replace(/\.md$/, '');
+    const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    for (const t of extractWikilinks(body)) {
+      if (!referencedBy.has(t)) referencedBy.set(t, new Set());
+      referencedBy.get(t).add(from);
+    }
+  }
+  const stubs = [];
+  for (const [slug, refs] of referencedBy.entries()) {
+    if (!fs.existsSync(wikiPath(slug))) {
+      stubs.push({ slug, count: refs.size, refs: [...refs] });
+    }
+  }
+  stubs.sort((a, b) => b.count - a.count);
+  if (stubs.length === 0) { console.log('(no stubs — every wikilink resolves)'); return; }
+  const showRefs = args['show-refs'];
+  for (const s of stubs.slice(0, topN)) {
+    if (showRefs) {
+      console.log(`${s.count}\t${s.slug}\t${s.refs.join(', ')}`);
+    } else {
+      console.log(`${s.count}\t${s.slug}`);
+    }
+  }
+  if (stubs.length > topN) console.log(`... ${stubs.length - topN} more (use --top N)`);
+}
+
+// ─── ingest ────────────────────────────────────────────────────────────────
+
+// Format an observation spec into a markdown line.
+// spec: {body, since?, until?, on?, asOf?, tags?, source?}
+// defaultSource: applied if obs has no own source (becomes ^[default])
+function formatObservation(spec, category, defaultSource) {
+  if (!spec || !spec.body) return null;
+  const dateParts = [];
+  if (spec.since) dateParts.push(`[since ${spec.since}]`);
+  if (spec.until) dateParts.push(`[until ${spec.until}]`);
+  if (spec.on) dateParts.push(`[on ${spec.on}]`);
+  if (spec.asOf) dateParts.push(`[as-of ${spec.asOf}]`);
+  const tagParts = (Array.isArray(spec.tags) ? spec.tags : []).map((t) => `#${t}`);
+  const source = spec.source || defaultSource;
+  const provPart = source ? `^[${source}]` : '';
+  const segments = [spec.body.trim(), ...dateParts, ...tagParts, provPart].filter(Boolean);
+  return `- [${category}] ${segments.join(' ')}`;
+}
+
+function formatRelation(rel) {
+  if (!rel || !rel.verb || !rel.target) return null;
+  // Multi-word verbs: quote
+  if (/\s/.test(rel.verb)) return `- "${rel.verb}" [[${rel.target}]]`;
+  return `- ${rel.verb} [[${rel.target}]]`;
+}
+
+function buildBodyFromSpec(spec, defaultSource) {
+  const lines = [];
+  if (spec.summary) { lines.push(spec.summary.trim()); lines.push(''); }
+  const cats = [
+    ['fact', spec.facts],
+    ['hypothesis', spec.hypotheses],
+    ['opinion', spec.opinions],
+    ['claim', spec.claims],
+    ['quote', spec.quotes],
+    ['question', spec.questions],
+    ['decision', spec.decisions],
+    ['idea', spec.ideas],
+  ];
+  for (const [cat, arr] of cats) {
+    if (!Array.isArray(arr)) continue;
+    for (const obs of arr) {
+      const line = formatObservation(obs, cat, defaultSource);
+      if (line) lines.push(line);
+    }
+  }
+  if (Array.isArray(spec.relations)) {
+    for (const r of spec.relations) {
+      const line = formatRelation(r);
+      if (line) lines.push(line);
+    }
+  }
+  return lines.join('\n') + (lines.length ? '\n' : '');
+}
+
+function cmdIngest(args) {
+  // Read JSON spec from stdin or --file
+  let jsonText = '';
+  if (args.stdin) {
+    jsonText = fs.readFileSync(0, 'utf-8');
+  } else if (args.file) {
+    if (!fs.existsSync(args.file)) { console.error(`File not found: ${args.file}`); process.exit(1); }
+    jsonText = fs.readFileSync(args.file, 'utf-8');
+  } else {
+    console.error('Usage: wiki ingest --stdin   |   wiki ingest --file <path.json>');
+    process.exit(1);
+  }
+
+  // Sanity size guard — spec is hand-written JSON describing entities; should be small.
+  const MAX_SPEC_BYTES = 2_000_000; // 2 MB
+  if (jsonText.length > MAX_SPEC_BYTES) {
+    console.error(`Spec too large: ${jsonText.length} bytes (max ${MAX_SPEC_BYTES}). Split into multiple ingests.`);
+    process.exit(2);
+  }
+
+  let spec;
+  try {
+    spec = JSON.parse(jsonText);
+  } catch (e) {
+    console.error(`Invalid JSON: ${e.message}`);
+    process.exit(2);
+  }
+
+  // B2 replay capture: persist the spec for any Telegram-driven ingest carrying
+  // a msg_id. Disabled when running under --replay (we're replaying a captured
+  // spec; don't overwrite the artifact we're re-running).
+  const replayMsgId = spec && spec.msg_id;
+  if (replayMsgId && !args.replay) captureReplaySpec(replayMsgId, jsonText);
+
+  const schema = loadSchema();
+  const knownVerbs = knownRelationVerbs(schema);
+  const errors = [];
+
+  // ─── VALIDATE ─────────────────────────────────────────────────────────
+  if (!spec.source || typeof spec.source !== 'string') {
+    errors.push('top-level: "source" string is required (e.g. "telegram:2026-05-17")');
+  }
+  const stubs = Array.isArray(spec.stubs) ? spec.stubs : [];
+  const entities = Array.isArray(spec.entities) ? spec.entities : [];
+  const events = Array.isArray(spec.events) ? spec.events : [];
+  const patches = Array.isArray(spec.patches) ? spec.patches : [];
+  if (stubs.length + entities.length + events.length + patches.length === 0) {
+    errors.push('spec is empty: provide at least one of stubs/entities/events/patches');
+  }
+
+  // Build the set of slugs this spec will create + detect duplicates
+  const createdSlugs = new Set();
+  const slugSeen = new Map(); // slug -> [section names]
+  const addSlug = (slug, section) => {
+    if (!slug) return;
+    createdSlugs.add(slug);
+    if (!slugSeen.has(slug)) slugSeen.set(slug, []);
+    slugSeen.get(slug).push(section);
+  };
+  for (const s of stubs)    if (s) addSlug(s.slug, 'stubs');
+  for (const e of entities) if (e) addSlug(e.slug, 'entities');
+  for (const e of events)   if (e) addSlug(e.slug, 'events');
+  for (const [slug, locs] of slugSeen.entries()) {
+    if (locs.length > 1) errors.push(`duplicate slug "${slug}" appears in: ${locs.join(', ')} — each slug can only be written once per spec`);
+  }
+
+  // Pre-write fuzzy duplicate check: for every new slug (no file yet), see if title
+  // resembles an existing page. Catches "alice-smith" being created when "alice" exists.
+  // Bypass with --allow-duplicates.
+  if (!args['allow-duplicates']) {
+    const DUP_THRESHOLD = 0.7;
+    const checkNewSlug = (slug, title, section) => {
+      if (!slug || !title || title.length < 3) return;
+      if (fs.existsSync(wikiPath(slug))) return; // page already exists; not a "new" slug
+      const matches = resolveSlugCandidates(title, { excludeSlug: slug });
+      const hit = matches.find((m) => m.confidence >= DUP_THRESHOLD && m.slug !== slug);
+      if (hit) {
+        errors.push(`${section} "${slug}" (title "${title}") may duplicate existing [[${hit.slug}]] (confidence ${hit.confidence.toFixed(2)}, ${hit.reason}). Use \`wiki resolve "${title}"\` first, or pass --allow-duplicates if intentional.`);
+      }
+    };
+    for (const s of stubs)    if (s) checkNewSlug(s.slug, s.title, 'stubs');
+    for (const e of entities) if (e) checkNewSlug(e.slug, e.title, 'entities');
+    for (const e of events)   if (e) checkNewSlug(e.slug, e.title, 'events');
+  }
+
+  const validateSlug = (s) => validSlug(s) && !isReserved(s) && !schema.forbidden.has(s);
+
+  const validateRelations = (rels, context, selfSlug) => {
+    if (!Array.isArray(rels)) return;
+    for (const r of rels) {
+      if (!r || !r.verb || !r.target) {
+        errors.push(`${context}: relation needs {verb, target}, got ${JSON.stringify(r)}`);
+        continue;
+      }
+      if (!knownVerbs.has(r.verb) && !/\s/.test(r.verb)) {
+        errors.push(`${context}: invented verb "${r.verb}" — not in SCHEMA registries`);
+      }
+      if (selfSlug && r.target === selfSlug) {
+        errors.push(`${context}: self-relation not allowed (target "${r.target}" equals page slug)`);
+        continue;
+      }
+      if (!validateSlug(r.target)) {
+        errors.push(`${context}: relation target "${r.target}" is not a valid slug`);
+      } else if (!createdSlugs.has(r.target) && !fs.existsSync(wikiPath(r.target))) {
+        errors.push(`${context}: relation target [[${r.target}]] does not exist — add a stub or create the page`);
+      }
+    }
+  };
+
+  const validateTags = (tags, context) => {
+    if (!Array.isArray(tags)) { errors.push(`${context}: tags must be an array`); return; }
+    if (schema.tags) {
+      const unknown = tags.filter((t) => !schema.tags.has(t));
+      if (unknown.length) errors.push(`${context}: unknown tag(s) ${unknown.map((t) => `"${t}"`).join(', ')} — add to SCHEMA.md first`);
+    }
+  };
+
+  // Validate stubs
+  for (const [i, s] of stubs.entries()) {
+    const ctx = `stubs[${i}]`;
+    if (!s || typeof s !== 'object') { errors.push(`${ctx}: must be object`); continue; }
+    if (!s.slug || !validateSlug(s.slug)) errors.push(`${ctx}: invalid slug "${s.slug}"`);
+    if (!s.title) errors.push(`${ctx}: title required`);
+    if (s.type && !KNOWN_TYPES.has(s.type)) errors.push(`${ctx}: unknown type "${s.type}"`);
+    validateTags(s.tags || [], ctx);
+  }
+
+  // Validate entities
+  for (const [i, e] of entities.entries()) {
+    const ctx = `entities[${i}] (${e && e.slug ? e.slug : '?'})`;
+    if (!e || typeof e !== 'object') { errors.push(`${ctx}: must be object`); continue; }
+    if (!e.slug || !validateSlug(e.slug)) errors.push(`${ctx}: invalid slug`);
+    if (!e.title) errors.push(`${ctx}: title required`);
+    if (e.type && e.type !== 'entity' && e.type !== 'concept' && e.type !== 'decision') {
+      errors.push(`${ctx}: type must be entity/concept/decision (or omit for entity)`);
+    }
+    validateTags(e.tags || [], ctx);
+    const type = e.type || 'entity';
+    if (type === 'entity') {
+      const ek = (e.tags || []).find((t) => ENTITY_KIND_TAGS.has(t));
+      if (!ek) errors.push(`${ctx}: type=entity requires one of tags: ${[...ENTITY_KIND_TAGS].join('/')}`);
+    }
+    const hasContent = (e.facts && e.facts.length) || (e.hypotheses && e.hypotheses.length)
+      || (e.opinions && e.opinions.length) || (e.claims && e.claims.length)
+      || (e.relations && e.relations.length);
+    if (!hasContent) errors.push(`${ctx}: entity needs ≥1 fact/hypothesis/opinion/claim/relation`);
+    validateRelations(e.relations || [], ctx, e.slug);
+  }
+
+  // Validate events
+  for (const [i, e] of events.entries()) {
+    const ctx = `events[${i}] (${e && e.slug ? e.slug : '?'})`;
+    if (!e || typeof e !== 'object') { errors.push(`${ctx}: must be object`); continue; }
+    if (!e.slug || !validateSlug(e.slug)) errors.push(`${ctx}: invalid slug`);
+    if (!e.title) errors.push(`${ctx}: title required`);
+    if (!e.when) {
+      errors.push(`${ctx}: "when" required (YYYY-MM-DD or ISO8601)`);
+    } else {
+      // Accept: YYYY, YYYY-MM, YYYY-MM-DD, YYYY-MM-DDTHH:MM(:SS)?(Z|±HH:MM)?
+      const ok = /^\d{4}(-\d{2}(-\d{2}(T\d{2}:\d{2}(:\d{2})?(Z|[+-]\d{2}:?\d{2})?)?)?)?$/.test(String(e.when));
+      if (!ok) errors.push(`${ctx}: "when" must be YYYY-MM-DD or ISO8601; got "${e.when}"`);
+    }
+    validateTags(e.tags || [], ctx);
+    if (!Array.isArray(e.tags) || !e.tags.includes('event')) errors.push(`${ctx}: tags must include "event"`);
+    // Validate attendees are slugs that exist or will exist
+    if (Array.isArray(e.attendees)) {
+      for (const a of e.attendees) {
+        if (!validateSlug(a)) errors.push(`${ctx}: attendee "${a}" is not a valid slug`);
+        else if (!createdSlugs.has(a) && !fs.existsSync(wikiPath(a))) {
+          errors.push(`${ctx}: attendee [[${a}]] does not exist — add as stub or create the page`);
+        }
+      }
+    }
+    // Location, if a slug, should resolve
+    if (e.location && /^[a-z0-9][a-z0-9-]*$/.test(e.location)) {
+      if (!createdSlugs.has(e.location) && !fs.existsSync(wikiPath(e.location))) {
+        errors.push(`${ctx}: location "${e.location}" looks like a slug but page does not exist — add as stub or use free text`);
+      }
+    }
+    validateRelations(e.relations || [], ctx, e.slug);
+  }
+
+  // Validate patches
+  for (const [i, p] of patches.entries()) {
+    const ctx = `patches[${i}] (${p && p.slug ? p.slug : '?'})`;
+    if (!p || typeof p !== 'object') { errors.push(`${ctx}: must be object`); continue; }
+    if (!p.slug || !validateSlug(p.slug)) errors.push(`${ctx}: invalid slug`);
+    else if (!fs.existsSync(wikiPath(p.slug)) && !createdSlugs.has(p.slug)) errors.push(`${ctx}: target page does not exist (and is not being created in this spec)`);
+    const hasOps = (p.add_facts && p.add_facts.length) || (p.add_hypotheses && p.add_hypotheses.length)
+      || (p.add_opinions && p.add_opinions.length) || (p.add_relations && p.add_relations.length)
+      || (p.supersede && p.supersede.length);
+    if (!hasOps) errors.push(`${ctx}: patch needs ≥1 operation`);
+    validateRelations(p.add_relations || [], ctx, p.slug);
+  }
+
+  if (errors.length) {
+    if (replayMsgId && !args.replay) {
+      captureReplayResult(replayMsgId, { exitCode: 3, errors, created: [], modified: [], skipped: [] });
+    }
+    console.error('# ingest validation failed:');
+    for (const e of errors) console.error(`  - ${e}`);
+    process.exit(3);
+  }
+
+  // ─── EXECUTE ──────────────────────────────────────────────────────────
+  const source = spec.source;
+  const created = [], modified = [], skipped = [];
+
+  // 1) Stubs first
+  for (const s of stubs) {
+    if (fs.existsSync(wikiPath(s.slug))) { skipped.push(s.slug); continue; }
+    const fm = {
+      id: s.slug, title: s.title,
+      type: s.type || 'entity',
+      created: nowISO(), updated: nowISO(),
+      tags: s.tags || [],
+    };
+    const body = `Stub. ^[${source}]\n`;
+    fs.writeFileSync(wikiPath(s.slug), serializeFrontmatter(fm, body));
+    created.push(s.slug);
+  }
+
+  // 2) Entities
+  for (const e of entities) {
+    const type = e.type || 'entity';
+    let fmCreated = nowISO();
+    const exists = fs.existsSync(wikiPath(e.slug));
+    if (exists) {
+      const cur = parseFrontmatter(fs.readFileSync(wikiPath(e.slug), 'utf-8'));
+      if (cur.fm.created) fmCreated = cur.fm.created;
+    }
+    const fm = {
+      id: e.slug, title: e.title,
+      type, created: fmCreated, updated: nowISO(),
+      tags: e.tags || [],
+    };
+    // Optional extras
+    if (e.aliases) fm.aliases = Array.isArray(e.aliases) ? e.aliases : [e.aliases];
+    if (e.summary) fm.summary = e.summary;
+    for (const k of ['homepage', 'scholar', 'orcid', 'github', 'linkedin', 'twitter', 'arxiv', 'email']) {
+      if (e[k]) fm[k] = e[k];
+    }
+    const body = buildBodyFromSpec(e, source);
+    fs.writeFileSync(wikiPath(e.slug), serializeFrontmatter(fm, body));
+    (exists ? modified : created).push(e.slug);
+  }
+
+  // 3) Events
+  for (const e of events) {
+    let fmCreated = nowISO();
+    const exists = fs.existsSync(wikiPath(e.slug));
+    if (exists) {
+      const cur = parseFrontmatter(fs.readFileSync(wikiPath(e.slug), 'utf-8'));
+      if (cur.fm.created) fmCreated = cur.fm.created;
+    }
+    const fm = {
+      id: e.slug, title: e.title,
+      type: 'event', created: fmCreated, updated: nowISO(),
+      tags: e.tags,
+      when: e.when,
+    };
+    if (e.duration) fm.duration = e.duration;
+    if (e.location) fm.location = e.location;
+    if (Array.isArray(e.attendees) && e.attendees.length) fm.attendees = e.attendees;
+    if (e.recurrence) fm.recurrence = e.recurrence;
+    if (e.summary) fm.summary = e.summary;
+    const body = buildBodyFromSpec(e, source);
+    fs.writeFileSync(wikiPath(e.slug), serializeFrontmatter(fm, body));
+    (exists ? modified : created).push(e.slug);
+  }
+
+  // 4) Patches
+  for (const p of patches) {
+    const { fm, body } = parseFrontmatter(fs.readFileSync(wikiPath(p.slug), 'utf-8'));
+    let newBody = body;
+    const additions = [];
+    if (Array.isArray(p.supersede)) {
+      for (const sup of p.supersede) {
+        const needle = sup.match;
+        const lines = newBody.split('\n');
+        const matches = [];
+        for (let i = 0; i < lines.length; i++) {
+          if (/^- (?:~~)?\[/.test(lines[i]) && lines[i].includes(needle)) matches.push(i);
+        }
+        if (matches.length === 0) {
+          console.error(`patches[${p.slug}]: supersede needle "${needle}" matched 0 observations — skipped`);
+        } else if (matches.length > 1) {
+          console.error(`patches[${p.slug}]: supersede needle "${needle}" matched ${matches.length} observations — ambiguous, skipped (use a more specific substring)`);
+        } else {
+          const idx = matches[0];
+          if (!/^- ~~/.test(lines[idx])) {
+            const today = nowISO().slice(0, 10);
+            lines[idx] = lines[idx].replace(/^- (\[[a-z]+\][\s\S]+?)\s*$/, `- ~~$1~~ [until ${today}]`);
+            newBody = lines.join('\n');
+          }
+        }
+        if (sup.replacement_fact) {
+          const line = formatObservation(sup.replacement_fact, 'fact', source);
+          if (line) additions.push(line);
+        }
+      }
+    }
+    const obsGroups = [
+      ['fact', p.add_facts],
+      ['hypothesis', p.add_hypotheses],
+      ['opinion', p.add_opinions],
+      ['claim', p.add_claims],
+    ];
+    for (const [cat, arr] of obsGroups) {
+      if (!Array.isArray(arr)) continue;
+      for (const obs of arr) {
+        const line = formatObservation(obs, cat, source);
+        if (line) additions.push(line);
+      }
+    }
+    if (Array.isArray(p.add_relations)) {
+      for (const r of p.add_relations) {
+        const line = formatRelation(r);
+        if (line) additions.push(line);
+      }
+    }
+    if (additions.length) {
+      newBody = newBody.trimEnd() + '\n' + additions.join('\n') + '\n';
+    }
+    fm.updated = nowISO();
+    fs.writeFileSync(wikiPath(p.slug), serializeFrontmatter(fm, newBody));
+    modified.push(p.slug);
+  }
+
+  // Refresh index/log
+  regenerateIndex();
+  const touched = [...new Set([...created, ...modified])];
+  appendLog('ingest', `${created.length} created, ${modified.length} modified, ${skipped.length} skipped`);
+
+  // 5) Bidirectional autolink on touched slugs
+  const titleMap = buildTitleMap();
+  for (const slug of touched) {
+    try { autolinkSlug(slug, { direction: 'both', dryRun: false, verbose: false, titleMap }); }
+    catch (e) { console.error(`autolink ${slug}: ${e.message}`); }
+  }
+
+  // 6) Audit touched slugs
+  const auditResults = {};
+  for (const slug of touched) auditResults[slug] = auditSlug(slug);
+
+  // 7) Summary
+  console.log(`# ingest complete: ${created.length} created, ${modified.length} modified, ${skipped.length} skipped`);
+  if (created.length) console.log(`  created: ${created.join(', ')}`);
+  if (modified.length) console.log(`  modified: ${modified.join(', ')}`);
+  if (skipped.length) console.log(`  skipped (already exist): ${skipped.join(', ')}`);
+  const dirty = Object.entries(auditResults).filter(([_, r]) => r.score > 0);
+  if (replayMsgId && !args.replay) {
+    captureReplayResult(replayMsgId, {
+      exitCode: dirty.length === 0 ? 0 : 2,
+      created, modified, skipped,
+      audit_dirty: dirty.length,
+      errors: [],
+    });
+  }
+  if (dirty.length === 0) {
+    console.log('audit: all touched pages clean');
+  } else {
+    console.error('');
+    console.error('# audit issues on ingested pages:');
+    for (const [slug, r] of dirty) {
+      console.error(`  ${slug} (score ${r.score}):`);
+      for (const i of r.issues) console.error(`    [${i.severity}] ${i.rule}: ${i.detail}`);
+    }
+    console.error(`  → fix via 'wiki patch <slug> ...' before next ingestion`);
+    process.exit(2);
+  }
+}
+
+// ─── audit ─────────────────────────────────────────────────────────────────
+
+// Audit a single page. Returns { score, issues: [{rule, severity, detail}] }.
+// Excludes auto-files (index, log) — they return { score: 0, issues: [] }.
+function auditSlug(slug, opts = {}) {
+  const issues = [];
+  if (slug === 'index' || slug === 'log') return { score: 0, issues };
+  const p = wikiPath(slug);
+  if (!fs.existsSync(p)) return { score: 0, issues };
+  const raw = fs.readFileSync(p, 'utf-8');
+  const { fm, body } = parseFrontmatter(raw);
+  const schema = opts.schema || loadSchema();
+  const knownVerbs = opts.knownVerbs || knownRelationVerbs(schema);
+  const type = fm.type || 'note';
+  const tags = Array.isArray(fm.tags) ? fm.tags : [];
+  const title = String(fm.title || slug);
+
+  // Rule 1: mislabeled-event — title contains event keyword but type != event
+  if (type !== 'event' && schema.eventKeywords && schema.eventKeywords.size) {
+    const titleLower = title.toLowerCase();
+    const hits = [];
+    for (const kw of schema.eventKeywords) {
+      const re = new RegExp(`\\b${kw}\\b`, 'i');
+      if (re.test(titleLower)) hits.push(kw);
+    }
+    if (hits.length) {
+      issues.push({ rule: 'mislabeled-event', severity: 'high', detail: `title contains: ${hits.join(', ')} but type=${type}` });
+    }
+  }
+
+  // Rule 2: mislabeled-entity — type=note with entity-kind tag
+  if (type === 'note' && tags.some((t) => ENTITY_KIND_TAGS.has(t))) {
+    const ek = tags.filter((t) => ENTITY_KIND_TAGS.has(t));
+    issues.push({ rule: 'mislabeled-entity', severity: 'high', detail: `type=note but tagged: ${ek.join(', ')} (should be type=entity)` });
+  }
+
+  // Rule 3: uncategorized-bullets — `- ` lines that aren't relations or categorized observations
+  const uncat = [];
+  for (const line of body.split('\n')) {
+    if (!/^- /.test(line)) continue;
+    if (/^- (?:~~)?\[(?:fact|hypothesis|opinion|claim|quote|question|decision|todo|idea)\]/.test(line)) continue;
+    if (/^- (?:[a-z][a-z_]+|"[^"]+") \[\[[a-z0-9][a-z0-9-]*\]\]/.test(line)) continue;
+    uncat.push(line.trim().slice(0, 80));
+  }
+  if (uncat.length) {
+    issues.push({ rule: 'uncategorized-bullets', severity: 'medium', detail: `${uncat.length} bullet(s) without [category] prefix or relation form`, examples: uncat.slice(0, 3) });
+  }
+
+  // Rule 4: missing-provenance — entity/event/concept/synthesis with observations but no ^[...] markers
+  const PROV_TYPES = new Set(['entity', 'event', 'concept', 'synthesis']);
+  if (PROV_TYPES.has(type)) {
+    const obs = parseObservations(body);
+    if (obs.length > 0) {
+      const hasProv = /\^\[[^\]]+\]/.test(body) || fm.raw_path || (Array.isArray(fm.derived_from) && fm.derived_from.length > 0);
+      if (!hasProv) {
+        issues.push({ rule: 'missing-provenance', severity: 'high', detail: `${obs.length} observation(s) with no ^[...] marker on page` });
+      }
+    }
+  }
+
+  // Rule 5: invented-verb — relation verbs not in known set
+  const invented = [];
+  for (const r of parseRelations(body)) {
+    if (!knownVerbs.has(r.verb)) invented.push(r.verb);
+  }
+  if (invented.length) {
+    issues.push({ rule: 'invented-verb', severity: 'high', detail: `verb(s) not in SCHEMA registries: ${[...new Set(invented)].join(', ')}` });
+  }
+
+  // Rule 6: long-observation — > 120 chars of CLEANED body (excludes date tags, hashtags, provenance)
+  // The cleaned body is the real descriptive content; raw text inflates with structure.
+  const long = [];
+  for (const o of parseObservations(body)) {
+    if (o.body.length > 120) long.push(o.body.slice(0, 60) + '…');
+  }
+  if (long.length) {
+    issues.push({ rule: 'long-observation', severity: 'low', detail: `${long.length} observation(s) >120 chars of body (multi-fact suspect)` });
+  }
+
+  // Rule 7: hot-text-mention — left to vault-wide audit (cross-page evidence needed); skip per-page
+
+  // Rule 8: empty-page — entity/event/concept page with NO observations AND NO relations.
+  // Semantic check, not byte count: a page with 1 [fact] + 1 relation is "thin but real".
+  // EXCEPT: skip if body matches the stub template produced by `wiki ingest` (Stub. ^[source]) —
+  // stubs are intentionally minimal placeholders; flagging them trains Alfred to ignore the audit.
+  const SUBSTANTIVE_TYPES = new Set(['entity', 'event', 'concept']);
+  const isStubTemplate = /^\s*Stub\.\s*\^\[[^\]]+\]\s*$/.test(body.trim());
+  if (SUBSTANTIVE_TYPES.has(type) && !isStubTemplate) {
+    const obsCount = parseObservations(body).length;
+    const relCount = parseRelations(body).length;
+    if (obsCount === 0 && relCount === 0) {
+      issues.push({ rule: 'empty-page', severity: 'medium', detail: `no observations or relations; type=${type} expected to have at least one [fact] or typed relation` });
+    }
+  }
+
+  // Rule 9: lonely — done by vault-wide audit (needs all pages); skip per-page
+
+  // Rule 10: event-frontmatter — type=event missing 'when'
+  if (type === 'event' && !fm.when) {
+    issues.push({ rule: 'event-frontmatter', severity: 'high', detail: `type=event but 'when' field missing` });
+  }
+  // event must have 'event' tag
+  if (type === 'event' && !tags.includes('event')) {
+    issues.push({ rule: 'event-frontmatter', severity: 'medium', detail: `type=event but 'event' tag missing` });
+  }
+
+  const score = issues.reduce((acc, i) => acc + (i.severity === 'high' ? 3 : i.severity === 'medium' ? 2 : 1), 0);
+  return { score, issues };
+}
+
+// Vault-wide audit — also computes cross-page rules (hot-text, lonely).
+function auditAll(opts = {}) {
+  const schema = loadSchema();
+  const knownVerbs = knownRelationVerbs(schema);
+  const pages = listWikiPages();
+  const perPage = []; // [{slug, score, issues}]
+  for (const f of pages) {
+    const slug = f.replace(/\.md$/, '');
+    if (slug === 'index' || slug === 'log') continue;
+    perPage.push({ slug, ...auditSlug(slug, { schema, knownVerbs }) });
+  }
+
+  // Cross-page rule: hot-text-mention. Capitalized 2+ word phrases appearing as prose in 2+ pages but no stub.
+  const HOT_RE = /\b((?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}))\b/g;
+  const STOPWORDS = new Set(['New York', 'Hong Kong', 'San Francisco']); // common multi-word that ARE legitimate
+  const phraseCounts = new Map(); // phrase -> Set of slugs
+  for (const f of pages) {
+    const slug = f.replace(/\.md$/, '');
+    if (slug === 'index' || slug === 'log') continue;
+    const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    // Remove wikilinks first so [[Alice Smith]] doesn't get matched
+    const stripped = body.replace(/\[\[[^\]]+\]\]/g, '');
+    let m;
+    HOT_RE.lastIndex = 0;
+    while ((m = HOT_RE.exec(stripped)) !== null) {
+      const phrase = m[1].trim();
+      if (phrase.length < 6) continue;
+      if (STOPWORDS.has(phrase)) continue;
+      const slugified = phrase.toLowerCase().replace(/\s+/g, '-');
+      if (fs.existsSync(wikiPath(slugified))) continue; // already a page
+      if (!phraseCounts.has(phrase)) phraseCounts.set(phrase, new Set());
+      phraseCounts.get(phrase).add(slug);
+    }
+  }
+  const hotMentions = [];
+  for (const [phrase, slugs] of phraseCounts.entries()) {
+    if (slugs.size >= 2) hotMentions.push({ phrase, count: slugs.size, pages: [...slugs] });
+  }
+  hotMentions.sort((a, b) => b.count - a.count);
+
+  // Cross-page rule: lonely. Total inbound + outbound graph connections < 2.
+  const wikilinkInbound = {};
+  const wikilinkOutbound = {};
+  for (const f of pages) {
+    const slug = f.replace(/\.md$/, '');
+    const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    const out = new Set(extractWikilinks(body));
+    wikilinkOutbound[slug] = out.size;
+    for (const t of out) {
+      wikilinkInbound[t] = (wikilinkInbound[t] || 0) + 1;
+    }
+  }
+  for (const p of perPage) {
+    const inLinks = wikilinkInbound[p.slug] || 0;
+    const outLinks = wikilinkOutbound[p.slug] || 0;
+    const total = inLinks + outLinks;
+    const { fm } = parseFrontmatter(fs.readFileSync(wikiPath(p.slug), 'utf-8'));
+    const type = fm.type || 'note';
+    if (total < 2 && type !== 'todo' && type !== 'source') {
+      p.issues.push({ rule: 'lonely', severity: 'low', detail: `${total} graph connection(s); orphan-risk` });
+      p.score += 1;
+    }
+  }
+
+  return { perPage, hotMentions };
+}
+
+// Post-write audit: called from cmdWrite/cmdPatch/cmdIngest. Silent if clean.
+function postWriteAudit(slug) {
+  try {
+    const result = auditSlug(slug);
+    if (result.score === 0) return;
+    console.error('');
+    console.error(`# audit ${slug}: ${result.issues.length} issue(s), score ${result.score}`);
+    for (const i of result.issues) console.error(`  [${i.severity}] ${i.rule}: ${i.detail}`);
+    console.error(`  → fix via 'wiki patch ${slug} ...' before next ingestion`);
+  } catch (e) {
+    // Audit hook should never break the write
+    console.error(`audit-hook error: ${e.message}`);
+  }
+}
+
+function formatAuditPage(slug, result) {
+  const lines = [];
+  if (result.score === 0) {
+    lines.push(`# audit ${slug}: clean`);
+    return lines.join('\n');
+  }
+  lines.push(`# audit ${slug}: ${result.issues.length} issue(s), score ${result.score}`);
+  for (const i of result.issues) {
+    lines.push(`  [${i.severity}] ${i.rule}: ${i.detail}`);
+    if (i.examples) for (const ex of i.examples) lines.push(`     · ${ex}`);
+  }
+  return lines.join('\n');
+}
+
+function cmdAudit(args) {
+  const slug = args._[0];
+  if (args.all) {
+    const { perPage, hotMentions } = auditAll();
+    const dirty = perPage.filter((p) => p.score > 0).sort((a, b) => b.score - a.score);
+    console.log(`# vault audit: ${perPage.length} pages, ${dirty.length} with issues`);
+    if (dirty.length === 0) {
+      console.log('clean');
+    } else {
+      console.log('');
+      // Per-rule histogram
+      const ruleCounts = {};
+      for (const p of perPage) {
+        for (const i of p.issues) ruleCounts[i.rule] = (ruleCounts[i.rule] || 0) + 1;
+      }
+      console.log('## by rule');
+      for (const [rule, count] of Object.entries(ruleCounts).sort((a, b) => b[1] - a[1])) {
+        console.log(`  ${count}\t${rule}`);
+      }
+      console.log('');
+      console.log('## top offenders');
+      for (const p of dirty.slice(0, 20)) {
+        console.log(`  score=${p.score}\t${p.slug}\t(${p.issues.map((i) => i.rule).join(', ')})`);
+      }
+      if (dirty.length > 20) console.log(`  ... ${dirty.length - 20} more`);
+    }
+    if (hotMentions.length) {
+      console.log('');
+      console.log('## hot-text mentions (potential stubs)');
+      for (const h of hotMentions.slice(0, 15)) {
+        console.log(`  ${h.count}\t"${h.phrase}"\t(in: ${h.pages.join(', ')})`);
+      }
+    }
+    process.exit(dirty.length > 0 ? 2 : 0);
+  }
+  if (!slug) {
+    console.error('Usage: wiki audit <slug>   |   wiki audit --all');
+    process.exit(1);
+  }
+  if (!fs.existsSync(wikiPath(slug))) {
+    console.error(`Page ${slug} does not exist.`);
+    process.exit(1);
+  }
+  const result = auditSlug(slug);
+  console.log(formatAuditPage(slug, result));
+  process.exit(result.score > 0 ? 2 : 0);
+}
+
+function cmdGroom(args) {
+  const mechanical = args.mechanical || args._[0] === '--mechanical' || (!args.propose && !args.apply);
+  if (!mechanical) {
+    console.error('wiki groom --mechanical    (other modes: --propose, --apply not implemented)');
+    process.exit(1);
+  }
+  const dryRun = args['dry-run'];
+  const schema = loadSchema();
+  const pages = listWikiPages();
+  const slugSet = new Set(pages.map((f) => f.replace(/\.md$/, '')));
+
+  console.log('# wiki groom --mechanical');
+  console.log(`pages: ${pages.length}  symmetric verbs: ${schema.symmetric.size}  inverse pairs: ${schema.inverses.size}`);
+  console.log('');
+
+  // PASS 1: symmetric + inverse relation enforcement
+  // Build: for each page, the relations parsed from its body.
+  const pageRelations = new Map(); // slug -> [{verb, target}]
+  for (const f of pages) {
+    const slug = f.replace(/\.md$/, '');
+    const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    pageRelations.set(slug, parseRelations(body));
+  }
+
+  // Detect missing inverses
+  const missing = []; // {fromSlug, verb, targetSlug, neededVerb}
+  for (const [fromSlug, rels] of pageRelations.entries()) {
+    for (const { verb, target } of rels) {
+      if (!slugSet.has(target)) continue; // target is a stub, skip
+      let neededVerb = null;
+      if (schema.symmetric.has(verb)) neededVerb = verb;
+      else if (schema.inverses.has(verb)) neededVerb = schema.inverses.get(verb);
+      if (!neededVerb) continue;
+      const targetRels = pageRelations.get(target) || [];
+      const exists = targetRels.some((r) => r.verb === neededVerb && r.target === fromSlug);
+      if (!exists) missing.push({ fromSlug, verb, target, neededVerb });
+    }
+  }
+
+  console.log(`## symmetric/inverse relations`);
+  if (missing.length === 0) {
+    console.log('clean — all symmetric and inverse relations balanced');
+  } else {
+    console.log(`${missing.length} missing inverse relation(s):`);
+    // Group by target page
+    const byTarget = new Map();
+    for (const m of missing) {
+      if (!byTarget.has(m.target)) byTarget.set(m.target, []);
+      byTarget.get(m.target).push(m);
+    }
+    for (const [target, items] of byTarget.entries()) {
+      console.log(`  ${target}.md needs:`);
+      for (const it of items) console.log(`    - ${it.neededVerb} [[${it.fromSlug}]]  (from ${it.fromSlug}.md: ${it.verb} [[${target}]])`);
+    }
+    if (!dryRun) {
+      for (const [target, items] of byTarget.entries()) {
+        const p = wikiPath(target);
+        const raw = fs.readFileSync(p, 'utf-8');
+        const { fm, body } = parseFrontmatter(raw);
+        let newBody = body;
+        // Append under existing relations section or at body end
+        const additions = items.map((it) => `- ${it.neededVerb} [[${it.fromSlug}]]`);
+        if (newBody.length && !newBody.endsWith('\n')) newBody += '\n';
+        newBody += additions.join('\n') + '\n';
+        fm.updated = nowISO();
+        fs.writeFileSync(p, serializeFrontmatter(fm, newBody));
+        appendLog('groom-inverse', `${target}: +${items.length}`);
+      }
+      console.log(`fixed: ${missing.length} relation(s) added across ${byTarget.size} page(s)`);
+    } else {
+      console.log('(dry-run: no writes)');
+    }
+  }
+  console.log('');
+
+  // PASS 2: bidirectional autolink across all pages
+  console.log('## bidirectional autolink');
+  if (dryRun) {
+    console.log('(dry-run: skipped)');
+  } else {
+    let injections = 0;
+    const titleMap = buildTitleMap();
+    for (const f of pages) {
+      const slug = f.replace(/\.md$/, '');
+      // Re-run autolink in both directions; verbose=false to keep groom output clean
+      const before = fs.readFileSync(wikiPath(slug), 'utf-8');
+      autolinkSlug(slug, { direction: 'both', dryRun: false, verbose: false, titleMap });
+      const after = fs.readFileSync(wikiPath(slug), 'utf-8');
+      if (before !== after) injections++;
+    }
+    console.log(injections === 0 ? 'clean — no new links to inject' : `${injections} page(s) updated with new wikilinks`);
+  }
+  console.log('');
+
+  // PASS 3: report — stub debt
+  console.log('## stub debt (top 10)');
+  const referencedBy = new Map();
+  for (const f of listWikiPages()) {
+    const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    for (const t of extractWikilinks(body)) {
+      if (!referencedBy.has(t)) referencedBy.set(t, 0);
+      referencedBy.set(t, referencedBy.get(t) + 1);
+    }
+  }
+  const stubs = [];
+  for (const [slug, count] of referencedBy.entries()) {
+    if (!fs.existsSync(wikiPath(slug))) stubs.push({ slug, count });
+  }
+  stubs.sort((a, b) => b.count - a.count);
+  if (stubs.length === 0) console.log('clean — every wikilink resolves');
+  else {
+    for (const s of stubs.slice(0, 10)) console.log(`  ${s.count}\t${s.slug}`);
+    if (stubs.length > 10) console.log(`  ... ${stubs.length - 10} more — run 'wiki stubs' for full list`);
+  }
+  console.log('');
+
+  // PASS 4: report — remaining lint issues (terse)
+  console.log('## remaining lint');
+  console.log('(run `wiki lint` for details)');
+
+  if (!dryRun) regenerateIndex();
+}
+
+function cmdPlace(args) {
+  const query = args._[0];
+  if (!query) { console.error('Usage: wiki place "concept or title"'); process.exit(1); }
+
+  // 1. Find existing matches via resolve (re-use logic)
+  const qLower = query.toLowerCase();
+  const matches = [];
+  for (const f of listWikiPages()) {
+    const slug = f.replace(/\.md$/, '');
+    const { fm, body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    const title = (fm.title || '').trim();
+    const aliases = Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []);
+    if (slug === query || (title && title.toLowerCase() === qLower)) {
+      matches.push({ slug, confidence: 1.0, reason: 'exact match' });
+    } else if (aliases.find((a) => a.toLowerCase() === qLower)) {
+      matches.push({ slug, confidence: 0.9, reason: 'alias match' });
+    } else if (title && (title.toLowerCase().includes(qLower) || qLower.includes(title.toLowerCase())) && title.length >= 3) {
+      matches.push({ slug, confidence: 0.7, reason: `substring of title "${title}"` });
+    }
+  }
+
+  if (matches.length > 0) {
+    matches.sort((a, b) => b.confidence - a.confidence);
+    console.log(`# Existing pages (confidence ≥ 0.7)`);
+    for (const m of matches.slice(0, 5)) console.log(`  ${m.slug}\t${m.confidence.toFixed(2)}\t(${m.reason})`);
+    console.log('');
+    console.log('Action: do NOT create new. Use `wiki patch <slug>` to add info, or `wiki print <slug>` to verify.');
+    return;
+  }
+
+  // 2. Similar topics: token-overlap on titles + content search
+  const queryTokens = qLower.split(/[^a-z0-9]+/).filter((t) => t.length >= 3);
+  const queryTokensSet = new Set(queryTokens);
+  const similar = {};
+  for (const f of listWikiPages()) {
+    const slug = f.replace(/\.md$/, '');
+    const { fm, body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    const title = (fm.title || '').toLowerCase();
+    const titleTokens = title.split(/[^a-z0-9]+/).filter(Boolean);
+    let score = 0;
+    for (const t of titleTokens) if (queryTokensSet.has(t)) score += 3;
+    // Body contains any query token?
+    for (const t of queryTokens) {
+      if (body.toLowerCase().includes(t)) { score += 1; break; }
+    }
+    if (score > 0) similar[slug] = { score, fm };
+  }
+
+  const ranked = Object.entries(similar).sort((a, b) => b[1].score - a[1].score).slice(0, 5);
+  if (ranked.length) {
+    console.log('# Similar topics in vault');
+    for (const [slug, info] of ranked) {
+      const tags = Array.isArray(info.fm.tags) ? info.fm.tags.join(', ') : '';
+      console.log(`  ${slug}\t${info.fm.type || 'note'}\t[${tags}]\t${info.fm.title || ''}`);
+    }
+    console.log('');
+  } else {
+    console.log('# No similar topics found');
+    console.log('');
+  }
+
+  // 3. Suggestions: tag frequency among similar pages
+  if (ranked.length) {
+    const tagFreq = {};
+    const typeFreq = {};
+    for (const [, info] of ranked) {
+      const tags = Array.isArray(info.fm.tags) ? info.fm.tags : [];
+      for (const t of tags) tagFreq[t] = (tagFreq[t] || 0) + 1;
+      const ty = info.fm.type || 'note';
+      typeFreq[ty] = (typeFreq[ty] || 0) + 1;
+    }
+    const topType = Object.entries(typeFreq).sort((a, b) => b[1] - a[1])[0]?.[0] || 'note';
+    const topTags = Object.entries(tagFreq).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([t]) => t);
+    console.log('# Suggested for new page');
+    console.log(`  type: ${topType}`);
+    if (topTags.length) console.log(`  tags: ${topTags.join(', ')}`);
+    console.log(`  anchor candidates (existing pages to link to): ${ranked.slice(0, 3).map(([s]) => `[[${s}]]`).join(' ')}`);
+  } else {
+    console.log('# Suggested for new page');
+    console.log('  No anchors found. Run `wiki hubs` for top-of-graph pages to link to, or create as a root with --no-anchor.');
+  }
+}
+
+// ─── hygiene verbs ─────────────────────────────────────────────────────────
+
+function cmdSize(args) {
+  const threshold = parseInt(args.threshold || '150', 10);
+  const rows = [];
+  for (const f of listWikiPages()) {
+    const slug = f.replace(/\.md$/, '');
+    const content = fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8');
+    const { fm, body } = parseFrontmatter(content);
+    const lines = body.split('\n').length;
+    if (lines >= threshold) rows.push({ slug, lines, title: fm.title || '', type: fm.type || 'note' });
+  }
+  rows.sort((a, b) => b.lines - a.lines);
+  if (rows.length === 0) { console.log(`(no pages above ${threshold} lines)`); return; }
+  for (const r of rows) console.log(`${r.lines}\t${r.type}\t${r.slug}\t${r.title}`);
+}
+
+function cmdSyncIds(args) {
+  const fixed = [];
+  for (const f of listWikiPages()) {
+    const filenameSlug = f.replace(/\.md$/, '');
+    const { fm, body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    if (fm.id && fm.id !== filenameSlug) {
+      if (args['dry-run']) {
+        console.log(`${filenameSlug}: id=${fm.id} (would fix to ${filenameSlug})`);
+      } else {
+        fm.id = filenameSlug;
+        fm.updated = nowISO();
+        fs.writeFileSync(path.join(WIKI_DIR, f), serializeFrontmatter(fm, body));
+        fixed.push(filenameSlug);
+      }
+    }
+  }
+  if (!args['dry-run']) {
+    if (fixed.length) {
+      regenerateIndex();
+      appendLog('sync-ids', `fixed ${fixed.length}: ${fixed.join(', ')}`);
+      console.log(`fixed ${fixed.length} page(s)`);
+    } else {
+      console.log('(all ids match filenames)');
+    }
+  }
+}
+
+// ─── lint ──────────────────────────────────────────────────────────────────
+
+function staleThresholdFor(tags) {
+  if (!Array.isArray(tags)) return STALE_DEFAULT_DAYS;
+  for (const tier of STALE_THRESHOLDS) {
+    for (const t of tier.tags) if (tags.includes(t)) return tier.days;
+  }
+  return STALE_DEFAULT_DAYS;
+}
+
+function cmdLint(args) {
+  const files = listWikiPages();
+  const slugs = new Set(files.map((f) => f.replace(/\.md$/, '')));
+  const outboundByPage = {};
+  const inboundByPage = {};
+  const tagCounts = {};
+  const pages = {};
+  for (const f of files) {
+    const slug = f.replace(/\.md$/, '');
+    const { fm, body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    pages[slug] = { fm, body };
+    const out = extractWikilinks(body);
+    outboundByPage[slug] = out;
+    for (const t of out) (inboundByPage[t] ||= []).push(slug);
+    const tags = Array.isArray(fm.tags) ? fm.tags : [];
+    for (const tag of tags) tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+  }
+
+  const schema = loadSchema();
+  const filter = args.only ? new Set(String(args.only).split(',')) : null;
+  const enabled = (name) => !filter || filter.has(name);
+  let issues = 0;
+
+  // Dead links
+  if (enabled('dead')) {
+    const dead = [];
+    for (const [from, targets] of Object.entries(outboundByPage)) {
+      for (const t of targets) if (!slugs.has(t)) dead.push([from, t]);
+    }
+    if (dead.length) {
+      console.log(`# Dead links (${dead.length})`);
+      for (const [from, t] of dead) console.log(`  ${from} -> ${t}`);
+      console.log('');
+      issues += dead.length;
+    }
+  }
+
+  // ID mismatch (filename != frontmatter id)
+  if (enabled('ids')) {
+    const mismatches = [];
+    for (const [slug, p] of Object.entries(pages)) {
+      if (p.fm.id && p.fm.id !== slug) mismatches.push([slug, p.fm.id]);
+    }
+    if (mismatches.length) {
+      console.log(`# ID mismatches — frontmatter id ≠ filename (${mismatches.length})`);
+      for (const [fn, id] of mismatches) console.log(`  ${fn}.md  (id=${id})  → run \`wiki sync-ids\` to fix`);
+      console.log('');
+      issues += mismatches.length;
+    }
+  }
+
+  // Orphans (no inbound)
+  if (enabled('orphans')) {
+    const orphans = [];
+    for (const slug of slugs) {
+      if (!inboundByPage[slug] || inboundByPage[slug].length === 0) orphans.push(slug);
+    }
+    if (orphans.length) {
+      console.log(`# Orphans — pages with no inbound links (${orphans.length})`);
+      for (const o of orphans) console.log(`  ${o}`);
+      console.log('');
+      issues += orphans.length;
+    }
+  }
+
+  // Unknown tags
+  if (enabled('tags') && schema.tags) {
+    const unknown = Object.keys(tagCounts).filter((t) => !schema.tags.has(t));
+    if (unknown.length) {
+      console.log(`# Unknown tags — not in SCHEMA.md (${unknown.length})`);
+      for (const t of unknown) console.log(`  ${t} (${tagCounts[t]}x)`);
+      console.log('  → add to SCHEMA.md or rename');
+      console.log('');
+      issues += unknown.length;
+    }
+  }
+
+  // Unknown page types
+  if (enabled('types')) {
+    const badTypes = [];
+    for (const [slug, p] of Object.entries(pages)) {
+      const t = p.fm.type || 'note';
+      if (!KNOWN_TYPES.has(t)) badTypes.push([slug, t]);
+    }
+    if (badTypes.length) {
+      console.log(`# Unknown page types (${badTypes.length})`);
+      for (const [slug, t] of badTypes) console.log(`  ${slug}: type=${t}`);
+      console.log('');
+      issues += badTypes.length;
+    }
+  }
+
+  // Type-tag mismatch: type=note but tagged as entity-kind
+  // (type-tag rule moved to `wiki audit` — was duplicated here)
+
+  // Forbidden aggregator slugs that exist
+  if (enabled('aggregator') && schema.forbidden.size) {
+    const found = [];
+    for (const s of slugs) if (schema.forbidden.has(s)) found.push(s);
+    if (found.length) {
+      console.log(`# Forbidden aggregator slugs that exist (${found.length})`);
+      for (const s of found) console.log(`  ${s} — decompose into atomic entity pages; this slug should not exist`);
+      console.log('');
+      issues += found.length;
+    }
+  }
+
+  // Aggregator-suspect heuristic: pages with ≥3 ##  subsections looking like entity names.
+  // Only check entity/concept. Common organizational headers (Family, Work, Health, ...) excluded.
+  if (enabled('agg-suspect')) {
+    const SECTION_WORDS = new Set([
+      'family','work','health','lab','collaborators','personal','background','bio','biography',
+      'contact','contacts','links','references','sources','overview','details','history','status',
+      'goals','plans','upcoming','past','current','future','notes','summary','trips','travel',
+      'achievements','skills','education','experience','interests','hobbies','income','finance',
+      'fitness','medical','tests','results','timeline','log',
+    ]);
+    const suspects = [];
+    for (const [slug, p] of Object.entries(pages)) {
+      if (!['entity', 'concept'].includes(p.fm.type)) continue;
+      const subs = (p.body.match(/^## [A-Z][^\n]*$/gm) || []);
+      // A subsection is "entity-looking" if the first significant word
+      //   - is capitalized
+      //   - is not a common section word
+      //   - is not a multi-word phrase containing common section words
+      const entityish = subs.filter((line) => {
+        const text = line.replace(/^##\s+/, '').replace(/\s+—.*$/, '').trim();
+        const firstWord = text.split(/\s+/)[0].toLowerCase();
+        if (SECTION_WORDS.has(firstWord)) return false;
+        // Must be a single capitalized token or two capitalized tokens (Name LastName)
+        return /^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?$/.test(text);
+      });
+      if (entityish.length >= 3) suspects.push([slug, entityish.length]);
+    }
+    if (suspects.length) {
+      console.log(`# Aggregator-suspect — pages with ≥3 entity-looking subsections (${suspects.length})`);
+      for (const [s, n] of suspects) console.log(`  ${s} (${n} subsections) — likely needs decomposition`);
+      console.log('');
+      issues += suspects.length;
+    }
+  }
+
+  // Narrative-only entity/concept — missing microsyntax
+  if (enabled('narrative')) {
+    const narrative = [];
+    for (const [slug, p] of Object.entries(pages)) {
+      if (!['entity', 'concept'].includes(p.fm.type)) continue;
+      const obs = parseObservations(p.body).length;
+      const rels = parseRelations(p.body).length;
+      const meaningful = p.body.split('\n').filter((l) => l.trim() && !l.trim().startsWith('#')).length;
+      if (meaningful >= 2 && obs === 0 && rels === 0) narrative.push(slug);
+    }
+    if (narrative.length) {
+      console.log(`# Narrative-only entity/concept pages — no microsyntax (${narrative.length})`);
+      for (const s of narrative) console.log(`  ${s} — add observations \`- [fact] ...\` and relations \`- verb [[slug]]\``);
+      console.log('');
+      issues += narrative.length;
+    }
+  }
+
+  // Low wikilink density
+  if (enabled('density')) {
+    const sparse = [];
+    for (const [slug, p] of Object.entries(pages)) {
+      if (['todo', 'source'].includes(p.fm.type)) continue;
+      const words = p.body.split(/\s+/).filter(Boolean).length;
+      if (words < 50) continue;
+      const linkCount = extractWikilinks(p.body).length;
+      if (linkCount < 2) sparse.push([slug, words, linkCount]);
+    }
+    if (sparse.length) {
+      console.log(`# Low wikilink density — substantial pages with <2 links (${sparse.length})`);
+      for (const [s, w, l] of sparse) console.log(`  ${s} (${w} words, ${l} link${l === 1 ? '' : 's'})`);
+      console.log('  → run `wiki autolink <slug>` or add manually');
+      console.log('');
+      issues += sparse.length;
+    }
+  }
+
+  // Stale
+  if (enabled('stale')) {
+    const now = Date.now();
+    const stale = [];
+    for (const [slug, p] of Object.entries(pages)) {
+      if (['todo', 'source'].includes(p.fm.type)) continue;
+      const updated = p.fm.updated || p.fm.created;
+      if (!updated) continue;
+      const ts = Date.parse(updated);
+      if (isNaN(ts)) continue;
+      const days = (now - ts) / 86400000;
+      const threshold = staleThresholdFor(p.fm.tags);
+      if (days > threshold) stale.push([slug, Math.round(days), threshold]);
+    }
+    if (stale.length) {
+      stale.sort((a, b) => b[1] - a[1]);
+      console.log(`# Stale (${stale.length})`);
+      for (const [slug, age, thresh] of stale) console.log(`  ${slug}  (${age}d old, threshold ${thresh}d)`);
+      console.log('');
+      issues += stale.length;
+    }
+  }
+
+  // Unsourced
+  if (enabled('unsourced')) {
+    const unsourced = [];
+    for (const [slug, p] of Object.entries(pages)) {
+      if (!['entity', 'synthesis'].includes(p.fm.type)) continue;
+      const meaningful = p.body.split('\n').filter((l) => l.trim() && !l.trim().startsWith('#')).length;
+      if (meaningful < 2) continue;
+      if (extractProvenanceMarkers(p.body).length === 0) unsourced.push(slug);
+    }
+    if (unsourced.length) {
+      console.log(`# Unsourced (${unsourced.length}) — entity/synthesis pages without ^[...] markers`);
+      for (const s of unsourced) console.log(`  ${s}`);
+      console.log('');
+      issues += unsourced.length;
+    }
+  }
+
+  // Tier-escalation candidates
+  if (enabled('tiers')) {
+    const mentionCount = {};
+    for (const [from, targets] of Object.entries(outboundByPage)) {
+      for (const t of targets) mentionCount[t] = (mentionCount[t] || 0) + 1;
+    }
+    const candidates = Object.entries(mentionCount).filter(([t, n]) => n >= 3 && !slugs.has(t));
+    if (candidates.length) {
+      console.log(`# Tier-escalation candidates (${candidates.length})`);
+      for (const [t, n] of candidates) console.log(`  ${t} — referenced by ${n} pages, no page yet`);
+      console.log('');
+    }
+  }
+
+  // Loneliness: pages with < N total graph connections (excluding todo, source)
+  if (enabled('loneliness')) {
+    const threshold = parseInt(args.threshold || '2', 10);
+    // For each page, count inbound + outbound wikilinks + relations both directions
+    const relCounts = {};
+    for (const slug of slugs) relCounts[slug] = { out: 0, in: 0 };
+    for (const [slug, p] of Object.entries(pages)) {
+      const outRels = parseRelations(p.body);
+      relCounts[slug].out += outRels.length;
+      for (const r of outRels) {
+        if (relCounts[r.target]) relCounts[r.target].in += 1;
+      }
+    }
+    const lonely = [];
+    for (const [slug, p] of Object.entries(pages)) {
+      if (['todo', 'source'].includes(p.fm.type)) continue;
+      const outLinks = (outboundByPage[slug] || []).length;
+      const inLinks = (inboundByPage[slug] || []).length;
+      const outRels = relCounts[slug].out;
+      const inRels = relCounts[slug].in;
+      const total = outLinks + inLinks + outRels + inRels;
+      if (total < threshold) {
+        // Suggest placement candidates by tag overlap (top 3)
+        const myTags = new Set(Array.isArray(p.fm.tags) ? p.fm.tags : []);
+        const scores = {};
+        for (const [other, op] of Object.entries(pages)) {
+          if (other === slug) continue;
+          const oTags = new Set(Array.isArray(op.fm.tags) ? op.fm.tags : []);
+          let s = 0;
+          for (const t of myTags) if (oTags.has(t)) s += 1;
+          if (s > 0) scores[other] = s;
+        }
+        const candidates = Object.entries(scores).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([s]) => s);
+        lonely.push([slug, total, candidates]);
+      }
+    }
+    if (lonely.length) {
+      console.log(`# Loneliness — pages with < ${threshold} graph connections (${lonely.length})`);
+      for (const [slug, total, candidates] of lonely) {
+        const candStr = candidates.length ? `  → consider linking with: ${candidates.map((s) => `[[${s}]]`).join(', ')}` : '';
+        console.log(`  ${slug} (${total} connections)${candStr}`);
+      }
+      console.log('');
+      issues += lonely.length;
+    }
+  }
+
+  // Provenance — pages with observations but no ^[...] markers
+  // (provenance and hypotheses rules moved to `wiki audit` — were duplicated here.
+  //  Run `wiki audit --all` for per-page provenance and stale-hypothesis checks.)
+
+  if (issues === 0) console.log('clean');
+}
+
+function cmdReindex() {
+  regenerateIndex();
+  console.log(INDEX_PATH);
+}
+
+// ─── replay (B2 — persona/CLI regression catching) ───────────────────────
+// Captures real Telegram-driven ingest inputs + outputs to raw/telegram-replay/,
+// then `wiki replay <msg-id>` re-runs through the current pipeline and diffs.
+
+const REPLAY_DIR = path.join(VAULT_ROOT, 'raw', 'telegram-replay');
+
+function replayPathFor(msgId, suffix) {
+  if (!msgId) return null;
+  const safe = String(msgId).replace(/[^a-zA-Z0-9._-]/g, '_');
+  // If a file for this msgId already exists in any month subdir, return that path.
+  if (fs.existsSync(REPLAY_DIR)) {
+    for (const month of fs.readdirSync(REPLAY_DIR)) {
+      const monthDir = path.join(REPLAY_DIR, month);
+      if (!fs.statSync(monthDir).isDirectory()) continue;
+      const p = path.join(monthDir, `${safe}-${suffix}`);
+      if (fs.existsSync(p)) return p;
+    }
+  }
+  // New entry → current month.
+  const month = nowISO().slice(0, 7);
+  const dir = path.join(REPLAY_DIR, month);
+  fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, `${safe}-${suffix}`);
+}
+
+function captureReplaySpec(msgId, specJson) {
+  const p = replayPathFor(msgId, 'spec.json');
+  if (!p) return;
+  try { fs.writeFileSync(p, specJson); }
+  catch (e) { console.error(`(replay capture failed: ${e.message.split('\n')[0]})`); }
+}
+
+function captureReplayResult(msgId, result) {
+  const p = replayPathFor(msgId, 'result.json');
+  if (!p) return;
+  try { fs.writeFileSync(p, JSON.stringify(result, null, 2) + '\n'); }
+  catch (e) { console.error(`(replay capture failed: ${e.message.split('\n')[0]})`); }
+}
+
+function parseIngestStdout(stdout) {
+  const out = { created: [], modified: [], skipped: [] };
+  for (const line of stdout.split('\n')) {
+    const m = line.match(/^\s*(created|modified|skipped)(?:\s*\([^)]+\))?:\s*(.+)$/);
+    if (m) out[m[1]] = m[2].split(/,\s*/).map((s) => s.trim()).filter(Boolean);
+  }
+  return out;
+}
+
+function copyVaultForReplay(src, dst) {
+  // Copy only what cmdIngest needs: SCHEMA.md + wiki/. Skip .git, .cache,
+  // tests/, raw/, alfred/, inbox/ — none of which cmdIngest reads. raw/ is
+  // intentionally excluded so replays don't re-write capture files.
+  fs.mkdirSync(dst, { recursive: true });
+  const schemaSrc = path.join(src, 'SCHEMA.md');
+  if (fs.existsSync(schemaSrc)) fs.copyFileSync(schemaSrc, path.join(dst, 'SCHEMA.md'));
+  const wikiSrc = path.join(src, 'wiki');
+  const wikiDst = path.join(dst, 'wiki');
+  fs.mkdirSync(wikiDst, { recursive: true });
+  for (const f of fs.readdirSync(wikiSrc)) {
+    const s = path.join(wikiSrc, f);
+    const d = path.join(wikiDst, f);
+    if (fs.statSync(s).isFile()) fs.copyFileSync(s, d);
+  }
+}
+
+function diffReplayResults(captured, current) {
+  const drift = [];
+  if (!captured) {
+    drift.push(`no captured result on disk; current exitCode=${current.exitCode}`);
+    return drift;
+  }
+  if (captured.exitCode !== current.exitCode) {
+    drift.push(`exitCode: captured=${captured.exitCode} current=${current.exitCode}`);
+  }
+  for (const key of ['created', 'modified', 'skipped']) {
+    const a = new Set(captured[key] || []);
+    const b = new Set(current[key] || []);
+    const added = [...b].filter((x) => !a.has(x));
+    const removed = [...a].filter((x) => !b.has(x));
+    if (added.length) drift.push(`${key}: now includes ${added.join(', ')}`);
+    if (removed.length) drift.push(`${key}: no longer includes ${removed.join(', ')}`);
+  }
+  // Compare error substrings: if captured errors exist, ensure current still emits them.
+  if (Array.isArray(captured.errors) && captured.errors.length) {
+    const currentErrText = (current.errors || []).join('\n');
+    for (const e of captured.errors) {
+      if (!currentErrText.includes(e.slice(0, 40))) {
+        drift.push(`error gone: "${e.slice(0, 80)}"`);
+      }
+    }
+  }
+  // If captured had no errors but current does, flag.
+  if ((!captured.errors || !captured.errors.length) && current.errors && current.errors.length) {
+    drift.push(`new errors: ${current.errors.slice(0, 3).map((e) => e.slice(0, 80)).join(' | ')}`);
+  }
+  return drift;
+}
+
+function listReplayMsgIds() {
+  if (!fs.existsSync(REPLAY_DIR)) return [];
+  const out = [];
+  for (const month of fs.readdirSync(REPLAY_DIR)) {
+    const monthDir = path.join(REPLAY_DIR, month);
+    if (!fs.statSync(monthDir).isDirectory()) continue;
+    for (const f of fs.readdirSync(monthDir)) {
+      const m = f.match(/^(.+)-spec\.json$/);
+      if (m) out.push(m[1]);
+    }
+  }
+  return out.sort();
+}
+
+function runReplayOne(msgId) {
+  const specPath = replayPathFor(msgId, 'spec.json');
+  if (!specPath || !fs.existsSync(specPath)) {
+    return { msgId, ok: false, reason: `no captured spec` };
+  }
+  const resultPath = replayPathFor(msgId, 'result.json');
+  const captured = fs.existsSync(resultPath) ? JSON.parse(fs.readFileSync(resultPath, 'utf-8')) : null;
+
+  const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), `vault-replay-${msgId.replace(/[^a-zA-Z0-9]/g, '_')}-`));
+  try {
+    copyVaultForReplay(VAULT_ROOT, tmp);
+    // Restore approximate pre-state: delete from the temp vault any slugs the
+    // original run had to create. Without this, a create-spec replayed after
+    // the page exists produces skipped=[X] vs captured created=[X] — false drift.
+    if (captured && Array.isArray(captured.created)) {
+      for (const slug of captured.created) {
+        const p = path.join(tmp, 'wiki', `${slug}.md`);
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      }
+    }
+    const { spawnSync } = require('child_process');
+    const res = spawnSync('node', [__filename, 'ingest', '--file', specPath, '--replay'], {
+      cwd: tmp,
+      env: { ...process.env, WIKI_ROOT: tmp },
+      encoding: 'utf-8',
+    });
+    const exit = res.status;
+    const stdout = res.stdout || '';
+    const stderr = res.stderr || '';
+    // Pull validation errors out of stderr.
+    const errors = [];
+    for (const line of stderr.split('\n')) {
+      const m = line.match(/^\s*-\s+(.+)$/);
+      if (m && !m[1].startsWith('tamper:')) errors.push(m[1].trim());
+    }
+    const current = {
+      exitCode: exit,
+      ...parseIngestStdout(stdout),
+      errors,
+    };
+    const drift = diffReplayResults(captured, current);
+    return { msgId, ok: drift.length === 0, drift, captured, current };
+  } finally {
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) { /* ignore */ }
+  }
+}
+
+function cmdReplay(args) {
+  if (args.all || args._[0] === '--all') {
+    const ids = listReplayMsgIds();
+    if (!ids.length) { console.log('(no captured replays)'); return; }
+    let stable = 0, drift = 0, missing = 0;
+    for (const id of ids) {
+      const r = runReplayOne(id);
+      if (!r.ok && r.reason) { console.log(`SKIP   ${id}   ${r.reason}`); missing++; continue; }
+      if (r.ok) { console.log(`stable ${id}`); stable++; }
+      else {
+        console.log(`drift  ${id}`);
+        for (const d of r.drift) console.log(`  ${d}`);
+        drift++;
+      }
+    }
+    console.log('');
+    console.log(`${stable} stable / ${drift} drift / ${missing} missing (${ids.length} total)`);
+    if (drift > 0) process.exit(1);
+    return;
+  }
+  const msgId = args._[0];
+  if (!msgId) {
+    console.error('Usage: wiki replay <msg-id>   |   wiki replay --all');
+    console.error('       captures live at raw/telegram-replay/<YYYY-MM>/');
+    process.exit(1);
+  }
+  const r = runReplayOne(msgId);
+  if (!r.ok && r.reason) { console.error(r.reason); process.exit(2); }
+  if (r.ok) { console.log(`stable ${msgId}`); return; }
+  console.log(`drift ${msgId}`);
+  for (const d of r.drift) console.log(`  ${d}`);
+  process.exit(1);
+}
+
+// ─── DuckDB analytical view ───────────────────────────────────────────────
+// `.cache/vault.duckdb` is rebuilt lazily when any wiki/*.md is newer than the
+// DB. `wiki sql "<query>"` shells out to duckdb. Adds a runtime dep on the
+// `duckdb` binary; install via `brew install duckdb` or apt-equivalent.
+
+const CACHE_DIR = path.join(VAULT_ROOT, '.cache');
+const DB_PATH = path.join(CACHE_DIR, 'vault.duckdb');
+const DB_NDJSON_PATH = path.join(CACHE_DIR, 'vault.ndjson');
+
+function buildVaultNdjson() {
+  const wikilinkRe = /\[\[([a-z0-9][a-z0-9-]*)\]\]/g;
+  const mentions = new Map();
+  const pages = [];
+  const arr = (v) => Array.isArray(v) ? v : (v ? [v] : []);
+  for (const f of listWikiPages()) {
+    const slug = f.replace(/\.md$/, '');
+    const raw = fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8');
+    const { fm, body } = parseFrontmatter(raw);
+    const obs = parseObservations(body);
+    const rels = parseRelations(body);
+    const counts = { fact: 0, hypothesis: 0, opinion: 0, claim: 0 };
+    for (const o of obs) if (counts[o.category] !== undefined) counts[o.category]++;
+    let m;
+    wikilinkRe.lastIndex = 0;
+    while ((m = wikilinkRe.exec(body)) !== null) {
+      if (m[1] !== slug) mentions.set(m[1], (mentions.get(m[1]) || 0) + 1);
+    }
+    pages.push({
+      slug,
+      title: String(fm.title || ''),
+      type: String(fm.type || 'note'),
+      created: fm.created || null,
+      updated: fm.updated || null,
+      tags: arr(fm.tags),
+      aliases: arr(fm.aliases),
+      n_facts: counts.fact,
+      n_hypotheses: counts.hypothesis,
+      n_opinions: counts.opinion,
+      n_claims: counts.claim,
+      n_relations: rels.length,
+      raw_path: fm.raw_path || null,
+      decided_on: fm.decided_on || null,
+      supersedes: arr(fm.supersedes),
+      derived_from: arr(fm.derived_from),
+      source_file: fm.source_file || null,
+      status: fm.status || null,
+      due: fm.due || null,
+      when_: fm.when || null,  // `when` is a SQL reserved word in some contexts
+    });
+  }
+  for (const p of pages) p.mention_count = mentions.get(p.slug) || 0;
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  fs.writeFileSync(DB_NDJSON_PATH, pages.map((p) => JSON.stringify(p)).join('\n') + '\n');
+  return pages.length;
+}
+
+function loadVaultDb() {
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  let needRebuild = !fs.existsSync(DB_PATH);
+  if (!needRebuild) {
+    const dbMtime = fs.statSync(DB_PATH).mtimeMs;
+    for (const f of listWikiPages()) {
+      if (fs.statSync(path.join(WIKI_DIR, f)).mtimeMs > dbMtime) { needRebuild = true; break; }
+    }
+  }
+  if (!needRebuild) return DB_PATH;
+
+  const n = buildVaultNdjson();
+  const { execSync } = require('child_process');
+  if (fs.existsSync(DB_PATH)) fs.unlinkSync(DB_PATH);
+  const sql = [
+    "CREATE TABLE vault AS SELECT * FROM read_json_auto(?, format='newline_delimited');",
+    "CREATE INDEX vault_slug ON vault(slug);",
+  ].join(' ').replace('?', `'${DB_NDJSON_PATH.replace(/'/g, "''")}'`);
+  try {
+    execSync(`duckdb "${DB_PATH}" "${sql}"`, { stdio: 'pipe' });
+  } catch (e) {
+    const msg = (e.stderr && e.stderr.toString()) || e.message;
+    console.error(`Failed to build DuckDB at ${DB_PATH}: ${msg.split('\n')[0]}`);
+    process.exit(2);
+  }
+  console.error(`(rebuilt vault.duckdb: ${n} pages)`);
+  return DB_PATH;
+}
+
+function cmdSql(args) {
+  const { execSync, spawnSync } = require('child_process');
+  try { execSync('command -v duckdb', { stdio: 'pipe', shell: '/bin/bash' }); }
+  catch (_) {
+    console.error('duckdb binary not on PATH. Install: `brew install duckdb` (host) or apt-install in container.');
+    process.exit(2);
+  }
+  const dbPath = loadVaultDb();
+
+  if (args.schema) {
+    console.log("Table 'vault' columns (one row per page):");
+    spawnSync('duckdb', [dbPath, '-c', 'DESCRIBE vault;'], { stdio: 'inherit' });
+    return;
+  }
+  if (args.explore) {
+    console.error(`(opening DuckDB REPL on ${dbPath}; table is "vault")`);
+    spawnSync('duckdb', [dbPath], { stdio: 'inherit' });
+    return;
+  }
+  const query = args._.length ? args._.join(' ') : '';
+  if (!query) {
+    console.error('Usage:');
+    console.error('  wiki sql "<query>"     run query, print as table');
+    console.error('  wiki sql --schema      describe the `vault` table');
+    console.error('  wiki sql --explore     open the DuckDB REPL on the DB');
+    process.exit(1);
+  }
+  const res = spawnSync('duckdb', [dbPath, '-c', query], { stdio: 'inherit' });
+  process.exit(res.status || 0);
+}
+
+// ─── measurements (tabular series) ────────────────────────────────────────
+// Time-series numerical data (growth, blood pressure, fitness, lab results)
+// lives in raw/measurements/<series>.tsv as the source of truth. The matching
+// wiki page is auto-rendered from the TSV; `wiki patch` / `wiki write` refuse
+// to touch pages whose frontmatter declares a `source_file:`.
+
+const MEASUREMENTS_DIR = path.join(VAULT_ROOT, 'raw', 'measurements');
+
+function readTsv(tsvPath) {
+  const text = fs.readFileSync(tsvPath, 'utf-8').replace(/\r\n?/g, '\n');
+  const lines = text.split('\n').filter((l) => l.length);
+  if (!lines.length) return { header: [], rows: [] };
+  const header = lines[0].split('\t');
+  const rows = lines.slice(1).map((l) => {
+    const cells = l.split('\t');
+    const obj = {};
+    header.forEach((h, i) => { obj[h] = cells[i] ?? ''; });
+    return obj;
+  });
+  return { header, rows };
+}
+
+function writeTsv(tsvPath, header, rows) {
+  const lines = [header.join('\t')];
+  for (const r of rows) lines.push(header.map((h) => r[h] ?? '').join('\t'));
+  fs.writeFileSync(tsvPath, lines.join('\n') + '\n');
+}
+
+function renderMeasurementPage(slug, header, rows) {
+  const p = wikiPath(slug);
+  const existing = fs.existsSync(p) ? parseFrontmatter(fs.readFileSync(p, 'utf-8')) : { fm: {}, body: '' };
+  const fm = { ...existing.fm };
+  fm.id = slug;
+  fm.title = fm.title || slug;
+  fm.type = fm.type || 'note';
+  fm.created = fm.created || nowISO();
+  fm.updated = nowISO();
+  fm.tags = fm.tags || ['health'];
+  fm.source_file = `raw/measurements/${slug.replace(/-growth$/, '')}.tsv`;
+
+  // Preserve any "intro" text the user wrote between frontmatter and the AUTO marker.
+  const AUTO_MARK = '<!-- AUTO: regenerated from source_file — do not edit below -->';
+  let intro = '';
+  const oldMarkIdx = existing.body.indexOf(AUTO_MARK);
+  if (oldMarkIdx >= 0) {
+    intro = existing.body.slice(0, oldMarkIdx).trim();
+  } else if (existing.body.trim()) {
+    // First conversion: drop the old hand-authored body, keep the first non-table prose line as intro.
+    const firstPara = existing.body.split('\n').find((l) => l.trim() && !l.startsWith('|') && !l.startsWith('-'));
+    intro = firstPara ? firstPara.trim() : '';
+  }
+
+  const lines = [];
+  if (intro) lines.push(intro, '');
+  lines.push(AUTO_MARK, '');
+  lines.push(`| ${header.join(' | ')} |`);
+  lines.push(`|${header.map(() => '---').join('|')}|`);
+  for (const r of rows) lines.push(`| ${header.map((h) => r[h] ?? '').join(' | ')} |`);
+  lines.push('');
+
+  fs.writeFileSync(p, serializeFrontmatter(fm, lines.join('\n')));
+}
+
+function computeAge(birthDateStr, onDateStr) {
+  if (!birthDateStr || !onDateStr) return null;
+  const ms = new Date(onDateStr).getTime() - new Date(birthDateStr).getTime();
+  if (!isFinite(ms)) return null;
+  return (ms / (365.25 * 24 * 60 * 60 * 1000));
+}
+
+function cmdMeasure(args) {
+  const series = args._[0];
+  if (!series) {
+    console.error('Usage: wiki measure <series> --date YYYY-MM-DD --field=value [--field=value ...] [--page <slug>] [--birth YYYY-MM-DD]');
+    console.error('  Series TSV lives at raw/measurements/<series>.tsv. Rendered page defaults to <series>-growth.');
+    console.error('  Example: wiki measure alice --date 2026-05-17 --height_m=1.50 --weight_kg=40.0 --birth=2014-03-15');
+    process.exit(1);
+  }
+  fs.mkdirSync(MEASUREMENTS_DIR, { recursive: true });
+  const tsvPath = path.join(MEASUREMENTS_DIR, `${series}.tsv`);
+  if (!fs.existsSync(tsvPath)) {
+    console.error(`Series TSV not found: ${tsvPath}`);
+    console.error(`Create it first with a header row, e.g.:`);
+    console.error(`  printf 'date\\theight_m\\tweight_kg\\tbmi\\tsource\\n' > ${tsvPath}`);
+    process.exit(2);
+  }
+  if (!args.date) { console.error('--date YYYY-MM-DD required'); process.exit(1); }
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (!dateRe.test(String(args.date))) { console.error(`--date must be YYYY-MM-DD, got "${args.date}"`); process.exit(1); }
+
+  const { header, rows } = readTsv(tsvPath);
+  if (rows.find((r) => r.date === args.date)) {
+    console.error(`Row for date ${args.date} already exists in ${series}.tsv. Edit the TSV directly to update.`);
+    process.exit(3);
+  }
+
+  // Build the new row from CLI args. Anything in args that matches a header column wins.
+  const newRow = { date: String(args.date) };
+  for (const h of header) {
+    if (h === 'date') continue;
+    if (args[h] !== undefined) newRow[h] = String(args[h]);
+  }
+  newRow.source = newRow.source || `cli:${nowISO().slice(0, 10)}`;
+
+  // Auto-derive: bmi from height_m + weight_kg if both present and bmi missing.
+  if (header.includes('bmi') && !newRow.bmi && newRow.height_m && newRow.weight_kg) {
+    const h = parseFloat(newRow.height_m), w = parseFloat(newRow.weight_kg);
+    if (h > 0 && w > 0) newRow.bmi = (w / (h * h)).toFixed(2);
+  }
+  // Auto-derive: age from --birth + date if header has age and age missing.
+  if (header.includes('age') && !newRow.age && args.birth) {
+    const yrs = computeAge(String(args.birth), newRow.date);
+    if (yrs !== null) newRow.age = yrs.toFixed(2);
+  }
+
+  // Validate required columns (skip derived if we filled them in).
+  for (const h of header) {
+    if (newRow[h] === undefined || newRow[h] === '') {
+      console.error(`Missing column "${h}". Pass --${h}=<value> or supply --birth (for age) / both height_m+weight_kg (for bmi).`);
+      process.exit(1);
+    }
+  }
+
+  rows.push(newRow);
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+  writeTsv(tsvPath, header, rows);
+
+  const pageSlug = args.page || `${series}-growth`;
+  renderMeasurementPage(pageSlug, header, rows);
+
+  appendLog('measure', `${series} (${newRow.date}: ${header.filter((h) => h !== 'date' && h !== 'source').map((h) => `${h}=${newRow[h]}`).join(', ')})`);
+  console.log(`appended row in ${tsvPath}`);
+  console.log(`re-rendered ${wikiPath(pageSlug)}`);
+}
+
+// ─── wiki review — periodic cross-vault discovery digest ─────────────────
+// Surfaces opportunities (independent mentions, missing edges, anchors)
+// and health gaps (stale markers, missing rationale, orphan sources).
+// Read-only. Outputs Markdown; no auto-fixes. Run weekly-ish.
+
+const REVIEW_STOPWORDS = new Set([
+  // Calendar
+  'January','February','March','April','May','June','July','August','September','October','November','December',
+  'Jan','Feb','Mar','Apr','Jun','Jul','Aug','Sep','Sept','Oct','Nov','Dec',
+  'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday',
+  'Mon','Tue','Tues','Wed','Thu','Thurs','Fri','Sat','Sun',
+  'Spring','Summer','Autumn','Winter','Fall',
+  // Sentence starters / common English caps
+  'The','This','That','These','Those','There','Their','They','Them','Then','Than','Thus','Therefore','However','Moreover',
+  'Now','Today','Yesterday','Tomorrow','First','Second','Third','Last','Next','Final','Latest',
+  'Note','See','Also','And','But','Or','For','From','With','Without','While','When','Where','After','Before','During','Until','Since',
+  'Yes','No','Maybe','Probably','Likely','Both','Either','Neither','Each','Every','Many','Most','Some','Few','All','None','Any',
+  'New','Old','Good','Bad','Big','Small','Large','High','Low','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten',
+  // Channel + agent names that appear in provenance/log churn
+  'Telegram','WhatsApp','Twitter','Slack','Email','SMS','Discord',
+  'Alfred','Claude','GPT','LLM','AI','API','CLI','URL','PDF','HTML','JSON','TSV','CSV',
+  // Common nouns that are often capitalized at start of bullet
+  'Stub','Page','Note','Source','Event','Decision','Synthesis','Todo','Concept','Entity',
+  'Status','Open','Done','Doing','Abandoned','Pending','Closed',
+  'Reason','Why','How','What','Who','Whom','Whose','Which','Will','Would','Should','Could','Can','May','Must',
+  // Verbs/predicates frequently starting `[fact]` bullets
+  'Lives','Lived','Living','Born','Works','Worked','Working','Studies','Studied','Studying',
+  'Teaches','Taught','Teaching','Knows','Known','Knew','Met','Meeting','Plans','Planned','Going',
+  'Wrote','Writes','Writing','Read','Reads','Reading','Speaks','Spoke','Speaking',
+  'Has','Had','Have','Is','Was','Were','Will','Got','Get','Goes','Went','Said','Says','Saying',
+  // Role/descriptor words that show up capitalized but generic
+  'Associate','Assistant','Adjunct','Full','Visiting','Honorary','Emeritus',
+  'Professor','Lecturer','Reader','Researcher','Director','Founder','Editor','Chair',
+  'University','College','School','Institute','Department','Faculty','Center','Centre','Lab','Laboratory',
+  'Research','Group','Team','Office','Course','Class','Conference','Seminar','Workshop','Talk',
+  // Page-section markers + measurements
+  'Height','Weight','Age','Date','Time','Year','Month','Week','Day','Hour','Minute',
+  'Birthday','Birth','Death','Marriage','Anniversary','Address',
+  'Current','Previous','Past','Future','Recent','Latest','Same','Other','Another',
+  'Wife','Husband','Father','Mother','Son','Daughter','Brother','Sister','Parent','Child','Cousin','Uncle','Aunt','Grandfather','Grandmother',
+  // Geographic generics often present in bodies (NOT proper place names)
+  'France','French','Vietnam','Vietnamese','Singapore','Singaporean','English','Chinese','Mandarin',
+  'European','American','Asian','African','Australian',
+]);
+
+function cmdReview(args) {
+  const all = listWikiPages().map((f) => {
+    const slug = f.replace(/\.md$/, '');
+    const raw = fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8');
+    const { fm, body } = parseFrontmatter(raw);
+    return { slug, fm, body };
+  });
+
+  // Build a "known surface forms" set: every slug, every title, every alias, lowercased.
+  const known = new Set();
+  const addKnown = (s) => { if (s) known.add(String(s).toLowerCase()); };
+  for (const p of all) {
+    addKnown(p.slug);
+    addKnown(p.slug.replace(/-/g, ' '));
+    addKnown(p.fm.title);
+    const aliases = Array.isArray(p.fm.aliases) ? p.fm.aliases : (p.fm.aliases ? [p.fm.aliases] : []);
+    for (const a of aliases) addKnown(a);
+  }
+  const schema = loadSchema();
+  for (const t of (schema.tags || [])) known.add(String(t).toLowerCase());
+
+  const sections = [];
+
+  // ── Section 1: independent mentions / promotion candidates ────────────────
+  // Multi-word or 3+ char capitalized sequences appearing as plain text in
+  // ≥2 distinct pages, not already a known slug/title/alias.
+  const candidateMap = new Map(); // key: lower-cased form → { display, pageSnippets: Map<slug, sentence> }
+  // Capitalized sequences, optionally connected by short lowercase joiners
+  // ("of", "and", "for") so we can capture "University of Warwick" as one token.
+  const CAND_RE = /\b([A-Z][a-zA-Z]{2,}(?:\s(?:of|and|for|de|du|la|le|von|van|der|des)\s[A-Z][a-zA-Z]{2,}|\s[A-Z][a-zA-Z]{2,})*)\b/g;
+
+  for (const p of all) {
+    // Strip wikilinks, code fences, frontmatter-like lines, and provenance markers.
+    let text = p.body
+      .replace(/\[\[[^\]]+\]\]/g, ' ')                 // remove wikilinks
+      .replace(/```[\s\S]*?```/g, ' ')                  // remove fenced code
+      .replace(/`[^`]+`/g, ' ')                         // inline code
+      .replace(/\^\[[^\]]+\]/g, ' ')                    // provenance
+      .replace(/#[a-z][a-z-]*\b/g, ' ');                // tag tokens
+
+    // Sentence segmentation for snippets (greedy on . ? ! \n).
+    const sentences = text.split(/(?<=[.!?])\s+|\n+/);
+
+    for (const sentence of sentences) {
+      // For each sentence, find the first non-marker text position so we can
+      // detect "bullet-leading" capitalization (e.g. "- [fact] Lives in …").
+      // We compute the *byte index* of the first content character after
+      // optional "- ", "- [cat] ", "## ", etc.
+      const lead = sentence.match(/^\s*(?:-\s*(?:~~)?\[[a-z]+\]\s*|-\s+|#+\s+|\d+\.\s+)?/);
+      const contentStartIdx = lead ? lead[0].length : 0;
+
+      let m;
+      CAND_RE.lastIndex = 0;
+      while ((m = CAND_RE.exec(sentence)) !== null) {
+        const display = m[1];
+        const matchIdx = m.index;
+        // Strip possessive trailing 's.
+        const cleaned = display.replace(/['’]s$/, '');
+        const isMultiWord = /\s/.test(cleaned);
+        const firstWord = cleaned.split(' ')[0];
+        const key = cleaned.toLowerCase();
+        if (cleaned.length < 4) continue;
+        if (REVIEW_STOPWORDS.has(cleaned) || REVIEW_STOPWORDS.has(firstWord)) continue;
+        if (known.has(key) || known.has(firstWord.toLowerCase())) continue;
+        // Skip if it's just a number/date-ish token.
+        if (/^\d/.test(cleaned)) continue;
+        // Skip if it's all-caps short (probably an acronym we can't disambiguate).
+        if (cleaned === cleaned.toUpperCase() && cleaned.length < 5) continue;
+        // POSITION GATE: if a SINGLE-WORD candidate appears at the very start
+        // of the content (right after `[fact]`, `## `, etc.), it is almost
+        // certainly a sentence-starting verb/noun, not a proper noun.
+        // Multi-word sequences are allowed at the start because real names
+        // do open many bullets ("John Smith joined the team").
+        if (!isMultiWord && matchIdx <= contentStartIdx + 1) continue;
+
+        if (!candidateMap.has(key)) candidateMap.set(key, { display: cleaned, pageSnippets: new Map() });
+        const entry = candidateMap.get(key);
+        if (!entry.pageSnippets.has(p.slug)) {
+          // Save a trimmed snippet for the first occurrence on this page.
+          const snip = sentence.trim().replace(/\s+/g, ' ').slice(0, 140);
+          entry.pageSnippets.set(p.slug, snip);
+        }
+      }
+    }
+  }
+  const promotionCandidates = [];
+  for (const [, v] of candidateMap.entries()) {
+    if (v.pageSnippets.size >= 2) promotionCandidates.push({ display: v.display, pages: [...v.pageSnippets.entries()] });
+  }
+  promotionCandidates.sort((a, b) => b.pages.length - a.pages.length || a.display.localeCompare(b.display));
+
+  sections.push({
+    title: 'Independent mentions — promotion candidates',
+    note: 'Capitalized names/phrases appearing as plain text in ≥2 pages and not already a slug/title/alias. Likely a person/place/concept that should be its own atomic page.',
+    items: promotionCandidates.slice(0, 20).map((c) => ({
+      head: `${c.display} (${c.pages.length} pages)`,
+      lines: c.pages.slice(0, 4).map(([slug, snip]) => `    ${slug}: ${snip}`),
+    })),
+  });
+
+  // ── Section 2: co-occurring slugs with no typed-edge ─────────────────────
+  // Pairs of existing slugs co-mentioned via wikilinks in ≥3 pages but with
+  // no relation in either direction.
+  const wikilinkRe = /\[\[([a-z0-9][a-z0-9-]*)\]\]/g;
+  const coCount = new Map(); // "a|b" (sorted) → count
+  const relSet = new Set();  // "a|b" (sorted) for any direction
+  for (const p of all) {
+    const links = new Set();
+    let lm;
+    wikilinkRe.lastIndex = 0;
+    while ((lm = wikilinkRe.exec(p.body)) !== null) {
+      if (lm[1] !== p.slug) links.add(lm[1]);
+    }
+    const arr = [...links];
+    for (let i = 0; i < arr.length; i++) {
+      for (let j = i + 1; j < arr.length; j++) {
+        const key = [arr[i], arr[j]].sort().join('|');
+        coCount.set(key, (coCount.get(key) || 0) + 1);
+      }
+    }
+    for (const r of parseRelations(p.body)) {
+      relSet.add([p.slug, r.target].sort().join('|'));
+    }
+  }
+  const missingEdges = [];
+  for (const [key, n] of coCount.entries()) {
+    if (n >= 3 && !relSet.has(key)) {
+      const [a, b] = key.split('|');
+      if (fs.existsSync(wikiPath(a)) && fs.existsSync(wikiPath(b))) {
+        missingEdges.push({ a, b, n });
+      }
+    }
+  }
+  missingEdges.sort((x, y) => y.n - x.n);
+  sections.push({
+    title: 'Co-occurring slugs with no typed relation',
+    note: 'Pairs of existing pages that appear together via wikilinks in ≥3 pages but have no relation. Suggests a missing edge.',
+    items: missingEdges.slice(0, 15).map((e) => ({
+      head: `${e.a} ↔ ${e.b} (co-mentioned in ${e.n} pages)`,
+      lines: [],
+    })),
+  });
+
+  // ── Section 3: concept anchors missing ───────────────────────────────────
+  // Tags used heavily but with no canonical concept page slug=tagname.
+  // Skip taxonomy tags (kind tags + roles + meta) — those are classifiers,
+  // not concepts. Only surface tags that look like discipline/topic names.
+  const TAXONOMY_TAGS = new Set([
+    'person', 'org', 'tool', 'paper', 'media',                  // entity-kind
+    'spouse', 'child', 'parent', 'sibling',                     // role
+    'friend', 'colleague', 'client', 'household',               // social role
+    'meta', 'family', 'work', 'recurring', 'decision', 'event', // structural
+  ]);
+  const tagCount = new Map();
+  for (const p of all) {
+    const tags = Array.isArray(p.fm.tags) ? p.fm.tags : [];
+    for (const t of tags) tagCount.set(t, (tagCount.get(t) || 0) + 1);
+  }
+  const missingAnchors = [];
+  for (const [tag, n] of tagCount.entries()) {
+    if (n < 8) continue;
+    if (TAXONOMY_TAGS.has(tag)) continue;
+    if (fs.existsSync(wikiPath(tag))) continue;
+    if (fs.existsSync(wikiPath(`${tag}-overview`))) continue;
+    missingAnchors.push({ tag, n });
+  }
+  missingAnchors.sort((x, y) => y.n - x.n);
+  sections.push({
+    title: 'Concept anchors missing',
+    note: 'Topic/discipline tags used ≥ 8 times but no canonical concept page. Consider a `type: synthesis` or `type: concept` page tying them together. Closed-taxonomy classifier tags (person, family, work, …) are excluded.',
+    items: missingAnchors.slice(0, 15).map((e) => ({
+      head: `#${e.tag} (${e.n} pages)`,
+      lines: [],
+    })),
+  });
+
+  // ── Section 4: stale temporal markers ────────────────────────────────────
+  const today = new Date();
+  const SIX_MONTHS_MS = 1000 * 60 * 60 * 24 * 30 * 6;
+  const staleTemporal = [];
+  for (const p of all) {
+    for (const obs of parseObservations(p.body)) {
+      if (obs.dates.asOf) {
+        // [as-of YYYY-MM] — assume 1st of month.
+        const d = new Date(obs.dates.asOf.length === 7 ? `${obs.dates.asOf}-01` : obs.dates.asOf);
+        if (isFinite(d.getTime()) && today.getTime() - d.getTime() > SIX_MONTHS_MS) {
+          staleTemporal.push({ slug: p.slug, kind: 'as-of', when: obs.dates.asOf, body: obs.body });
+        }
+      }
+      // [until YYYY-MM-DD] on a non-superseded hypothesis is genuinely stale —
+      // the hypothesis should have been promoted to fact or struck by now.
+      // [until] on a [fact] line is a bounded historical record (CV entry,
+      // past affiliation), NOT stale — skip those.
+      if (obs.dates.until && !obs.superseded && obs.category === 'hypothesis') {
+        const d = new Date(obs.dates.until.length === 7 ? `${obs.dates.until}-01` : obs.dates.until);
+        if (isFinite(d.getTime()) && d.getTime() < today.getTime()) {
+          staleTemporal.push({ slug: p.slug, kind: 'hypothesis past [until]', when: obs.dates.until, body: obs.body });
+        }
+      }
+    }
+  }
+  sections.push({
+    title: 'Stale temporal markers',
+    note: '`[as-of YYYY-MM]` markers > 6 months old (likely outdated) or unsupserseded `[until YYYY-MM-DD]` past today.',
+    items: staleTemporal.slice(0, 20).map((e) => ({
+      head: `${e.slug} (${e.kind} ${e.when})`,
+      lines: [`    ${e.body.slice(0, 140)}`],
+    })),
+  });
+
+  // ── Section 5: type=decision without rationale ────────────────────────────
+  const noRationale = [];
+  for (const p of all) {
+    if (p.fm.type !== 'decision') continue;
+    const obs = parseObservations(p.body);
+    const hasClaim = obs.some((o) => o.category === 'claim');
+    const hasBecause = /\b(because|since|reason|rationale|so that|in order to)\b/i.test(p.body);
+    const hasDerivedFrom = !!p.fm.derived_from;
+    if (!hasClaim && !hasBecause && !hasDerivedFrom) noRationale.push(p.slug);
+  }
+  sections.push({
+    title: 'Decisions without rationale',
+    note: '`type: decision` pages with no `[claim]`, no "because"/"reason" prose, and no `derived_from` frontmatter. Decisions without a recorded *why* lose half their value when re-read.',
+    items: noRationale.slice(0, 15).map((s) => ({ head: s, lines: [] })),
+  });
+
+  // ── Section 6: orphan sources ─────────────────────────────────────────────
+  const sourceSlugs = all.filter((p) => p.fm.type === 'source').map((p) => p.slug);
+  const sourcePathMap = new Map();
+  for (const p of all) {
+    if (p.fm.type === 'source' && p.fm.raw_path) sourcePathMap.set(p.fm.raw_path, p.slug);
+  }
+  const referencedSources = new Set();
+  for (const p of all) {
+    // Wikilink reference
+    let lm;
+    wikilinkRe.lastIndex = 0;
+    while ((lm = wikilinkRe.exec(p.body)) !== null) {
+      if (sourceSlugs.includes(lm[1])) referencedSources.add(lm[1]);
+    }
+    // Provenance pointer matching a source raw_path
+    const provRe = /\^\[([^\]]+)\]/g;
+    let pm;
+    while ((pm = provRe.exec(p.body)) !== null) {
+      if (sourcePathMap.has(pm[1])) referencedSources.add(sourcePathMap.get(pm[1]));
+    }
+  }
+  const orphanSources = sourceSlugs.filter((s) => !referencedSources.has(s));
+  sections.push({
+    title: 'Orphan sources',
+    note: '`type: source` pages not referenced by any other page (no wikilink, no provenance pointer). Why was it ingested?',
+    items: orphanSources.slice(0, 15).map((s) => ({ head: s, lines: [] })),
+  });
+
+  // ── Section 7: stale open todos ──────────────────────────────────────────
+  const SIXTY_DAYS_MS = 1000 * 60 * 60 * 24 * 60;
+  const staleTodos = [];
+  for (const p of all) {
+    if (p.fm.type !== 'todo' || p.fm.status !== 'open') continue;
+    if (!p.fm.updated) continue;
+    const d = new Date(p.fm.updated);
+    if (!isFinite(d.getTime())) continue;
+    const ageDays = Math.floor((today.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+    if (today.getTime() - d.getTime() > SIXTY_DAYS_MS) staleTodos.push({ slug: p.slug, ageDays });
+  }
+  staleTodos.sort((a, b) => b.ageDays - a.ageDays);
+  sections.push({
+    title: 'Stale open todos',
+    note: '`type: todo` with `status: open` and `updated` > 60 days ago. Rotate forward or close.',
+    items: staleTodos.slice(0, 15).map((e) => ({
+      head: `${e.slug} (${e.ageDays} days stale)`,
+      lines: [],
+    })),
+  });
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  console.log(`# Vault review — ${new Date().toISOString().slice(0, 10)}`);
+  console.log('');
+  console.log(`Pages: ${all.length}`);
+  console.log('');
+  for (const s of sections) {
+    console.log(`## ${s.title}`);
+    if (s.note) console.log(`_${s.note}_`);
+    console.log('');
+    if (s.items.length === 0) {
+      console.log('(none)');
+    } else {
+      for (const it of s.items) {
+        console.log(`- ${it.head}`);
+        for (const l of (it.lines || [])) console.log(l);
+      }
+    }
+    console.log('');
+  }
+}
+
+function cmdDiff(args) {
+  const gitDir = path.join(VAULT_ROOT, '.git');
+  if (!fs.existsSync(gitDir)) {
+    console.error('not a git repo: run `git init` in vault first');
+    process.exit(2);
+  }
+  const { execSync } = require('child_process');
+  const since = args.since || '24 hours ago';
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+  try {
+    const log = execSync(`git log --since="${since.replace(/"/g, '\\"')}" --stat --pretty=format:'%h %ad | %s' --date=short`,
+      { cwd: VAULT_ROOT, env }).toString();
+    if (!log.trim()) {
+      console.log(`(no commits since ${since})`);
+      return;
+    }
+    console.log(log);
+  } catch (e) {
+    console.error('git log failed:', e.message.split('\n')[0]);
+    process.exit(2);
+  }
+}
+
+function cmdRevert(args) {
+  const gitDir = path.join(VAULT_ROOT, '.git');
+  if (!fs.existsSync(gitDir)) {
+    console.error('not a git repo');
+    process.exit(2);
+  }
+  const target = args._ && args._[0] ? args._[0] : 'HEAD';
+  const { execSync } = require('child_process');
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+  try {
+    const dirty = execSync('git status --porcelain', { cwd: VAULT_ROOT, env }).toString().trim();
+    if (dirty) {
+      console.error('working tree is dirty — commit or stash first:');
+      console.error(dirty);
+      process.exit(2);
+    }
+    execSync(`git -c commit.gpgsign=false revert --no-edit "${target}"`,
+      { cwd: VAULT_ROOT, env, stdio: 'inherit' });
+    regenerateIndex();
+    console.log(`reverted ${target}`);
+    console.log('(auto-commit batches dirty files into one commit, so revert may undo more than expected)');
+  } catch (e) {
+    console.error('revert failed:', e.message.split('\n')[0]);
+    process.exit(2);
+  }
+}
+
+// ─── argparse + dispatch ───────────────────────────────────────────────────
+
+function parseArgs(argv) {
+  const out = { _: [] };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith('--')) {
+      const body = a.slice(2);
+      const eqIdx = body.indexOf('=');
+      if (eqIdx > 0) {
+        out[body.slice(0, eqIdx)] = body.slice(eqIdx + 1);
+        continue;
+      }
+      const key = body;
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith('--')) { out[key] = next; i++; }
+      else out[key] = true;
+    } else {
+      out._.push(a);
+    }
+  }
+  return out;
+}
+
+const verb = process.argv[2];
+const args = parseArgs(process.argv.slice(3));
+const cmds = {
+  // read
+  list: cmdList, search: cmdSearch, recent: cmdRecent, print: cmdPrint,
+  sources: cmdSources, related: cmdRelated,
+  preview: cmdPreview, context: cmdContext, agenda: cmdAgenda,
+  // write
+  write: cmdWrite, link: cmdLink, mv: cmdMv, delete: cmdDelete, patch: cmdPatch, merge: cmdMerge,
+  ingest: cmdIngest,
+  // graph + navigation
+  links: cmdLinks, backlinks: cmdBacklinks,
+  relations: cmdRelations, observations: cmdObservations,
+  autolink: cmdAutolink,
+  resolve: cmdResolve, path: cmdPath, hubs: cmdHubs, place: cmdPlace, stubs: cmdStubs,
+  timeline: cmdTimeline,
+  // todo
+  todo: cmdTodo,
+  // hygiene
+  lint: cmdLint, reindex: cmdReindex, 'sync-ids': cmdSyncIds, size: cmdSize, groom: cmdGroom, audit: cmdAudit,
+  // measurements (tabular time-series)
+  measure: cmdMeasure,
+  // review (discovery + health digest)
+  review: cmdReview,
+  // replay (B2 — re-run captured Telegram-driven specs)
+  replay: cmdReplay,
+  // SQL (DuckDB analytical view)
+  sql: cmdSql,
+  // git
+  diff: cmdDiff, revert: cmdRevert,
+};
+
+if (!verb || !cmds[verb]) {
+  console.error('wiki <verb> [args]');
+  console.error('');
+  console.error('READ');
+  console.error('  list [--tag t] [--type t]                 show all pages');
+  console.error('  search <query> [--tag t] [--title-only]   find by content');
+  console.error('  recent [--days N] [--type T]              pages updated recently');
+  console.error('  preview <slug>                            cheap peek (~10 lines, ~150 tokens)');
+  console.error('  print <slug> [--backlinks] [--links]      full page with optional context');
+  console.error('  context <slug>                            bundled: FM + obs + relations + 1-hop neighbors');
+  console.error('  sources                                   list type=source pages');
+  console.error('  related <slug>                            pages by tag/link proximity');
+  console.error('  agenda [today|week|upcoming|past|all]     list type=event pages by when');
+  console.error('');
+  console.error('WRITE');
+  console.error('  ingest --stdin | --file <path> [--allow-duplicates]   structured JSON-input compiler');
+  console.error('  write <slug> --title "..." --type <type> [--tags a,b]');
+  console.error('       [--content "..." | --stdin] [--append|--replace] [--no-anchor] [--soft]');
+  console.error(`       types: ${[...KNOWN_TYPES].join('|')}`);
+  console.error('       (strict by default: rejects mislabeled-event, uncategorized bullets, invented verbs,');
+  console.error('        missing provenance on entity/event/concept/synthesis; --soft to bypass)');
+  console.error('  patch <slug> [--observation "..."] [--relation "verb [[target]]"]');
+  console.error('              [--supersede "<substring>"]    strike-through old obs + [until today]');
+  console.error('              [--add-tag x] [--remove-tag x] [--alias name]');
+  console.error('              [--summary "..."] [--title "..."]');
+  console.error('  link <from> <to>                          append [[to]] under ## Links');
+  console.error('  mv <old> <new>                            rename, rewrite backlinks (adds alias)');
+  console.error('  delete <slug> [--force]                   remove (refuses if backlinks)');
+  console.error('  merge <source> <target> [--dry-run]       resolve identity: fold source into target');
+  console.error('');
+  console.error('GRAPH + NAVIGATION');
+  console.error('  links <slug>                              outbound wikilinks');
+  console.error('  backlinks <slug>                          inbound wikilinks');
+  console.error('  relations [<slug>]                        parsed typed edges');
+  console.error('  observations [<slug>] [--category fact]   parsed inline facts');
+  console.error('  autolink <slug>|--all [--direction in|out|both] [--dry-run]');
+  console.error('                                            inject wikilinks for known titles');
+  console.error('  resolve <fuzzy>                           fuzzy name → slug (top matches)');
+  console.error('  path <from> <to> [--max-hops N]           shortest typed-edge path');
+  console.error('  hubs [--top N]                            most-backlinked pages');
+  console.error('  place "concept"                           pre-write helper: existing? similar? suggested');
+  console.error('  stubs [--top N] [--show-refs]             referenced-but-missing slugs, ranked');
+  console.error('  timeline <slug>                           dated observations + events involving slug, sorted');
+  console.error('');
+  console.error('TODO');
+  console.error('  todo add "title" [--due] [--priority]     todo list [--open|--due-today|--overdue|--done]');
+  console.error('  todo done <slug>                          todo defer <slug> --to YYYY-MM-DD');
+  console.error('');
+  console.error('HYGIENE');
+  console.error('  lint [--only dead,ids,orphans,tags,types,aggregator,agg-suspect,narrative,density,stale,unsourced,tiers,loneliness]');
+  console.error('       (per-page rules — provenance, type-tag, hypotheses, mislabeled-event — now live in `wiki audit`)');
+  console.error('       [--threshold N]                      (loneliness threshold; default 2)');
+  console.error('  sync-ids [--dry-run]                      sync frontmatter id with filename');
+  console.error('  size [--threshold N]                      list pages above N body lines');
+  console.error('  reindex                                   regenerate index.md');
+  console.error('  groom --mechanical [--dry-run]            auto-fix symmetric relations, bidirectional autolink, report stubs');
+  console.error('  audit <slug> | --all                      mechanical quality score per page or vault-wide');
+  console.error('');
+  console.error('SQL (DuckDB analytical view — ad-hoc queries over wiki/*.md frontmatter)');
+  console.error('  sql "<query>"                             run SQL against the `vault` table');
+  console.error('  sql --schema                              describe the `vault` table');
+  console.error('  sql --explore                             open the DuckDB REPL on the DB');
+  console.error('  (DB at .cache/vault.duckdb; rebuilt lazily when any wiki/*.md is newer)');
+  console.error('');
+  console.error('REPLAY (re-run captured Telegram-driven ingests — catch persona/CLI drift)');
+  console.error('  replay <msg-id>                           re-run captured spec, diff vs captured result');
+  console.error('  replay --all                              walk all captures, summarize stable/drift');
+  console.error('  (captures live at raw/telegram-replay/<YYYY-MM>/ — auto-written when spec.msg_id is set)');
+  console.error('');
+  console.error('REVIEW (discovery + health digest — run weekly-ish)');
+  console.error('  review                                    Markdown digest of:');
+  console.error('                                            (1) independent mentions (promotion candidates)');
+  console.error('                                            (2) co-occurring slugs with no typed relation');
+  console.error('                                            (3) concept anchors missing (heavily-used tag, no canonical page)');
+  console.error('                                            (4) stale `[as-of]` / past-due `[until]` markers');
+  console.error('                                            (5) decisions without rationale');
+  console.error('                                            (6) orphan sources (ingested, never referenced)');
+  console.error('                                            (7) stale open todos (>60 days)');
+  console.error('');
+  console.error('MEASUREMENTS (tabular time-series — growth, BP, fitness, labs)');
+  console.error('  measure <series> --date YYYY-MM-DD --field=value [...]');
+  console.error('                                           append a row to raw/measurements/<series>.tsv');
+  console.error('                                           and re-render the matching wiki page.');
+  console.error('                                           auto-derives bmi from height_m+weight_kg, age from --birth.');
+  console.error('  (pages with frontmatter `source_file:` cannot be patched/written — use this verb.)');
+  console.error('');
+  console.error('GIT');
+  console.error('  diff [--since "spec"]                     show recent commits (default: 24h)');
+  console.error('  revert [<commit>|HEAD]                    revert a commit (refuses if working tree dirty)');
+  console.error('  (auto-commit batches all dirty files into one commit; revert may undo more than expected)');
+  console.error('');
+  console.error(`vault: ${VAULT_ROOT}`);
+  process.exit(1);
+}
+
+// Tamper check: run BEFORE write-class verbs so users see bypass writes
+// before they're folded into the next auto-commit.
+const WRITE_VERBS = new Set(['write', 'patch', 'ingest', 'mv', 'delete', 'merge', 'link', 'autolink', 'groom', 'todo']);
+if (WRITE_VERBS.has(verb)) tamperCheck();
+
+cmds[verb](args);

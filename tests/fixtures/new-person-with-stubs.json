@@ -1,0 +1,20 @@
+{
+  "source": "telegram:2026-05-17",
+  "stubs": [
+    { "slug": "acme-corp", "title": "Acme Corp", "type": "entity", "tags": ["org"] }
+  ],
+  "entities": [
+    {
+      "slug": "jane-doe",
+      "title": "Jane Doe",
+      "type": "entity",
+      "tags": ["person", "colleague"],
+      "facts": [
+        { "body": "Software engineer at [[acme-corp]]" }
+      ],
+      "relations": [
+        { "verb": "works_at", "target": "acme-corp" }
+      ]
+    }
+  ]
+}

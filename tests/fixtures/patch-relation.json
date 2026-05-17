@@ -1,0 +1,3 @@
+{
+  "cmd": ["patch", "alice", "--relation", "visited [[example-school]]"]
+}

@@ -1,0 +1,11 @@
+{
+  "source": "telegram:2026-05-17",
+  "patches": [
+    {
+      "slug": "alice",
+      "add_hypotheses": [
+        { "body": "Plans to publish a paper by [until 2026-12-31]" }
+      ]
+    }
+  ]
+}

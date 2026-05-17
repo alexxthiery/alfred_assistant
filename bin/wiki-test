@@ -1,0 +1,174 @@
+#!/usr/bin/env node
+// wiki-test — fixture runner for the wiki CLI.
+//
+// For each tests/fixtures/<name>.json, run `wiki ingest --file <fixture>` against
+// a fresh copy of tests/vault/, compare stdout + exit code to <name>.expected.json.
+
+const fs = require('fs');
+const path = require('path');
+const { spawnSync } = require('child_process');
+const os = require('os');
+
+const REPO = path.resolve(__dirname, '..');
+const FIXTURES_DIR = path.join(REPO, 'tests', 'fixtures');
+const TEMPLATE_VAULT = path.join(REPO, 'tests', 'vault');
+const WIKI_BIN = path.join(REPO, 'bin', 'wiki');
+
+function copyDir(src, dst) {
+  fs.mkdirSync(dst, { recursive: true });
+  for (const ent of fs.readdirSync(src, { withFileTypes: true })) {
+    const s = path.join(src, ent.name);
+    const d = path.join(dst, ent.name);
+    if (ent.isDirectory()) copyDir(s, d);
+    else fs.copyFileSync(s, d);
+  }
+}
+
+function rmDir(p) {
+  try { fs.rmSync(p, { recursive: true, force: true }); } catch (_) { /* ignore */ }
+}
+
+function parseIngestOutput(stdout) {
+  const out = { created: [], modified: [], skipped: [] };
+  for (const line of stdout.split('\n')) {
+    const m = line.match(/^\s*(created|modified|skipped):\s*(.+)$/);
+    if (m) {
+      const items = m[2].split(/,\s*/).map((s) => s.trim()).filter(Boolean);
+      out[m[1]] = items;
+    }
+  }
+  return out;
+}
+
+function arrEq(a, b) {
+  const A = [...(a || [])].sort();
+  const B = [...(b || [])].sort();
+  if (A.length !== B.length) return false;
+  return A.every((v, i) => v === B[i]);
+}
+
+function runWikiInTemp(tmp, args) {
+  return spawnSync('node', [WIKI_BIN, ...args], {
+    cwd: tmp,
+    env: { ...process.env, WIKI_ROOT: tmp },
+    encoding: 'utf-8',
+  });
+}
+
+function checkWikiAssertions(tmp, wikiAssertions, name) {
+  for (const [slug, asserts] of Object.entries(wikiAssertions || {})) {
+    const pagePath = path.join(tmp, 'wiki', `${slug}.md`);
+    if (asserts.fileExists === false) {
+      if (fs.existsSync(pagePath)) return { name, ok: false, reason: `wikiAssertions: expected ${slug}.md to NOT exist` };
+      continue;
+    }
+    if (!fs.existsSync(pagePath)) return { name, ok: false, reason: `wikiAssertions: expected ${slug}.md to exist` };
+    const content = fs.readFileSync(pagePath, 'utf-8');
+    for (const needle of (asserts.bodyContains || [])) {
+      if (!content.includes(needle)) return { name, ok: false, reason: `wikiAssertions ${slug}: missing "${needle.slice(0, 60)}"` };
+    }
+    for (const needle of (asserts.bodyMissing || [])) {
+      if (content.includes(needle)) return { name, ok: false, reason: `wikiAssertions ${slug}: unexpected "${needle.slice(0, 60)}"` };
+    }
+  }
+  return null;
+}
+
+function runFixture(name) {
+  const specPath = path.join(FIXTURES_DIR, `${name}.json`);
+  const expectedPath = path.join(FIXTURES_DIR, `${name}.expected.json`);
+  if (!fs.existsSync(specPath)) return { name, ok: false, reason: `missing spec: ${specPath}` };
+  if (!fs.existsSync(expectedPath)) return { name, ok: false, reason: `missing expected: ${expectedPath}` };
+
+  const spec = JSON.parse(fs.readFileSync(specPath, 'utf-8'));
+  const expected = JSON.parse(fs.readFileSync(expectedPath, 'utf-8'));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `vault-fixture-${name}-`));
+
+  try {
+    copyDir(TEMPLATE_VAULT, tmp);
+
+    // Two fixture shapes: generic CLI (top-level `cmd`) vs ingest spec (top-level `source`).
+    const isCli = Array.isArray(spec.cmd);
+
+    // For CLI fixtures, run any `setup` steps first.
+    if (isCli && Array.isArray(spec.setup)) {
+      for (const setupArgs of spec.setup) {
+        const r = runWikiInTemp(tmp, setupArgs);
+        if (r.status !== 0) {
+          return { name, ok: false, reason: `setup step failed: ${setupArgs.join(' ')}\n  exit=${r.status}\n  stderr: ${(r.stderr || '').split('\n').slice(0, 3).join(' | ')}` };
+        }
+      }
+    }
+
+    const args = isCli ? spec.cmd : ['ingest', '--file', specPath];
+    const res = runWikiInTemp(tmp, args);
+
+    const exit = res.status;
+    const stdout = res.stdout || '';
+    const stderr = res.stderr || '';
+
+    if (expected.exitCode !== undefined && exit !== expected.exitCode) {
+      return { name, ok: false, reason: `exit ${exit} (expected ${expected.exitCode})\n  stderr: ${stderr.split('\n').slice(0, 5).join(' | ')}` };
+    }
+
+    if (isCli) {
+      // Generic-CLI fixture assertions.
+      for (const needle of (expected.stdoutContains || [])) {
+        if (!stdout.includes(needle)) return { name, ok: false, reason: `stdout missing "${needle.slice(0, 60)}"\n  stdout: ${stdout.split('\n').slice(0, 5).join(' | ')}` };
+      }
+      for (const needle of (expected.stderrContains || [])) {
+        if (!stderr.includes(needle)) return { name, ok: false, reason: `stderr missing "${needle.slice(0, 60)}"\n  stderr: ${stderr.split('\n').slice(0, 5).join(' | ')}` };
+      }
+      const wikiCheck = checkWikiAssertions(tmp, expected.wikiAssertions, name);
+      if (wikiCheck) return wikiCheck;
+    } else {
+      // Ingest-spec assertions (existing).
+      if (expected.exitCode === 0 || (expected.exitCode === undefined && exit === 0)) {
+        const got = parseIngestOutput(stdout);
+        if (!arrEq(got.created, expected.created || [])) {
+          return { name, ok: false, reason: `created mismatch: got [${got.created.join(',')}] expected [${(expected.created || []).join(',')}]` };
+        }
+        if (!arrEq(got.modified, expected.modified || [])) {
+          return { name, ok: false, reason: `modified mismatch: got [${got.modified.join(',')}] expected [${(expected.modified || []).join(',')}]` };
+        }
+        if (!arrEq(got.skipped, expected.skipped || [])) {
+          return { name, ok: false, reason: `skipped mismatch: got [${got.skipped.join(',')}] expected [${(expected.skipped || []).join(',')}]` };
+        }
+      }
+      if (expected.errors && expected.errors.length) {
+        const haystack = stderr + '\n' + stdout;
+        for (const needle of expected.errors) {
+          if (!haystack.includes(needle)) {
+            return { name, ok: false, reason: `error substring not found: "${needle}"\n  stderr: ${stderr.split('\n').slice(0, 5).join(' | ')}` };
+          }
+        }
+      }
+    }
+
+    return { name, ok: true };
+  } finally {
+    rmDir(tmp);
+  }
+}
+
+function main() {
+  if (!fs.existsSync(FIXTURES_DIR)) {
+    console.error(`fixtures dir not found: ${FIXTURES_DIR}`);
+    process.exit(2);
+  }
+  const fixtures = fs.readdirSync(FIXTURES_DIR)
+    .filter((f) => f.endsWith('.json') && !f.endsWith('.expected.json'))
+    .map((f) => f.replace(/\.json$/, ''))
+    .sort();
+
+  const results = fixtures.map(runFixture);
+  let pass = 0, fail = 0;
+  for (const r of results) {
+    if (r.ok) { console.log(`  PASS  ${r.name}`); pass++; }
+    else { console.log(`  FAIL  ${r.name}\n        ${r.reason}`); fail++; }
+  }
+  console.log(`\n${pass}/${results.length} passed`);
+  process.exit(fail === 0 ? 0 : 1);
+}
+
+main();

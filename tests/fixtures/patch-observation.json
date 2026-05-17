@@ -1,0 +1,3 @@
+{
+  "cmd": ["patch", "alice", "--observation", "[fact] Patch fixture: enjoys hiking ^[telegram:2026-05-17]"]
+}

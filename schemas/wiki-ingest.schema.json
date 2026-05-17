@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://_AI_box/.bin/wiki-ingest.schema.json",
+  "title": "wiki ingest spec",
+  "description": "Structured input to `wiki ingest --stdin|--file`. Mirrors SCHEMA.md, section 'JSON ingestion spec'. The CLI's imperative validator is authoritative; this file is documentation + a lint target. Update both together when the contract changes.",
+  "type": "object",
+  "required": ["source"],
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "type": "string",
+      "description": "Provenance marker (e.g. 'telegram:2026-05-17' or 'raw/notes/foo.md').",
+      "minLength": 1
+    },
+    "stubs":    { "type": "array", "items": { "$ref": "#/$defs/stub" } },
+    "entities": { "type": "array", "items": { "$ref": "#/$defs/entity" } },
+    "events":   { "type": "array", "items": { "$ref": "#/$defs/event" } },
+    "patches":  { "type": "array", "items": { "$ref": "#/$defs/patch" } }
+  },
+  "$defs": {
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Lowercase kebab-case slug. Forbidden aggregator slugs listed in SCHEMA.md are also rejected at write time."
+    },
+    "tag":  { "type": "string", "description": "Must be in SCHEMA.md tag taxonomy." },
+    "iso8601_or_date": {
+      "type": "string",
+      "pattern": "^\\d{4}(-\\d{2}(-\\d{2}(T\\d{2}:\\d{2}(:\\d{2})?(Z|[+-]\\d{2}:?\\d{2})?)?)?)?$"
+    },
+    "observation": {
+      "type": "object",
+      "required": ["body"],
+      "additionalProperties": false,
+      "properties": {
+        "body":   { "type": "string", "minLength": 1 },
+        "tags":   { "type": "array", "items": { "type": "string" } },
+        "source": { "type": "string", "description": "Per-observation provenance override; falls back to top-level source." }
+      }
+    },
+    "relation": {
+      "type": "object",
+      "required": ["verb", "target"],
+      "additionalProperties": false,
+      "properties": {
+        "verb":   { "type": "string", "description": "Must be in SCHEMA.md symmetric/inverse-pair/one-way verb registries." },
+        "target": { "$ref": "#/$defs/slug" }
+      }
+    },
+    "stub": {
+      "type": "object",
+      "required": ["slug", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "slug":  { "$ref": "#/$defs/slug" },
+        "title": { "type": "string", "minLength": 1 },
+        "type":  { "type": "string", "enum": ["entity", "concept", "decision", "source", "synthesis", "todo", "note", "event"] },
+        "tags":  { "type": "array", "items": { "$ref": "#/$defs/tag" } }
+      }
+    },
+    "entity": {
+      "type": "object",
+      "required": ["slug", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "slug":  { "$ref": "#/$defs/slug" },
+        "title": { "type": "string", "minLength": 1 },
+        "type":  { "type": "string", "enum": ["entity", "concept", "decision"], "default": "entity" },
+        "tags":  { "type": "array", "items": { "$ref": "#/$defs/tag" } },
+        "aliases":   { "type": "array", "items": { "type": "string" } },
+        "facts":      { "type": "array", "items": { "$ref": "#/$defs/observation" } },
+        "hypotheses": { "type": "array", "items": { "$ref": "#/$defs/observation" } },
+        "opinions":   { "type": "array", "items": { "$ref": "#/$defs/observation" } },
+        "claims":     { "type": "array", "items": { "$ref": "#/$defs/observation" } },
+        "relations":  { "type": "array", "items": { "$ref": "#/$defs/relation" } },
+        "external_links": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["url"],
+            "additionalProperties": false,
+            "properties": {
+              "url":   { "type": "string", "format": "uri" },
+              "label": { "type": "string" },
+              "kind":  { "type": "string" }
+            }
+          }
+        }
+      },
+      "anyOf": [
+        { "required": ["facts"] },
+        { "required": ["hypotheses"] },
+        { "required": ["opinions"] },
+        { "required": ["claims"] },
+        { "required": ["relations"] }
+      ]
+    },
+    "event": {
+      "type": "object",
+      "required": ["slug", "title", "when", "tags"],
+      "additionalProperties": false,
+      "properties": {
+        "slug":      { "$ref": "#/$defs/slug" },
+        "title":     { "type": "string", "minLength": 1 },
+        "when":      { "$ref": "#/$defs/iso8601_or_date" },
+        "duration":  { "type": "string" },
+        "location":  { "type": "string", "description": "Slug if it resolves to a wiki page, else free text." },
+        "attendees": { "type": "array", "items": { "$ref": "#/$defs/slug" } },
+        "recurrence":{ "type": "string" },
+        "tags": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/tag" },
+          "contains": { "const": "event" },
+          "description": "Must include the 'event' tag."
+        },
+        "facts":     { "type": "array", "items": { "$ref": "#/$defs/observation" } },
+        "relations": { "type": "array", "items": { "$ref": "#/$defs/relation" } }
+      }
+    },
+    "patch": {
+      "type": "object",
+      "required": ["slug"],
+      "additionalProperties": false,
+      "properties": {
+        "slug":           { "$ref": "#/$defs/slug" },
+        "add_facts":      { "type": "array", "items": { "$ref": "#/$defs/observation" } },
+        "add_hypotheses": { "type": "array", "items": { "$ref": "#/$defs/observation" } },
+        "add_opinions":   { "type": "array", "items": { "$ref": "#/$defs/observation" } },
+        "add_claims":     { "type": "array", "items": { "$ref": "#/$defs/observation" } },
+        "add_relations":  { "type": "array", "items": { "$ref": "#/$defs/relation" } },
+        "supersede": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["match"],
+            "additionalProperties": false,
+            "properties": {
+              "match":  { "type": "string", "minLength": 1, "description": "Substring of an existing observation body." },
+              "reason": { "type": "string" }
+            }
+          }
+        },
+        "add_tags":    { "type": "array", "items": { "$ref": "#/$defs/tag" } },
+        "remove_tags": { "type": "array", "items": { "$ref": "#/$defs/tag" } },
+        "add_aliases": { "type": "array", "items": { "type": "string" } },
+        "summary":     { "type": "string" },
+        "title":       { "type": "string" }
+      },
+      "anyOf": [
+        { "required": ["add_facts"] },
+        { "required": ["add_hypotheses"] },
+        { "required": ["add_opinions"] },
+        { "required": ["add_claims"] },
+        { "required": ["add_relations"] },
+        { "required": ["supersede"] }
+      ]
+    }
+  }
+}

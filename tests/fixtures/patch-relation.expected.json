@@ -1,0 +1,7 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["patched: alice"],
+  "wikiAssertions": {
+    "alice": { "bodyContains": ["visited [[example-school]]"] }
+  }
+}

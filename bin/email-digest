@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# email-digest — send an email body (read from stdin) via Gmail SMTP.
+#
+# Usage:
+#   echo "body text" | email-digest --subject "Subject line" --to "recipient@example.com"
+#
+# Required env vars:
+#   EMAIL_FROM             — sender address (must match the Gmail account that owns the app password)
+#   GMAIL_APP_PASSWORD     — 16-char Google app password (NOT your account password)
+#
+# Generate the app password at: https://myaccount.google.com/apppasswords
+# (requires 2FA enabled on the Gmail account). App passwords are scoped to
+# SMTP-SEND only — they cannot read mail.
+
+set -euo pipefail
+
+SUBJECT=""
+TO=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --subject) SUBJECT="$2"; shift 2 ;;
+    --subject=*) SUBJECT="${1#*=}"; shift ;;
+    --to) TO="$2"; shift 2 ;;
+    --to=*) TO="${1#*=}"; shift ;;
+    -h|--help)
+      sed -n '2,/^set/p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *) echo "email-digest: unknown arg: $1" >&2; exit 1 ;;
+  esac
+done
+
+if [ -z "$SUBJECT" ] || [ -z "$TO" ]; then
+  echo "email-digest: --subject and --to are required" >&2
+  exit 1
+fi
+if [ -z "${EMAIL_FROM:-}" ]; then
+  echo "email-digest: EMAIL_FROM env var not set" >&2
+  exit 2
+fi
+if [ -z "${GMAIL_APP_PASSWORD:-}" ]; then
+  echo "email-digest: GMAIL_APP_PASSWORD env var not set (generate at https://myaccount.google.com/apppasswords)" >&2
+  exit 2
+fi
+
+BODY=$(cat)
+
+# RFC 5322 envelope. Date is generated locally; let Gmail's SMTP server set Message-ID.
+TMP=$(mktemp -t email-digest.XXXXXX)
+trap 'rm -f "$TMP"' EXIT
+{
+  printf 'From: %s\r\n' "$EMAIL_FROM"
+  printf 'To: %s\r\n' "$TO"
+  printf 'Subject: %s\r\n' "$SUBJECT"
+  printf 'Date: %s\r\n' "$(date -u +'%a, %d %b %Y %H:%M:%S +0000')"
+  printf 'MIME-Version: 1.0\r\n'
+  printf 'Content-Type: text/plain; charset=UTF-8\r\n'
+  printf '\r\n'
+  printf '%s\r\n' "$BODY"
+} > "$TMP"
+
+curl --silent --show-error --fail \
+  --url 'smtps://smtp.gmail.com:465' \
+  --ssl-reqd \
+  --mail-from "$EMAIL_FROM" \
+  --mail-rcpt "$TO" \
+  --user "${EMAIL_FROM}:${GMAIL_APP_PASSWORD}" \
+  --upload-file "$TMP"
+
+echo "sent to $TO: $SUBJECT"

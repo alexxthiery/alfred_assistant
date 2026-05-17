@@ -1,0 +1,14 @@
+{
+  "source": "telegram:2026-05-17",
+  "entities": [
+    {
+      "slug": "family",
+      "title": "My family",
+      "type": "entity",
+      "tags": ["person"],
+      "facts": [
+        { "body": "Aggregator that should be rejected" }
+      ]
+    }
+  ]
+}

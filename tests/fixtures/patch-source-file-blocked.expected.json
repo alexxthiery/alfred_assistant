@@ -1,0 +1,4 @@
+{
+  "exitCode": 2,
+  "stderrContains": ["test-growth", "auto-rendered", "wiki measure"]
+}

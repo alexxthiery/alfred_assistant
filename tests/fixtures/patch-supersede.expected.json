@@ -1,0 +1,13 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["patched: alice"],
+  "wikiAssertions": {
+    "alice": {
+      "bodyContains": [
+        "~~",
+        "Used as default subject",
+        "No longer the default subject"
+      ]
+    }
+  }
+}

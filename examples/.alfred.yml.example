@@ -1,0 +1,44 @@
+# .alfred.yml — per-vault configuration for Alfred Assistant.
+# Copy this file to the root of your vault as `.alfred.yml` and edit.
+# Secrets DO NOT belong here — they go in environment variables.
+
+# --- Required ---
+user:
+  # Slug used for the "this is me" entity page in the vault (wiki/<slug>.md).
+  # Every observation tagged "[fact] I ..." lands here. Lowercase, no spaces.
+  slug: user
+  # Display name used in emails, prompts, and the persona's {{USER_NAME}} placeholder.
+  name: Anonymous
+
+# --- Optional, with sensible defaults shown ---
+
+assistant:
+  # Brand name used in CLI help text, email signatures, persona references.
+  # The published default is "Alfred" — change it if you want a different brand.
+  name: Alfred
+
+email:
+  # Sender address. Required for `email-digest`; the wrapper reads it from
+  # $EMAIL_FROM if unset here.
+  from: ""
+  # Recipient for the weekly digest. Defaults to `from` if unset.
+  to: ""
+  # The Gmail app password is NEVER stored here. The CLI reads it from
+  # $GMAIL_APP_PASSWORD. Generate one at:
+  #   https://myaccount.google.com/apppasswords  (requires 2FA on the account)
+  # App passwords are SMTP-send only — they cannot read mail.
+
+weekly_review:
+  # Whether the weekly review cron is enabled. The schedule is registered
+  # by the assistant the first time it's invoked; this flag is informational
+  # for the persona.
+  enabled: false
+  # Cron expression (5-field). Default: Mondays at 09:00 in your local TZ.
+  cron: "0 9 * * 1"
+  # IANA timezone. Used to resolve `cron`. Defaults to system TZ.
+  timezone: ""
+
+paths:
+  # Override the vault root. Defaults to the directory containing this file.
+  # Use $HOME or ~ — absolute paths are not portable across machines.
+  vault_root: ""

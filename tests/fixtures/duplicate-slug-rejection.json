@@ -1,0 +1,14 @@
+{
+  "source": "telegram:2026-05-17",
+  "entities": [
+    {
+      "slug": "alyce",
+      "title": "Alice",
+      "type": "entity",
+      "tags": ["person"],
+      "facts": [
+        { "body": "Should be flagged as fuzzy duplicate of existing alice page" }
+      ]
+    }
+  ]
+}

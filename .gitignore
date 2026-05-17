@@ -1,0 +1,25 @@
+# Local / private files — never committed
+*.local.*
+*.local
+.env
+.env.*
+!.env.example
+
+# PII list used by the scanner — generated from the user's live vault
+tools/pii-list.local.txt
+tools/scan-output.local.txt
+
+# OS / editor cruft
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Test artifacts
+tests/.cache/
+tests/.scratch/
+
+# Node / build artifacts (in case any tooling lands here later)
+node_modules/
+dist/
+.cache/

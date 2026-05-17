@@ -1,0 +1,17 @@
+{
+  "source": "telegram:2026-05-17",
+  "entities": [
+    {
+      "slug": "bob-builder",
+      "title": "Bob Builder",
+      "type": "entity",
+      "tags": ["person"],
+      "facts": [
+        { "body": "Test invented verb" }
+      ],
+      "relations": [
+        { "verb": "vibes_with", "target": "alice" }
+      ]
+    }
+  ]
+}

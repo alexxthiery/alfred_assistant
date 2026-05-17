@@ -1,0 +1,31 @@
+{
+  "source": "telegram:2026-05-17",
+  "entities": [
+    {
+      "slug": "maya-smith",
+      "title": "Maya Jones",
+      "type": "entity",
+      "tags": ["person", "family", "child"],
+      "facts": [
+        { "body": "At [[example-school]]" }
+      ],
+      "relations": [
+        { "verb": "daughter_of", "target": "alice" },
+        { "verb": "daughter_of", "target": "morgan-smith" }
+      ]
+    },
+    {
+      "slug": "leo-smith",
+      "title": "Leo Jones",
+      "type": "entity",
+      "tags": ["person", "family", "child"],
+      "facts": [
+        { "body": "Plays Roblox" }
+      ],
+      "relations": [
+        { "verb": "son_of", "target": "alice" },
+        { "verb": "son_of", "target": "morgan-smith" }
+      ]
+    }
+  ]
+}
