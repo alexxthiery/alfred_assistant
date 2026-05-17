@@ -4,6 +4,8 @@ The agreed-upon shape of the vault. Both the assistant (Alfred by default) and t
 
 This file co-evolves with use. Edit it freely — every edit becomes a rule the rest of the system enforces. The CLI parses specific sections; do not move them.
 
+> **About the worked examples in this file.** They use a consistent fictional cast — **Alice Smith** as the user, with spouse **Morgan Smith**, children **Maya** and **Leo**, and colleagues **Bob Jones / Carol Lee / Dave Kim / Eve Anderson**, plus an **Example School** / **Example University** as the workplace, situated in **Springfield** / **Atlantis**. Substitute mentally with your own family, colleagues, and locations — or edit this file directly to replace the examples with names from your own vault. The examples are illustrative, not load-bearing; only the *rules* and *closed-set lists* (types, tags, verbs, forbidden slugs, frontmatter fields) are enforced by the CLI.
+
 ## The atomicity rule — non-negotiable
 
 **One concept per page. One person per page. One organization per page. One decision per page.**
