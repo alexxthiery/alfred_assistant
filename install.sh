@@ -58,6 +58,25 @@ if [ -e "$DEST_BIN/lib" ] && [ ! -L "$DEST_BIN/lib" ]; then
 fi
 ln -sfn "$SRC_BIN/lib" "$DEST_BIN/lib"
 
+# Copy SCHEMA.md into the vault root if missing.
+# The CLI reads <vault>/SCHEMA.md on every invocation to load the closed-set
+# type/tag/verb registries. Without it, validation silently degrades (no tag
+# enforcement, no verb enforcement, no forbidden-slug enforcement). Copy (not
+# symlink) so the user can customize their vault's schema independently of
+# upstream.
+SRC_SCHEMA="$SELF/docs/SCHEMA.md"
+DEST_SCHEMA="$TARGET/SCHEMA.md"
+if [ ! -f "$DEST_SCHEMA" ]; then
+  if [ -f "$SRC_SCHEMA" ]; then
+    cp "$SRC_SCHEMA" "$DEST_SCHEMA"
+    echo "installed SCHEMA.md → $DEST_SCHEMA"
+  else
+    echo "install.sh: warning: $SRC_SCHEMA missing; vault will run with empty schema" >&2
+  fi
+else
+  echo "SCHEMA.md already present at $DEST_SCHEMA — keeping yours (no overwrite)"
+fi
+
 echo "installed $linked CLIs + lib/ into $DEST_BIN"
 echo ""
 echo "Next steps:"
