@@ -3675,6 +3675,7 @@ const REVIEW_STOPWORDS = new Set([
 
 function cmdPersonaLint(args) {
   const candidates = [
+    'CLAUDE.md',
     'SCHEMA.md',
     'alfred/_persona.md',
     'alfred/_persona.local.md',
