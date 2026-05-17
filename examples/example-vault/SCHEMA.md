@@ -539,6 +539,42 @@ The compiler validates the entire spec upfront. Any validation error halts befor
 
 The CLI writes frontmatter in this order: `id, title, type, created, updated, tags`, then extras (`summary`, `aliases`, `status`, `due`, `decided_on`, `derived_from`, `raw_path`, `sha256`, `when`, `duration`, `location`, `attendees`, `recurrence`, etc.). Manual edits should preserve this for diff readability.
 
+## Stable frontmatter contract
+
+This table lists every frontmatter field the CLI actively reads. **`stable`** fields will not change shape or semantics without a `wiki migrate` step in the release that breaks them. **`experimental`** fields may change without notice; rely on them at your own risk. Fields not in this table are stored as-is but never inspected by the CLI — safe to add for your own use, ignored by every verb.
+
+| Field            | Type        | Required for                | Read by                                | Status        | Notes                                                          |
+|------------------|-------------|-----------------------------|----------------------------------------|---------------|----------------------------------------------------------------|
+| `id`             | slug        | all pages                   | all verbs                              | stable        | Must equal filename basename (sans `.md`); slug regex enforced |
+| `title`          | string      | all pages                   | all verbs                              | stable        |                                                                |
+| `type`           | enum        | all pages                   | all verbs                              | stable        | Closed set: entity, concept, decision, source, synthesis, todo, note, event |
+| `created`        | ISO date    | all pages                   | list, recent, audit                    | stable        | Writer-stamped on first write                                  |
+| `updated`        | ISO datetime| all pages                   | list, recent, lint, audit              | stable        | Writer-stamped on every write                                  |
+| `tags`           | string list | all pages                   | all verbs                              | stable        | Closed set; see "Tag taxonomy" section                         |
+| `summary`        | string      | —                           | list, preview, index, context          | stable        | One-line description; falls back to first body line            |
+| `aliases`        | string list | —                           | mv, merge, resolve, autolink           | stable        | Auto-populated by mv (old slug) and patch --title (old title)  |
+| `source_file`    | string path | measurement-series pages    | patch (blocks), write (blocks), measure| stable        | Pages with this field are auto-rendered; direct write refused  |
+| `derived_from`   | slug list   | type=synthesis              | write, audit                           | stable        | ≥2 entries required for synthesis type                         |
+| `when`           | ISO date/dt | type=event                  | agenda, audit, event scan              | stable        | YYYY-MM-DD for all-day, ISO 8601 for timed                     |
+| `duration`       | string      | —                           | agenda, event                          | stable        | Free-form: "30m", "1h", "2h30m", "all-day"                     |
+| `location`       | string      | —                           | agenda, event                          | stable        | Free text or wikilink slug                                     |
+| `attendees`      | slug list   | —                           | agenda                                 | stable        | List of entity slugs                                           |
+| `recurrence`     | string      | —                           | agenda, event                          | stable        | Informal: daily, weekly, monthly, yearly                       |
+| `status`         | enum        | type=todo                   | todo, list, sql                        | stable        | One of: open, doing, done, abandoned                           |
+| `due`            | ISO date    | —                           | todo, agenda                           | stable        | YYYY-MM-DD                                                     |
+| `priority`       | enum        | —                           | todo                                   | stable        | Free-form; convention: low / medium / high                     |
+| `done_at`        | ISO datetime| —                           | todo                                   | stable        | Writer-stamped when status flips to done                       |
+| `decided_on`     | ISO date    | type=decision               | write, list                            | stable        | YYYY-MM-DD                                                     |
+| `supersedes`     | slug list   | —                           | write, lint                            | stable        | Decision that retires another decision                         |
+| `raw_path`       | string path | type=source                 | write, audit                           | stable        | Relative path under `raw/`                                     |
+| `sha256`         | hex string  | type=source                 | write                                  | stable        | Content hash of the raw source                                 |
+| `ingested_at`    | ISO datetime| type=source                 | write                                  | stable        | When the source was first triaged                              |
+| `kind`           | string      | type=source                 | write                                  | stable        | Free-form: clipping, paper, lab, transcript, ...               |
+| `birth`          | ISO date    | measurement-series subjects | measure                                | stable        | Used to derive `age` column in growth-curve TSVs               |
+| `homepage`/`scholar`/`orcid`/`github`/`linkedin`/`twitter`/`arxiv`/`email` | string | — | context, audit | experimental | Structured external links on person entities; see "Structured external-link fields" section |
+
+Adding a new field that the CLI should read: list it here with `experimental` status, ship one minor version with that label, promote to `stable` next minor if no shape changes needed. Removing a field: deprecate in vX.Y (warn on use), remove in vX.(Y+1) with a `wiki migrate` step.
+
 ## Aliases
 
 A page may carry an `aliases: [name1, name2]` frontmatter field. Aliases:
