@@ -3684,6 +3684,84 @@ const REVIEW_STOPWORDS = new Set([
   'European','American','Asian','African','Australian',
 ]);
 
+// ─── persona-lint: catch verb drift between docs and the dispatch map ─────
+//
+// Greps a fixed set of doc files for `wiki <verb>` references. Any verb not
+// in the live dispatch map (`cmds`) is flagged. Reports unknown flags on
+// `wiki <verb> --flag` mentions only when the verb itself is known.
+//
+// Files scanned (all paths relative to VAULT_ROOT; missing files skipped):
+//   - SCHEMA.md
+//   - alfred/_persona.md, alfred/_persona.local.md
+//   - docs/PERSONA.template.md, docs/SCHEMA.md, docs/NANOCLAW-PATCHES.md
+//   - README.md, CONTRIBUTING.md, CHANGELOG.md
+//
+// Exits 0 if clean, 2 if any unknown verb was found.
+
+function cmdPersonaLint(args) {
+  const candidates = [
+    'SCHEMA.md',
+    'alfred/_persona.md',
+    'alfred/_persona.local.md',
+    'docs/PERSONA.template.md',
+    'docs/SCHEMA.md',
+    'docs/NANOCLAW-PATCHES.md',
+    'README.md',
+    'CONTRIBUTING.md',
+    'CHANGELOG.md',
+  ];
+
+  // Need cmds in scope — it's declared at the bottom of the file as a
+  // module-level const, hoisted at parse but only initialized after function
+  // definitions run. By the time cmdPersonaLint is invoked, cmds exists.
+  const knownVerbs = new Set(Object.keys(cmds));
+
+  let scanned = 0;
+  const hits = []; // { docRel, line, verb }
+  for (const rel of candidates) {
+    const p = path.join(VAULT_ROOT, rel);
+    if (!fs.existsSync(p)) continue;
+    scanned++;
+    const text = fs.readFileSync(p, 'utf-8');
+    const lines = text.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      // Only flag backtick-wrapped `wiki <verb>` — prose mentions of "wiki" as a
+      // noun (e.g. "the wiki is...", "wiki page", "the wiki via X") would otherwise
+      // generate false positives. Doc convention here is to wrap CLI invocations
+      // in code spans, so backticks are a reliable signal.
+      const re = /`wiki ([a-z][a-z0-9-]*)/g;
+      let m;
+      const seen = new Set();
+      while ((m = re.exec(line)) !== null) {
+        const v = m[1];
+        if (!v) continue;
+        if (seen.has(v)) continue;
+        seen.add(v);
+        if (!knownVerbs.has(v)) {
+          hits.push({ docRel: rel, line: i + 1, verb: v });
+        }
+      }
+    }
+  }
+
+  if (scanned === 0) {
+    console.error('persona-lint: no candidate docs found under ' + VAULT_ROOT);
+    process.exit(1);
+  }
+  if (hits.length === 0) {
+    console.log(`persona-lint: clean (${scanned} doc${scanned === 1 ? '' : 's'} scanned, ${knownVerbs.size} known verbs)`);
+    process.exit(0);
+  }
+  console.error(`persona-lint: ${hits.length} unknown verb reference${hits.length === 1 ? '' : 's'}:`);
+  for (const h of hits) {
+    console.error(`  ${h.docRel}:${h.line}  \`wiki ${h.verb}\`  (not in dispatch map)`);
+  }
+  console.error('');
+  console.error('Fix: either rename the doc reference to a real verb, OR add the verb to the dispatch map.');
+  process.exit(2);
+}
+
 function cmdReview(args) {
   const all = listWikiPages().map((f) => {
     const slug = f.replace(/\.md$/, '');
@@ -4074,6 +4152,7 @@ const cmds = {
   todo: cmdTodo,
   // hygiene
   lint: cmdLint, reindex: cmdReindex, 'sync-ids': cmdSyncIds, size: cmdSize, groom: cmdGroom, audit: cmdAudit,
+  'persona-lint': cmdPersonaLint,
   // measurements (tabular time-series)
   measure: cmdMeasure,
   // review (discovery + health digest)
@@ -4143,6 +4222,7 @@ if (!verb || !cmds[verb]) {
   console.error('  reindex                                   regenerate index.md');
   console.error('  groom --mechanical [--dry-run]            auto-fix symmetric relations, bidirectional autolink, report stubs');
   console.error('  audit <slug> | --all                      mechanical quality score per page or vault-wide');
+  console.error('  persona-lint                              grep persona/schema/docs for unknown `wiki <verb>` references');
   console.error('');
   console.error('SQL (DuckDB analytical view — ad-hoc queries over wiki/*.md frontmatter)');
   console.error('  sql "<query>"                             run SQL against the `vault` table');
