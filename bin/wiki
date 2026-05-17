@@ -365,7 +365,7 @@ function tamperCheck() {
 
 // ─── write validation ──────────────────────────────────────────────────────
 
-function validateForWrite({ slug, type, tags, derivedFrom }, { isAppend, isReplace }) {
+function validateForWrite({ slug, type, tags, derivedFrom }, { isAppend }) {
   const errors = [];
   if (!validSlug(slug)) errors.push(`Invalid slug: "${slug}" (lowercase, alphanumeric, hyphens; must start with letter or digit)`);
   if (isReserved(slug)) errors.push(`Slug "${slug}" is reserved (auto-maintained file).`);
@@ -873,7 +873,6 @@ function cmdWrite(args) {
 
   // For create / replace: validate.
   const isAppend = !!args.append && exists;
-  const isReplace = !!args.replace && exists;
   const explicitType = args.type;
   const tags = args.tags ? String(args.tags).split(',').map((s) => s.trim()).filter(Boolean) : [];
 
@@ -883,7 +882,7 @@ function cmdWrite(args) {
       type: explicitType,
       tags,
       derivedFrom: args.derived_from,
-    }, { isAppend, isReplace });
+    }, { isAppend });
     if (validationErrors.length) {
       console.error('Rejected:');
       for (const e of validationErrors) console.error(`  ${e}`);
