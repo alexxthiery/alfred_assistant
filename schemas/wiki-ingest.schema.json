@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://_AI_box/.bin/wiki-ingest.schema.json",
+  "$id": "https://alfred-assistant.example/schemas/wiki-ingest.schema.json",
   "title": "wiki ingest spec",
   "description": "Structured input to `wiki ingest --stdin|--file`. Mirrors SCHEMA.md, section 'JSON ingestion spec'. The CLI's imperative validator is authoritative; this file is documentation + a lint target. Update both together when the contract changes.",
   "type": "object",
