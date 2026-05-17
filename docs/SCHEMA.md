@@ -1,6 +1,6 @@
 # SCHEMA — the vault contract
 
-The agreed-upon shape of Alice's the vault vault. Both the assistant (Alfred by default) and the CLIs (`wiki`, `inbox`) treat this file as authoritative. Alfred re-reads it on every orientation; the wiki CLI enforces it at write time; lint surfaces drift.
+The agreed-upon shape of the vault. Both the assistant (Alfred by default) and the CLIs (`wiki`, `inbox`) treat this file as authoritative. Alfred re-reads it on every orientation; the wiki CLI enforces it at write time; lint surfaces drift.
 
 This file co-evolves with use. Edit it freely — every edit becomes a rule the rest of the system enforces. The CLI parses specific sections; do not move them.
 
@@ -184,7 +184,7 @@ Forms:
 - `^[telegram:YYYY-MM-DD]` — for facts learned directly in conversation
 - `^[lab:LAB-2026-02-24]` — for facts from external documents not yet ingested
 
-Lint flags `type: entity`, `type: synthesis`, and `type: concept` pages with observations but zero provenance markers. Run `wiki lint --only provenance`.
+Lint flags `type: entity`, `type: synthesis`, and `type: concept` pages with observations but zero provenance markers. Run `wiki audit` to surface these.
 
 ## Hard rules
 
