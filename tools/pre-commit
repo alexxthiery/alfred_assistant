@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-# pre-commit — block commits that would leak PII.
+# pre-commit — block commits that leak PII or break the fixture suite.
 #
 # Install:
 #   ln -sfn ../../tools/pre-commit .git/hooks/pre-commit
+#   # If you have a global core.hooksPath, override per-repo:
+#   git config --local core.hooksPath .git/hooks
 #
-# Runs tools/scan-pii.sh on every staged file. If any hit, prints the
-# offending file:line and aborts.
+# Runs in two stages:
+#   1. tools/scan-pii.sh on every staged text file — abort if any hit.
+#   2. bin/wiki-test, ONLY if a staged file is under bin/, tests/, schemas/,
+#      or docs/SCHEMA.md (i.e., could affect the fixture suite). Skipped for
+#      doc-only commits to keep them fast.
 
 set -euo pipefail
 
@@ -54,6 +59,26 @@ if [ "$HITS" -eq 1 ]; then
   echo "  (a) redact the offending content, or" >&2
   echo "  (b) if it's a false positive, add the pattern's category exclusion to tools/build-pii-list.sh and regenerate." >&2
   exit 1
+fi
+
+# --- Fixture suite ---
+# Run bin/wiki-test if it exists and any staged file might affect it
+# (bin/* or tests/*). Skip otherwise so doc-only commits stay fast.
+WIKI_TEST="$REPO/bin/wiki-test"
+if [ -x "$WIKI_TEST" ]; then
+  RELEVANT=0
+  while IFS= read -r f; do
+    case "$f" in
+      bin/*|tests/*|schemas/*|docs/SCHEMA.md) RELEVANT=1 ;;
+    esac
+  done <<< "$STAGED"
+  if [ "$RELEVANT" -eq 1 ]; then
+    if ! "$WIKI_TEST" >/dev/null 2>&1; then
+      echo "pre-commit: bin/wiki-test failed. Run it directly to see which fixtures broke:" >&2
+      echo "  $WIKI_TEST" >&2
+      exit 1
+    fi
+  fi
 fi
 
 exit 0
