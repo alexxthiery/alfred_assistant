@@ -1421,12 +1421,23 @@ function cmdIngest(args) {
   }
 
   // ─── EXECUTE ──────────────────────────────────────────────────────────
+  // M08: staged writes. All page mutations accumulate in `stagedWrites` (path
+  // -> content). Nothing touches the vault until the final flush at the end
+  // of the EXECUTE phase. If any loop throws, the catch below skips the flush
+  // and the vault is unchanged. Flush itself uses temp-file + renameSync per
+  // page for filesystem-level atomicity of each write.
   const source = spec.source;
   const created = [], modified = [], skipped = [];
+  /** @type {Map<string,string>} absolute-path -> file content */
+  const stagedWrites = new Map();
+  const stagedExists = (p) => stagedWrites.has(p) || fs.existsSync(p);
+  const stagedRead = (p) => stagedWrites.has(p) ? stagedWrites.get(p) : fs.readFileSync(p, 'utf-8');
+  const stagePage = (p, content) => stagedWrites.set(p, content);
 
+  try {
   // 1) Stubs first
   for (const s of stubs) {
-    if (fs.existsSync(wikiPath(s.slug))) { skipped.push(s.slug); continue; }
+    if (stagedExists(wikiPath(s.slug))) { skipped.push(s.slug); continue; }
     const fm = {
       id: s.slug, title: s.title,
       type: s.type || 'entity',
@@ -1434,7 +1445,7 @@ function cmdIngest(args) {
       tags: s.tags || [],
     };
     const body = `Stub. ^[${source}]\n`;
-    fs.writeFileSync(wikiPath(s.slug), serializeFrontmatter(fm, body));
+    stagePage(wikiPath(s.slug), serializeFrontmatter(fm, body));
     created.push(s.slug);
   }
 
@@ -1442,9 +1453,9 @@ function cmdIngest(args) {
   for (const e of entities) {
     const type = e.type || 'entity';
     let fmCreated = nowISO();
-    const exists = fs.existsSync(wikiPath(e.slug));
+    const exists = stagedExists(wikiPath(e.slug));
     if (exists) {
-      const cur = parseFrontmatter(fs.readFileSync(wikiPath(e.slug), 'utf-8'));
+      const cur = parseFrontmatter(stagedRead(wikiPath(e.slug)));
       if (cur.fm.created) fmCreated = cur.fm.created;
     }
     const fm = {
@@ -1459,16 +1470,16 @@ function cmdIngest(args) {
       if (e[k]) fm[k] = e[k];
     }
     const body = buildBodyFromSpec(e, source);
-    fs.writeFileSync(wikiPath(e.slug), serializeFrontmatter(fm, body));
+    stagePage(wikiPath(e.slug), serializeFrontmatter(fm, body));
     (exists ? modified : created).push(e.slug);
   }
 
   // 3) Events
   for (const e of events) {
     let fmCreated = nowISO();
-    const exists = fs.existsSync(wikiPath(e.slug));
+    const exists = stagedExists(wikiPath(e.slug));
     if (exists) {
-      const cur = parseFrontmatter(fs.readFileSync(wikiPath(e.slug), 'utf-8'));
+      const cur = parseFrontmatter(stagedRead(wikiPath(e.slug)));
       if (cur.fm.created) fmCreated = cur.fm.created;
     }
     const fm = {
@@ -1483,13 +1494,13 @@ function cmdIngest(args) {
     if (e.recurrence) fm.recurrence = e.recurrence;
     if (e.summary) fm.summary = e.summary;
     const body = buildBodyFromSpec(e, source);
-    fs.writeFileSync(wikiPath(e.slug), serializeFrontmatter(fm, body));
+    stagePage(wikiPath(e.slug), serializeFrontmatter(fm, body));
     (exists ? modified : created).push(e.slug);
   }
 
   // 4) Patches
   for (const p of patches) {
-    const { fm, body } = parseFrontmatter(fs.readFileSync(wikiPath(p.slug), 'utf-8'));
+    const { fm, body } = parseFrontmatter(stagedRead(wikiPath(p.slug)));
     let newBody = body;
     const additions = [];
     if (Array.isArray(p.supersede)) {
@@ -1541,8 +1552,28 @@ function cmdIngest(args) {
       newBody = newBody.trimEnd() + '\n' + additions.join('\n') + '\n';
     }
     fm.updated = nowISO();
-    fs.writeFileSync(wikiPath(p.slug), serializeFrontmatter(fm, newBody));
+    stagePage(wikiPath(p.slug), serializeFrontmatter(fm, newBody));
     modified.push(p.slug);
+  }
+  } catch (e) {
+    // Staged-write failure mid-EXECUTE. The vault is untouched (no flush yet).
+    if (replayMsgId && !args.replay) {
+      captureReplayResult(replayMsgId, { exitCode: 2, errors: [e.message], created: [], modified: [], skipped: [] });
+    }
+    console.error(`# ingest aborted before any writes: ${e.message}`);
+    process.exit(2);
+  }
+
+  // ─── FLUSH ────────────────────────────────────────────────────────────
+  // All staged writes go to disk now. Per-file atomicity: write to a temp
+  // path, then renameSync into final position. If a flush fails partway,
+  // already-renamed files stay (no rollback) but each individual write is
+  // atomic at the filesystem level — readers never see torn content.
+  const flushPid = process.pid;
+  for (const [p, content] of stagedWrites) {
+    const tmp = `${p}.tmp-ingest-${flushPid}`;
+    fs.writeFileSync(tmp, content);
+    fs.renameSync(tmp, p);
   }
 
   // Dedup created/modified/skipped — a slug can appear twice if e.g. multiple
