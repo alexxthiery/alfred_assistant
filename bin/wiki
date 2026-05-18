@@ -470,33 +470,48 @@ function cmdMv(args) {
   if (!fs.existsSync(oldPath)) { console.error(`error: page ${oldSlug} does not exist`); console.error(`  Hint: \`wiki resolve "${oldSlug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   if (fs.existsSync(newPath)) { console.error(`error: page ${newSlug} already exists`); process.exit(2); }
 
-  fs.renameSync(oldPath, newPath);
-  const { fm, body } = parseFrontmatter(fs.readFileSync(newPath, 'utf-8'));
-  fm.id = newSlug;
-  fm.updated = nowISO();
-  // Preserve old slug as an alias for autolink robustness
-  const aliases = Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []);
-  if (!aliases.includes(oldSlug)) aliases.push(oldSlug);
-  fm.aliases = aliases;
-  fs.writeFileSync(newPath, serializeFrontmatter(fm, body));
-
-  // Two regexes: a non-global one for `.test()` (stateless across iterations),
-  // a global one for `.replace()` (replaces every occurrence). Using the /g
-  // flag for `.test` was a real correctness bug: RegExp.prototype.test on a
-  // global regex advances lastIndex, so consecutive forEachPage iterations
-  // could silently skip pages whose match position was earlier than the
-  // accumulated lastIndex. See audit/12-coherence-robustness.md § stateful-regex.
-  const linkTestRe = new RegExp(`\\[\\[${oldSlug}\\]\\]`);
-  const linkReplaceRe = new RegExp(`\\[\\[${oldSlug}\\]\\]`, 'g');
+  // HR04: stage every write (renamed-page + backlink rewrites) into a Map,
+  // then flush via temp+rename per entry. If any staging step throws (read
+  // error, parse error), no writes have hit disk — vault is untouched.
+  // After the flush succeeds, unlink the old path last (no rollback for unlink,
+  // but the new content is durably on disk by then). See audit/12 §
+  // concurrency-atomicity and HR03 for the same pattern in cmdMerge.
+  const staged = new Map();
   let touched = 0;
-  forEachPage(({ absPath, raw }) => {
-    if (!linkTestRe.test(raw)) return;
-    const updated = raw.replace(linkReplaceRe, `[[${newSlug}]]`);
-    const parsed = parseFrontmatter(updated);
-    parsed.fm.updated = nowISO();
-    fs.writeFileSync(absPath, serializeFrontmatter(parsed.fm, parsed.body));
-    touched++;
-  });
+  try {
+    // 1. Renamed page content (read from oldPath since rename hasn't happened yet).
+    const { fm, body } = parseFrontmatter(fs.readFileSync(oldPath, 'utf-8'));
+    fm.id = newSlug;
+    fm.updated = nowISO();
+    const aliases = Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []);
+    if (!aliases.includes(oldSlug)) aliases.push(oldSlug);
+    fm.aliases = aliases;
+    staged.set(newPath, serializeFrontmatter(fm, body));
+
+    // 2. Backlink rewrites. Two regexes: a non-global one for `.test()`
+    // (stateless across iterations), a global one for `.replace()`. Using
+    // the /g flag for `.test` was a real correctness bug — see HR01.
+    const linkTestRe = new RegExp(`\\[\\[${oldSlug}\\]\\]`);
+    const linkReplaceRe = new RegExp(`\\[\\[${oldSlug}\\]\\]`, 'g');
+    forEachPage(({ absPath, raw }) => {
+      if (absPath === oldPath) return; // skip the source itself; it will be unlinked
+      if (!linkTestRe.test(raw)) return;
+      const updated = raw.replace(linkReplaceRe, `[[${newSlug}]]`);
+      const parsed = parseFrontmatter(updated);
+      parsed.fm.updated = nowISO();
+      staged.set(absPath, serializeFrontmatter(parsed.fm, parsed.body));
+      touched++;
+    });
+  } catch (e) {
+    console.error(`error: mv aborted before any writes: ${e.message}`);
+    process.exit(2);
+  }
+
+  flushStaged(staged, { tag: 'mv' });
+
+  // Unlink the source last. No rollback for unlink, but every staged write
+  // has already succeeded (per-file atomic) by the time we reach this line.
+  fs.unlinkSync(oldPath);
 
   regenerateIndex();
   appendLog('mv', `${oldSlug} -> ${newSlug} (rewrote ${touched} backlinks)`);
