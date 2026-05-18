@@ -15,19 +15,27 @@ Approximate token counts assume ~4 chars/token. Sizes accurate as of the latest 
 | Path                                | Size  | ~tokens | When to read                                              |
 |-------------------------------------|-------|---------|-----------------------------------------------------------|
 | `CLAUDE.md`                         | this  | <1k     | First. Always.                                            |
-| `bin/wiki`                          | 184K  | ~46k    | Adding/editing a verb. **Always grep first** — never read end-to-end. |
+| `bin/wiki`                          | 165K  | ~42k    | Adding/editing a verb. **Always grep first** — never read end-to-end. |
 | `bin/lib/frontmatter.js`            | 4K    | <1k     | Touching frontmatter parse/serialize/migration            |
+| `bin/lib/schema.js`                 | 6K    | 1.5k    | Touching SCHEMA.md parsing or closed-set constants (`ENTITY_KIND_TAGS`, `STALE_THRESHOLDS`) |
+| `bin/lib/graph.js`                  | 6K    | 1.5k    | Touching wikilink / observation / relation / fuzzy helpers |
+| `bin/lib/ingest.js`                 | 11K   | 2.6k    | Touching JSON-ingest validation                           |
+| `bin/lib/audit.js`                  | 8K    | 2k      | Touching audit rules (`AUDIT_RULES` table)                |
+| `bin/lib/vault.js`                  | 3K    | <1k     | Vault constants + page iteration (`forEachPage`)          |
+| `bin/lib/flag-aliases.js`           | 1.5K  | <1k     | CLI flag-rename / removal policy                          |
 | `bin/lib/config.js`                 | 6K    | 1.5k    | Touching `.alfred.yml` handling                           |
+| `bin/verbs/read.js`                 | 14K   | 3.5k    | Read-only verbs (`list`, `print`, `context`, ...)         |
 | `bin/inbox`                         | 16K   | 4k      | Touching raw-content triage                               |
 | `bin/wiki-test`                     | 7K    | 1.7k    | Reading the fixture runner; **assertion vocabulary lives here** |
 | `bin/email-digest`                  | 3K    | <1k     | Touching SMTP send / weekly digest                        |
-| `docs/SCHEMA.md`                    | 40K   | ~10k    | Tag/type/verb/microsyntax questions. **The contract.**    |
+| `docs/SCHEMA.md`                    | 36K   | ~9k     | Tag/type/verb/microsyntax questions. **The contract.**    |
 | `docs/PERSONA.template.md`          | 28K   | ~7k     | What the LLM agent is expected to do at runtime           |
+| `docs/CONVENTIONS.md`               | 8K    | 2k      | Naming, error format, exit codes, where-things-live       |
 | `docs/WEEKLY-DIGEST.md`             | 4K    | <1k     | Cron + SMTP pipeline                                      |
 | `docs/NANOCLAW-PATCHES.md`          | 4K    | <1k     | Host-side patches; out of agent's normal scope            |
 | `schemas/wiki-ingest.schema.json`   | 5K    | 1.2k    | JSON-spec field shapes (the input to `wiki ingest`)       |
 | `tests/fixtures/*.json`             | 0.3-2K | <1k    | Test-by-analogy. See `tests/fixtures/README.md`.          |
-| `tests/unit/*.test.js`              | 5K    | 1.2k    | Unit tests on pure helpers (currently: frontmatter only)  |
+| `tests/unit/*.test.js`              | varies | varies | Unit tests on pure helpers (`frontmatter`, `schema`, `graph`, `ingest`, `audit`, `flag-aliases`, `vault`) |
 | `tests/vault/`                      | dir   | varies  | Seed vault, **copied fresh per fixture** (hidden coupling) |
 | `tests/fixtures/README.md`          | 4K    | <1k     | Read before writing a new fixture                         |
 | `audit/*.md` (gitignored)           | 6-14K | 2-4k    | Local audit findings; not in published tree               |
@@ -49,9 +57,9 @@ Approximate token counts assume ~4 chars/token. Sizes accurate as of the latest 
 
 These aren't rules that bite you with an error — they're contracts that other code assumes. Break one and the breakage surfaces somewhere unexpected.
 
-- **SCHEMA.md closed-set taxonomy.** `loadSchema()` at `bin/wiki:180` parses the tag/type/forbidden/verb lists out of SCHEMA.md at every CLI invocation. Adding a tag = edit SCHEMA.md, done. Adding a *kind* of taxonomy = also touch loadSchema.
-- **Frontmatter serialization chokepoint.** All 20 page-write call-sites in `bin/wiki` funnel through `serializeFrontmatter` in `bin/lib/frontmatter.js`. Adding a new always-stamped FM field (like `schema_version` was in H07) means editing exactly one function. Don't write FM by hand at call-sites.
-- **Write-validation triad.** All write verbs route through `validateForWrite` (`bin/wiki:339`) for slug/type/tag/derived_from + `validateBody` for body-level rules + `postWriteAudit` (`bin/wiki:2492`) for per-page audit afterward. New write paths should follow the same sequence or document why they don't.
+- **SCHEMA.md closed-set taxonomy.** `loadSchema()` in `bin/lib/schema.js` parses the tag/type/forbidden/verb lists out of SCHEMA.md at every CLI invocation. Adding a tag = edit SCHEMA.md, done. Adding a *kind* of taxonomy = also touch the parser in `bin/lib/schema.js`.
+- **Frontmatter serialization chokepoint.** All page-write call-sites in `bin/wiki` funnel through `serializeFrontmatter` in `bin/lib/frontmatter.js`. Adding a new always-stamped FM field (like `schema_version` was in H07) means editing exactly one function. Don't write FM by hand at call-sites.
+- **Write-validation triad.** All write verbs route through `validateForWrite` in `bin/wiki` (for slug/type/tag/derived_from) + `validateBody` in `bin/lib/ingest.js` (body-level rules, delegates to `strictRuleErrors` in `bin/lib/audit.js`) + `postWriteAudit` in `bin/wiki` (per-page audit afterward). New write paths should follow the same sequence or document why they don't.
 - **Auto-commit + auto-audit + auto-autolink.** Every successful write triggers (a) an auto-commit (atomic per write), (b) a post-write audit hook, and (c) bidirectional autolink resolution. `wiki revert <sha>` undoes one. Don't try to batch writes; the system is designed for one-write-one-commit. Opt out per invocation with `--no-auto-commit` or globally with `WIKI_NO_AUTO_COMMIT=1` — useful for CI runs and for "stage many edits, then commit by hand." Auto-commit failures print a loud multi-line stderr block but never crash the verb.
 - **Tamper-detection race (known limitation).** `tamperCheck()` runs *before* the verb writes and flags any pre-existing uncommitted vault state. But there's a small window between that check and `git add -A` inside `autoCommit()`. If a concurrent process modifies the vault during that window, those changes get folded into the verb's commit indistinguishably from the verb's own writes. Mitigation: don't run the CLI concurrently against the same vault. Detection: a `wiki revert` of an auto-commit will undo more than just the verb's writes if this race fires. Real fix is a vault-level lock — deferred until the race is observed in practice.
 - **`schema_version` stamping.** Every page write stamps `schema_version: <current>` via the serializer. Pages without the field are treated as v1 by `wiki migrate`. Bumping the schema version means: define the migration in `SCHEMA_MIGRATIONS` in `bin/lib/frontmatter.js`, run `wiki migrate`, ship.
@@ -70,15 +78,18 @@ Unit tests live in `tests/unit/*.test.js` and exercise pure helpers from `bin/li
 
 ## Recent state (post-audit)
 
-The repo is currently in audit-remediation mode. Tracker in `audit/WORKPLAN.md` (gitignored — local only). The audit identified items across BLOCKER → NIT severity; ~half are closed as of session 7. Concrete state that affects daily work:
+The audit has been substantially worked down. Tracker in `audit/WORKPLAN.md` (gitignored — local only): all BLOCKER, HIGH, NIT cleared; MEDIUM at 18/19 (only M13 deferred — DuckDB incremental rebuild, revisit at 1K+ pages); LOW tier (7 items) open. Concrete state that affects daily work:
 
-- `wiki persona-lint` (H09) — catches verb drift in docs.
-- `wiki migrate` (H07) — frontmatter schema versioning.
-- `email-digest --dry-run` (H10) — SMTP pre-flight.
-- `bin/lib/frontmatter.js` (partial H04) — frontmatter helpers extracted from `bin/wiki`, paired with `tests/unit/frontmatter.test.js`.
-- `docs/WEEKLY-DIGEST.md` (H01) — pipeline documentation that was previously a dangling reference.
-- `tests/fixtures/README.md` (M18) — fixture format + tests/vault coupling.
+- 8 modules extracted under `bin/lib/` — `frontmatter`, `schema`, `graph`, `ingest`, `audit`, `vault`, `flag-aliases`, `config`. Pure helpers; unit-tested.
+- `wiki persona-lint` (H09) — catches verb drift in docs (scans 9 docs).
+- `wiki migrate` (H07) — frontmatter schema versioning. Every page write stamps `schema_version`.
 - `wiki preflight` (M12) — one-shot env/dependency check. Run first when dropping into an unfamiliar vault.
+- `email-digest --dry-run` (H10) — SMTP pre-flight.
+- VERBS table + per-verb `--help` (M10+M11) — `wiki ingest --help` etc. ship long-form usage for ingest/write/patch/audit/lint.
+- `forEachPage` helper (M06) in `bin/lib/vault.js` — used at 20+ iteration sites; the spot to add per-process caching later.
+- Staged-write atomicity in `wiki ingest` (M08) — pre-flush staging means crashes mid-execute leave the vault untouched.
+- `tests/fixtures/README.md` (M18) — fixture format + tests/vault coupling.
+- `docs/CONVENTIONS.md` (M16) — naming, error format, exit codes, where-things-live module map.
 
 If you find yourself reading code that the audit has already analysed, check `audit/00-summary.md` for the high-level findings first.
 
@@ -88,28 +99,28 @@ If you find yourself reading code that the audit has already analysed, check `au
 
 Worked example: a hypothetical `next-up` verb that lists `type=event` pages with `when` in the next 7 days. (The verb doesn't exist; we're walking through adding it. The full invocation would be **wiki next-up** — written without backticks here so `wiki persona-lint` doesn't flag a doc-vs-dispatch-map mismatch.)
 
-1. **Confirm the verb name is free.** Grep `bin/wiki` for `const cmds = {` (currently `:4189`). The dispatch map is the canonical list.
-2. **Read the closest sibling verb.** For `next-up`, that's `cmdAgenda` (`:542`, `function cmdAgenda(args) {`). Read end-to-end — it's the template you'll copy.
-3. **Add `cmdNextUp(args)`** near the sibling. Pattern for this example: filter `listWikiPages()` for `fm.type === 'event'` with `fm.when` within today + 7 days, sort by `when`, print one line per event in the agenda format.
-4. **Register in the dispatch map** (`:4189`). Match the existing comment-cluster convention (read, write, graph, todo, hygiene, etc.). Kebab-case verbs use string keys (`'sync-ids': cmdSyncIds`, `'persona-lint': cmdPersonaLint`). Single-word verbs use bare identifiers.
-5. **Add a one-liner to the help banner** (grep `// ─── argparse + dispatch`, currently `:4163`). Put it under the right section header.
-6. **Update `docs/PERSONA.template.md`** if the persona should know to invoke it. Grep for the closest existing verb in that doc (`wiki agenda`, `wiki audit`, etc.) and add yours nearby.
+1. **Confirm the verb name is free.** Grep `bin/wiki` for `const cmds = {`. The dispatch map is the canonical list.
+2. **Read the closest sibling verb.** For `next-up`, that's `cmdAgenda` — grep `bin/wiki` for `function cmdAgenda`. Read end-to-end; it's the template you'll copy.
+3. **Add `cmdNextUp(args)`** near the sibling. Pattern for this example: walk pages via `forEachPage` (from `bin/lib/vault.js`), filter for `fm.type === 'event'` with `fm.when` within today + 7 days, sort by `when`, print one line per event in the agenda format.
+4. **Register in the dispatch map.** Grep `const cmds = {`. Match the existing comment-cluster convention (read, write, graph, todo, hygiene, etc.). Kebab-case verbs use string keys (`'sync-ids': cmdSyncIds`, `'persona-lint': cmdPersonaLint`). Single-word verbs use bare identifiers.
+5. **Add an entry to the VERBS table** (grep `bin/wiki` for `const VERBS = [`). Each entry has `{ name, section, lines: ['  <synopsis>'] }` and optionally `longHelp: '...'` for the most-complex verbs. The table feeds both the global help banner and `wiki <verb> --help`.
+6. **Update `docs/PERSONA.template.md`** if the persona should know to invoke it. Grep for the closest existing verb in that doc (`` `wiki agenda` ``, `` `wiki audit` ``, etc.) and add yours nearby.
 7. **Add a fixture.** `tests/fixtures/next-up-window.json` + `.expected.json`. CLI-fixture shape (`{cmd: [...]}`). Optional `setup` to arrange vault state. Read `tests/fixtures/README.md` for the assertion vocabulary.
-8. **Run `npm test`.** 18+ unit + 18+ fixtures must all pass.
+8. **Run `npm test`.** Unit + fixture suite must all pass.
 9. **Run `node bin/wiki persona-lint`.** Catches dangling verb refs in docs.
 10. **Commit atomically.** `[<ID-if-from-audit>] <imperative>`.
 
-Grep anchors: `const cmds = {` (dispatch), `function cmdAgenda` (a typical read verb), `function cmdPatch` (a write verb), `// ─── argparse + dispatch` (help banner).
+Grep anchors: `const cmds = {` (dispatch), `const VERBS = [` (help-table), `function cmdAgenda` (a typical read verb), `function cmdPatch` (a write verb).
 
 ### Runbook 2: Add a closed-set tag
 
 Worked example: add `audio` as a tag.
 
-1. **Read `docs/SCHEMA.md § Tag taxonomy (closed set, CLI-enforced)`** (`docs/SCHEMA.md:78`). The list lives in a fenced code block; `loadSchema()` (`bin/wiki:180`) parses it by regex.
+1. **Read `docs/SCHEMA.md § Tag taxonomy (closed set, CLI-enforced)`.** The list lives in a fenced code block; `loadSchema()` in `bin/lib/schema.js` parses it by regex.
 2. **Add `audio`** to the fenced block. Convention is loose-alphabetical; match the section it belongs in (content modality, entity kind, etc.).
-3. **Check for hardcoded uses.** Two spots in `bin/wiki` hardcode tag subsets:
-   - `ENTITY_KIND_TAGS` (`:57`) — the 5 tags that mark a page as an "entity kind" (person/org/tool/paper/media).
-   - `STALE_THRESHOLDS` (`:59`) — per-tag staleness windows.
+3. **Check for hardcoded uses.** Two constants in `bin/lib/schema.js` hardcode tag subsets:
+   - `ENTITY_KIND_TAGS` — the tags that mark a page as an "entity kind" (person/org/tool/paper/media).
+   - `STALE_THRESHOLDS` — per-tag staleness windows.
    Adding a tag does **not** require editing either of these unless the tag is conceptually an entity-kind or wants a non-default staleness threshold.
 4. **Mirror SCHEMA.md to `tests/vault/SCHEMA.md` and `examples/example-vault/SCHEMA.md`.** Run `diff docs/SCHEMA.md tests/vault/SCHEMA.md` to spot which sections are mirrors.
 5. **No new fixture needed** for a pure inclusion case — the existing closed-set rejection fixtures cover the negative path.

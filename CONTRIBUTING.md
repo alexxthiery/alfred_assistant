@@ -14,15 +14,16 @@ ln -sfn ../../tools/pre-commit .git/hooks/pre-commit
 # If a global core.hooksPath shadows the per-repo hook, override:
 git config --local core.hooksPath .git/hooks
 
-# 3. Build your local PII list (gitignored) — patterns specific to your private
-# content. Used by the pre-commit hook to refuse leaks.
-./tools/build-pii-list.sh > tools/pii-list.local.txt   # (or hand-craft it)
+# 3. Create your local PII list (gitignored) — one pattern per line, patterns
+# specific to your private content (names, emails, slugs, internal URLs).
+# Used by tools/scan-pii.sh and the pre-commit hook to refuse leaks.
+$EDITOR tools/pii-list.local.txt
 
 # 4. Create a branch
 git checkout -b your-feature-name
 
 # 5. Make changes. Run the test suite often:
-npm test                  # 143 unit + 26 fixture checks
+npm test                  # ~160 unit + ~27 fixture checks (count grows over time)
 node bin/wiki preflight   # env/dep go/no-go in any test vault
 node bin/wiki persona-lint  # catches doc-vs-CLI verb drift
 

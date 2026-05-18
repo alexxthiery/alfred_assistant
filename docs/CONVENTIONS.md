@@ -16,6 +16,16 @@ Project-wide conventions for `bin/wiki` and the `bin/lib/*.js` modules. Read thi
 
 Counterexamples to avoid: don't define a closed-set inline at the call site (the audit-flagged `EXTERNAL_LINK_FIELDS` was the prior anti-pattern). Hoist once to the top of the file or to `bin/lib/<area>.js`.
 
+## Doc citations
+
+Cite code by symbol + file, never by line number. Line numbers rot every time the file shifts; symbols survive refactors.
+
+- Bad: `loadSchema at bin/wiki:180`.
+- Good: `` `loadSchema()` in `bin/lib/schema.js` ``.
+- Good: `` grep for `const cmds = {` in `bin/wiki` ``.
+
+The runbooks in `CLAUDE.md` follow this convention. New docs must too.
+
 ## Error format
 
 Three genres, three shapes.

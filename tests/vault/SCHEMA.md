@@ -1,8 +1,10 @@
 # SCHEMA — the vault contract
 
-The agreed-upon shape of Alice's the vault vault. Both the assistant (Alfred by default) and the CLIs (`wiki`, `inbox`) treat this file as authoritative. Alfred re-reads it on every orientation; the wiki CLI enforces it at write time; lint surfaces drift.
+The agreed-upon shape of the vault. Both the assistant (Alfred by default) and the CLIs (`wiki`, `inbox`) treat this file as authoritative. Alfred re-reads it on every orientation; the wiki CLI enforces it at write time; lint surfaces drift.
 
 This file co-evolves with use. Edit it freely — every edit becomes a rule the rest of the system enforces. The CLI parses specific sections; do not move them.
+
+> **About the worked examples in this file.** They use a consistent fictional cast — **Alice Smith** as the user, with spouse **Morgan Smith**, children **Maya** and **Leo**, and colleagues **Bob Jones / Carol Lee / Dave Kim / Eve Anderson**, plus an **Example School** / **Example University** as the workplace, situated in **Springfield** / **Atlantis**. Substitute mentally with your own family, colleagues, and locations — or edit this file directly to replace the examples with names from your own vault. The examples are illustrative, not load-bearing; only the *rules* and *closed-set lists* (types, tags, verbs, forbidden slugs, frontmatter fields) are enforced by the CLI.
 
 ## The atomicity rule — non-negotiable
 
@@ -184,7 +186,7 @@ Forms:
 - `^[telegram:YYYY-MM-DD]` — for facts learned directly in conversation
 - `^[lab:LAB-2026-02-24]` — for facts from external documents not yet ingested
 
-Lint flags `type: entity`, `type: synthesis`, and `type: concept` pages with observations but zero provenance markers. Run `wiki lint --only provenance`.
+Lint flags `type: entity`, `type: synthesis`, and `type: concept` pages with observations but zero provenance markers. Run `wiki audit` to surface these.
 
 ## Hard rules
 
@@ -533,9 +535,56 @@ Modifies an existing page.
 
 The compiler validates the entire spec upfront. Any validation error halts before any page is written — no partial state is created from an invalid spec. Once validation passes, writes proceed best-effort, page by page: a runtime error on page #3 (e.g. disk full) does not roll back pages #1-#2. In practice, the upfront validation gate catches the failure modes that matter; runtime errors during writes are rare. Provenance is auto-stamped from `source` on every observation that doesn't already carry one. After all writes, bidirectional autolink runs on touched slugs; then `wiki audit` runs on each; result is returned.
 
+### Validation edge cases
+
+Three rules are enforced by the validator and easy to trip over the first time:
+
+- **Self-relations are rejected.** An entity or event spec cannot have a relation whose `target` equals its own `slug` (e.g. `{slug: "alice", relations: [{verb: "knows", target: "alice"}]}` is refused). A page never relates to itself — model whatever you meant as an observation (`facts`/`hypotheses`/`opinions`) instead.
+
+- **Fuzzy duplicate detection fires at confidence ≥ 0.7.** For every *new* slug in the spec (no existing file yet), the compiler runs `resolveSlugCandidates` on the spec's `title` against the existing vault. If any candidate scores ≥ 0.7, the write is refused with the suggestion to run `wiki resolve "<title>"` first. The threshold is hardcoded; lower it only by editing `DUP_THRESHOLD` in `bin/wiki`. The check is a duplication prevention guardrail, not a strict identity check — a high score means "you may be creating a near-duplicate," not "this *is* a duplicate."
+
+- **`--allow-duplicates` bypasses the fuzzy check.** Use when the duplication is intentional (e.g. creating a person page whose name happens to overlap an existing slug). The flag turns off the entire fuzzy-duplicate pass for the whole spec; it does not affect any other validation. Slug-uniqueness within the spec (the same slug listed twice across `stubs`/`entities`/`events`) is still enforced.
+
 ## Frontmatter ordering
 
 The CLI writes frontmatter in this order: `id, title, type, created, updated, tags`, then extras (`summary`, `aliases`, `status`, `due`, `decided_on`, `derived_from`, `raw_path`, `sha256`, `when`, `duration`, `location`, `attendees`, `recurrence`, etc.). Manual edits should preserve this for diff readability.
+
+## Stable frontmatter contract
+
+This table lists every frontmatter field the CLI actively reads. **`stable`** fields will not change shape or semantics without a `wiki migrate` step in the release that breaks them. **`experimental`** fields may change without notice; rely on them at your own risk. Fields not in this table are stored as-is but never inspected by the CLI — safe to add for your own use, ignored by every verb.
+
+| Field            | Type        | Required for                | Read by                                | Status        | Notes                                                          |
+|------------------|-------------|-----------------------------|----------------------------------------|---------------|----------------------------------------------------------------|
+| `id`             | slug        | all pages                   | all verbs                              | stable        | Must equal filename basename (sans `.md`); slug regex enforced |
+| `title`          | string      | all pages                   | all verbs                              | stable        |                                                                |
+| `type`           | enum        | all pages                   | all verbs                              | stable        | Closed set: entity, concept, decision, source, synthesis, todo, note, event |
+| `created`        | ISO date    | all pages                   | list, recent, audit                    | stable        | Writer-stamped on first write                                  |
+| `updated`        | ISO datetime| all pages                   | list, recent, lint, audit              | stable        | Writer-stamped on every write                                  |
+| `tags`           | string list | all pages                   | all verbs                              | stable        | Closed set; see "Tag taxonomy" section                         |
+| `schema_version` | integer     | all pages (auto-stamped)    | migrate                                | stable        | Writer-stamps the current schema version; missing = v1 (pre-versioning). `wiki migrate` walks unversioned pages and stamps them. |
+| `summary`        | string      | —                           | list, preview, index, context          | stable        | One-line description; falls back to first body line            |
+| `aliases`        | string list | —                           | mv, merge, resolve, autolink           | stable        | Auto-populated by mv (old slug) and patch --title (old title)  |
+| `source_file`    | string path | measurement-series pages    | patch (blocks), write (blocks), measure| stable        | Pages with this field are auto-rendered; direct write refused  |
+| `derived_from`   | slug list   | type=synthesis              | write, audit                           | stable        | ≥2 entries required for synthesis type                         |
+| `when`           | ISO date/dt | type=event                  | agenda, audit, event scan              | stable        | YYYY-MM-DD for all-day, ISO 8601 for timed                     |
+| `duration`       | string      | —                           | agenda, event                          | stable        | Free-form: "30m", "1h", "2h30m", "all-day"                     |
+| `location`       | string      | —                           | agenda, event                          | stable        | Free text or wikilink slug                                     |
+| `attendees`      | slug list   | —                           | agenda                                 | stable        | List of entity slugs                                           |
+| `recurrence`     | string      | —                           | agenda, event                          | stable        | Informal: daily, weekly, monthly, yearly                       |
+| `status`         | enum        | type=todo                   | todo, list, sql                        | stable        | One of: open, doing, done, abandoned                           |
+| `due`            | ISO date    | —                           | todo, agenda                           | stable        | YYYY-MM-DD                                                     |
+| `priority`       | enum        | —                           | todo                                   | stable        | Free-form; convention: low / medium / high                     |
+| `done_at`        | ISO datetime| —                           | todo                                   | stable        | Writer-stamped when status flips to done                       |
+| `decided_on`     | ISO date    | type=decision               | write, list                            | stable        | YYYY-MM-DD                                                     |
+| `supersedes`     | slug list   | —                           | write, lint                            | stable        | Decision that retires another decision                         |
+| `raw_path`       | string path | type=source                 | write, audit                           | stable        | Relative path under `raw/`                                     |
+| `sha256`         | hex string  | type=source                 | write                                  | stable        | Content hash of the raw source                                 |
+| `ingested_at`    | ISO datetime| type=source                 | write                                  | stable        | When the source was first triaged                              |
+| `kind`           | string      | type=source                 | write                                  | stable        | Free-form: clipping, paper, lab, transcript, ...               |
+| `birth`          | ISO date    | measurement-series subjects | measure                                | stable        | Used to derive `age` column in growth-curve TSVs               |
+| `homepage`/`scholar`/`orcid`/`github`/`linkedin`/`twitter`/`arxiv`/`email` | string | — | context, audit | experimental | Structured external links on person entities; see "Structured external-link fields" section |
+
+Adding a new field that the CLI should read: list it here with `experimental` status, ship one minor version with that label, promote to `stable` next minor if no shape changes needed. Removing a field: deprecate in vX.Y (warn on use), remove in vX.(Y+1) with a `wiki migrate` step.
 
 ## Aliases
 
