@@ -1,0 +1,105 @@
+# Conventions
+
+Project-wide conventions for `bin/wiki` and the `bin/lib/*.js` modules. Read this before adding a new verb, error message, exit code, or closed-set value. New code that doesn't match a convention here should either follow it or be explicit about why it doesn't.
+
+## Naming
+
+| Kind | Convention | Examples |
+|---|---|---|
+| Verb dispatch functions | `cmd<Verb>` | `cmdWrite`, `cmdIngest`, `cmdAudit`, `cmdGroom` |
+| Parsers (string -> structured) | `parseX` | `parseFrontmatter`, `parseObservations`, `parseRelations`, `parseArgs` |
+| Loaders (fs -> structured) | `loadX` | `loadSchema`, `loadConfig`, `loadVaultDb` |
+| Extractors (text -> tokens) | `extractX` | `extractWikilinks`, `extractProvenanceMarkers` |
+| Validators (input -> errors) | `validateX` | `validateSlug`, `validateBody`, `validateIngestSpec` |
+| Closed-set constants | `UPPERCASE_SNAKE`, defined once at the top of `bin/wiki` | `KNOWN_TYPES`, `ENTITY_KIND_TAGS`, `WRITE_VERBS`, `FLAG_ALIASES` |
+| Verbs (CLI surface) | kebab-case for multi-word | `sync-ids`, `persona-lint`, `email-digest` |
+
+Counterexamples to avoid: don't define a closed-set inline at the call site (the audit-flagged `EXTERNAL_LINK_FIELDS` was the prior anti-pattern). Hoist once to the top of the file or to `bin/lib/<area>.js`.
+
+## Error format
+
+Three genres, three shapes.
+
+- Terminal errors (the CLI cannot proceed): `error: <message>`, stderr, non-zero exit.
+- Non-fatal warnings (work continues): `warning: <message>`, stderr.
+- Usage errors (missing/bad invocation): `Usage: wiki <verb> [args]`, stderr, exit 1.
+
+Deprecation warnings are a sub-genre of warning: `[deprecated] wiki <verb>: --old is deprecated; use --new instead` (emitted by the flag-alias hook).
+
+Avoid bare strings like `Page X does not exist.` for terminal errors. Prefer `error: page X does not exist`. (Several legacy sites still use the bare form; new code should follow `error:`.)
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Success |
+| 1 | Usage error: missing/bad flag, no positional, unknown verb |
+| 2 | Runtime / file-state error: page not found, fuzzy match required, IO failure, JSON parse error |
+| 3 | Validation rejection: schema, body, type, tag, or relation-verb check failed |
+
+Known drift: `cmdIngest` exits 2 on audit-dirty (a successful write with non-blocking quality issues). That is not yet a distinct code; future work may reserve 4 for "succeeded with non-blocking issues". Until then, callers that need to distinguish should parse stdout for the per-page audit summary.
+
+## Schema as contract
+
+Closed sets live in `docs/SCHEMA.md` and are parsed at runtime by `bin/lib/schema.js`. The parser is the sole source of truth for what's allowed.
+
+- Tag taxonomy, relation-verb verb set, symmetric verbs, inverse-pair verbs, and forbidden aggregator slugs: all live in `SCHEMA.md` and are loaded by `loadSchema()` on every invocation.
+- Never hardcode a tag/relation-verb list in code. If a CLI feature needs to know "which tags are entity-kind tags," that list belongs in `SCHEMA.md` and is read at runtime.
+- The `KNOWN_TYPES` constant in `bin/wiki` is the one exception: page-type names are stable and reading them from `SCHEMA.md` would create a cold-start chicken-and-egg. `wiki persona-lint` cross-checks types vs `SCHEMA.md` headings to catch drift.
+
+## Where things live
+
+| Concern | Module | Notes |
+|---|---|---|
+| Frontmatter parse/serialize/migrate | `bin/lib/frontmatter.js` | Pure; no fs. `serializeFrontmatter` stamps `schema_version`. |
+| Schema parse + closed-set load | `bin/lib/schema.js` | Pure parser + thin fs wrapper `loadSchema(path)`. |
+| Wikilink / observation / relation / fuzzy helpers | `bin/lib/graph.js` | Pure text helpers. |
+| Ingest-spec + body validators | `bin/lib/ingest.js` | Pure; injects deps. |
+| Shared audit rule table | `bin/lib/audit.js` | One source for write-time strict subset + audit-time scored set. |
+| Vault constants + page iteration | `bin/lib/vault.js` | `VAULT_ROOT`, `WIKI_DIR`, `forEachPage`. The controlled fs boundary. |
+| CLI flag-rename / removal policy | `bin/lib/flag-aliases.js` | Pure; consulted at dispatch. |
+| Read-only verbs (`list`, `print`, `search`, ...) | `bin/verbs/read.js` | Extracted from `bin/wiki`. |
+| Everything else (dispatch, write verbs, hygiene verbs, replay, sql) | `bin/wiki` | Top-level CLI; imports from `bin/lib/*` and `bin/verbs/*`. |
+
+Iteration of every page goes through `forEachPage` (from `bin/lib/vault.js`), not raw `for (const f of listWikiPages())`. The single helper is the spot to add per-process caching later, once mutation-during-iteration sites are audited.
+
+## Validator timing
+
+There are two layers of validation, distinguished by when they fire.
+
+- Write-time strict subset (`validateBody` / `strictRuleErrors` in `bin/lib/ingest.js` and `bin/lib/audit.js`): runs before a `wiki write` / `wiki patch` / `wiki ingest` writes to disk. Blocks the write on any rule whose `strict: true` flag is set. Bypassable with `--soft` (write) or by editing the file directly. Strict rules are a minimal subset of all audit rules.
+- Audit-time scored set (`auditPage` / `auditSlug` / `auditAll`): runs after a write (`bin/wiki` calls `auditSlug` on touched pages and prints a score) and on demand (`wiki audit <slug>` / `wiki audit --all`). Reports all rules with severity, never blocks. The full set is the source of truth for "what counts as quality".
+
+The two share one rule table (`AUDIT_RULES` in `bin/lib/audit.js`). Adding a new rule means adding one entry with `{name, severity, strict, check}`; both call sites pick it up automatically.
+
+Ingest-spec validation (`validateIngestSpec`) is a third, separate layer that runs upfront on the whole spec before any execute-phase work. It must catch all-or-nothing rules (slug collisions, target-page existence, fuzzy-duplicate suspects) so the staged-write execute phase can assume the spec is well-formed.
+
+## Deprecation policy
+
+Verbs, flags, and closed-set values follow a two-release cycle.
+
+- vX.Y: deprecated thing still works, prints a warning.
+- vX.(Y+1): deprecated thing is removed, calling it produces an "unknown ..." error.
+
+Renamed flags are wired through the `FLAG_ALIASES` table in `bin/wiki` and the pure `applyFlagAliases` helper in `bin/lib/flag-aliases.js`. The same machinery handles removals (set the new name to `null`). See `CONTRIBUTING.md` for the policy and `flag-aliases.js` for the mechanics.
+
+## Auto-commit and tamper-check
+
+Every write-class verb (`write`, `patch`, `ingest`, `mv`, `delete`, `merge`, `link`, `autolink`, `groom`, `todo`) auto-commits its changes to the vault's git repo. Behavior:
+
+- Default: a single commit per CLI invocation, batching all staged changes.
+- Opt-out: `--no-auto-commit` flag, or `WIKI_NO_AUTO_COMMIT=1` env var.
+- Failure mode: a multi-line stderr block names the recovery steps. Verb exit code is not affected by git failure (the work is done; only the commit was missed).
+
+Tamper-check runs once at the start of every write-class verb. It refuses to proceed if `wiki/`, `raw/`, `SCHEMA.md`, or `.bin/` files have been edited outside the CLI since the last auto-commit. The race between the tamper-check and the very write that follows is documented in `CLAUDE.md § safe-edit invariants`.
+
+## Documentation pointers
+
+| Audience | Read |
+|---|---|
+| New contributor (human) | `README.md`, then `CONTRIBUTING.md` |
+| Agent developer | `CLAUDE.md`, then this file, then `docs/SCHEMA.md` |
+| Adding a verb | `CLAUDE.md § runbook 1` |
+| Adding a tag/type | `CLAUDE.md § runbook 2`, `docs/SCHEMA.md` |
+| Adding a fixture | `CLAUDE.md § runbook 3`, `tests/fixtures/README.md` |
+| Persona/CLI drift | `wiki persona-lint`, `docs/PERSONA.template.md` |

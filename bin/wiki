@@ -3018,6 +3018,7 @@ function cmdPersonaLint(args) {
     'docs/SCHEMA.md',
     'docs/NANOCLAW-PATCHES.md',
     'docs/WEEKLY-DIGEST.md',
+    'docs/CONVENTIONS.md',
     'README.md',
     'CONTRIBUTING.md',
     'CHANGELOG.md',
