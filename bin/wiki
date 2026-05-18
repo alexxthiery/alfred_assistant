@@ -43,6 +43,7 @@ const {
 const { validateIngestSpec, validateBody: _validateBody } = require('./lib/ingest.js');
 const { auditPage } = require('./lib/audit.js');
 const { applyFlagAliases } = require('./lib/flag-aliases.js');
+const { flushStaged } = require('./lib/staged-writes.js');
 const {
   VAULT_ROOT, WIKI_DIR, SCHEMA_PATH, INDEX_PATH, LOG_PATH,
   nowISO, wikiPath, listWikiPages, readPage, forEachPage,
@@ -657,13 +658,7 @@ function cmdMerge(args) {
     process.exit(2);
   }
 
-  // Flush staged writes via temp+rename per page (fs-level atomicity per write).
-  const flushPid = process.pid;
-  for (const [p, content] of staged) {
-    const tmp = `${p}.tmp-merge-${flushPid}`;
-    fs.writeFileSync(tmp, content);
-    fs.renameSync(tmp, p);
-  }
+  flushStaged(staged, { tag: 'merge' });
 
   // 7. Delete source (last; unlink has no rollback, but by here every staged
   // write has succeeded).
@@ -1581,16 +1576,9 @@ function cmdIngest(args) {
   }
 
   // ─── FLUSH ────────────────────────────────────────────────────────────
-  // All staged writes go to disk now. Per-file atomicity: write to a temp
-  // path, then renameSync into final position. If a flush fails partway,
-  // already-renamed files stay (no rollback) but each individual write is
-  // atomic at the filesystem level — readers never see torn content.
-  const flushPid = process.pid;
-  for (const [p, content] of stagedWrites) {
-    const tmp = `${p}.tmp-ingest-${flushPid}`;
-    fs.writeFileSync(tmp, content);
-    fs.renameSync(tmp, p);
-  }
+  // All staged writes go to disk now. See bin/lib/staged-writes.js for the
+  // per-file atomicity contract (temp + renameSync per entry).
+  flushStaged(stagedWrites, { tag: 'ingest' });
 
   // Dedup created/modified/skipped — a slug can appear twice if e.g. multiple
   // patches target the same page in one spec (M07). Reporting "2 modified"
