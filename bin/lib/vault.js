@@ -39,15 +39,38 @@ function readPage(slug) {
   return parseFrontmatter(fs.readFileSync(p, 'utf-8'));
 }
 
-// forEachPage(cb): iterate every wiki page once, with frontmatter parsed.
+// forEachPage(cb, opts?): iterate every wiki page once, with frontmatter parsed.
 // cb({ slug, file, absPath, fm, body, raw }) -> any. Returning `false` breaks
 // the loop early (other return values are ignored).
 //
+// opts.cache (HR24, default false): if true, the first call snapshots every
+// page into a process-local map; subsequent cached calls iterate the snapshot
+// instead of re-reading disk. Use ONLY from read-only verbs — anything that
+// mutates pages mid-process must NOT use the cache (the snapshot would go
+// stale). Documented mutation sites that must keep cache:false: cmdMv,
+// cmdMerge, cmdAutolink (writes back), cmdGroom, cmdIngest's flush phase,
+// cmdSyncIds. Call invalidatePageCache() after a write if a subsequent
+// read-only pass within the same process needs fresh data.
+//
 // Centralizes the read+parse pattern that appears at 30+ sites in bin/wiki.
-// Per-process caching is intentionally NOT applied here because several callers
-// mutate pages mid-walk (mv backlink rewrite, autolink). Cache only after a
-// pass that audits write-during-iteration sites.
-function forEachPage(cb) {
+let _pageCache = null;
+function forEachPage(cb, opts = {}) {
+  if (opts.cache) {
+    if (_pageCache === null) {
+      _pageCache = [];
+      for (const file of listWikiPages()) {
+        const slug = file.replace(/\.md$/, '');
+        const absPath = path.join(WIKI_DIR, file);
+        const raw = fs.readFileSync(absPath, 'utf-8');
+        const { fm, body } = parseFrontmatter(raw);
+        _pageCache.push({ slug, file, absPath, fm, body, raw });
+      }
+    }
+    for (const entry of _pageCache) {
+      if (cb(entry) === false) return;
+    }
+    return;
+  }
   for (const file of listWikiPages()) {
     const slug = file.replace(/\.md$/, '');
     const absPath = path.join(WIKI_DIR, file);
@@ -57,6 +80,8 @@ function forEachPage(cb) {
   }
 }
 
+function invalidatePageCache() { _pageCache = null; }
+
 module.exports = {
   VAULT_ROOT, WIKI_DIR, SCHEMA_PATH, INDEX_PATH, LOG_PATH,
   detectVaultRoot,
@@ -65,4 +90,5 @@ module.exports = {
   listWikiPages,
   readPage,
   forEachPage,
+  invalidatePageCache,
 };

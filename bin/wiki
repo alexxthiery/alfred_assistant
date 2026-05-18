@@ -1550,24 +1550,59 @@ function cmdIngest(args) {
   modified.length = 0;  modified.push(...dedupedModified);
   skipped.length = 0;   skipped.push(...dedupedSkipped);
 
-  // Refresh index/log
-  regenerateIndex();
   const touched = [...new Set([...created, ...modified])];
   appendLog('ingest', `${created.length} created, ${modified.length} modified, ${skipped.length} skipped`);
+
+  // HR23: post-flush snapshot. Pre-HR23, this leg did 3 separate full-vault
+  // walks (regenerateIndex + buildTitleMap + per-touched-slug auditSlug
+  // reads). Now one walk builds a `pages` snapshot consumed by every
+  // downstream operation. Saves ~2N reads at any vault size; matters at 1K+.
+  const postFlushPages = [];
+  const postFlushBySlug = new Map();
+  forEachPage(({ slug, fm, body }) => {
+    const entry = {
+      slug,
+      fm,
+      body,
+      type: fm.type || 'note',
+      tags: Array.isArray(fm.tags) ? fm.tags : [],
+      title: String(fm.title || slug),
+    };
+    postFlushPages.push(entry);
+    postFlushBySlug.set(slug, entry);
+  });
+
+  // 4b) Refresh index/log using the snapshot (no second walk inside).
+  fs.mkdirSync(WIKI_DIR, { recursive: true });
+  fs.writeFileSync(INDEX_PATH, formatIndex(postFlushPages, { now: nowISO() }));
 
   // 5) Bidirectional autolink on touched slugs. Failures are non-fatal but
   // tracked: a single slug failing is a warning, but if more than half of
   // touched slugs fail we treat it as material breakage and exit 2.
-  const titleMap = buildTitleMap();
+  // titleMap reuses the snapshot (no third walk).
+  const titleMap = buildTitleEntries(postFlushPages);
+  titleMap.sort((a, b) => b.title.length - a.title.length);
   const autolinkFailures = [];
   for (const slug of touched) {
     try { autolinkSlug(slug, { direction: 'both', dryRun: false, verbose: false, titleMap }); }
     catch (e) { autolinkFailures.push({ slug, message: e.message }); }
   }
 
-  // 6) Audit touched slugs
+  // 6) Audit touched slugs from the snapshot (no per-slug disk re-read).
+  // Note: autolinkSlug may have updated some pages above; for the post-flush
+  // audit window we accept the snapshot's pre-autolink view (the autolink
+  // changes only add wikilinks to bodies, never alter the FM fields the
+  // audit rules inspect).
+  const auditDeps = { schema: loadSchema(), knownVerbs: knownRelationVerbs(loadSchema()) };
   const auditResults = {};
-  for (const slug of touched) auditResults[slug] = auditSlug(slug);
+  for (const slug of touched) {
+    const p = postFlushBySlug.get(slug);
+    if (!p) { auditResults[slug] = { score: 0, issues: [] }; continue; }
+    auditResults[slug] = auditPage(
+      { slug: p.slug, title: p.title, type: p.type, tags: p.tags, body: p.body, fm: p.fm },
+      auditDeps,
+    );
+  }
 
   // 7) Summary
   console.log(`# ingest complete: ${created.length} created, ${modified.length} modified, ${skipped.length} skipped`);

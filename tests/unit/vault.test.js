@@ -102,3 +102,67 @@ test('forEachPage: missing wiki/ dir is a no-op', () => {
   forEachPage(() => calls++);
   assert.equal(calls, 0);
 });
+
+// ─── HR24: forEachPage({cache:true}) opt-in ────────────────────────────────
+
+test('HR24 cache: default mode re-reads disk on every call (no cache)', () => {
+  const root = mkTempVault();
+  writePage(root, 'a', { id: 'a', title: 'A', type: 'entity' }, 'first-body');
+  const { forEachPage } = loadVaultFresh(root);
+  let firstBody;
+  forEachPage(({ body }) => { firstBody = body; });
+  assert.match(firstBody, /first-body/);
+  // Mutate the file on disk.
+  fs.writeFileSync(path.join(root, 'wiki', 'a.md'), '---\nid: a\n---\nMUTATED');
+  let secondBody;
+  forEachPage(({ body }) => { secondBody = body; });
+  assert.match(secondBody, /MUTATED/, 'no-cache mode should see the disk update');
+});
+
+test('HR24 cache: cache:true snapshots on first call, hits memory on second', () => {
+  const root = mkTempVault();
+  writePage(root, 'a', { id: 'a', title: 'A', type: 'entity' }, 'cached-body');
+  const { forEachPage } = loadVaultFresh(root);
+  let firstBody;
+  forEachPage(({ body }) => { firstBody = body; }, { cache: true });
+  assert.match(firstBody, /cached-body/);
+  // Mutate disk — cached subsequent call should NOT see it.
+  fs.writeFileSync(path.join(root, 'wiki', 'a.md'), '---\nid: a\n---\nSTALE');
+  let secondBody;
+  forEachPage(({ body }) => { secondBody = body; }, { cache: true });
+  assert.match(secondBody, /cached-body/, 'cached mode pins the first snapshot');
+  assert.equal(secondBody.includes('STALE'), false);
+});
+
+test('HR24 cache: invalidatePageCache forces re-read on next cached call', () => {
+  const root = mkTempVault();
+  writePage(root, 'a', { id: 'a', title: 'A', type: 'entity' }, 'v1');
+  const { forEachPage, invalidatePageCache } = loadVaultFresh(root);
+  let b1;
+  forEachPage(({ body }) => { b1 = body; }, { cache: true });
+  fs.writeFileSync(path.join(root, 'wiki', 'a.md'), '---\nid: a\n---\nv2');
+  invalidatePageCache();
+  let b2;
+  forEachPage(({ body }) => { b2 = body; }, { cache: true });
+  assert.match(b2, /v2/, 'after invalidate, cached call rebuilds the snapshot');
+});
+
+test('HR24 cache: cached and uncached calls in the same process do not corrupt each other', () => {
+  const root = mkTempVault();
+  writePage(root, 'a', { id: 'a', title: 'A', type: 'entity' }, 'orig');
+  const { forEachPage } = loadVaultFresh(root);
+  // Prime the cache.
+  let cachedBody;
+  forEachPage(({ body }) => { cachedBody = body; }, { cache: true });
+  assert.match(cachedBody, /orig/);
+  // Mutate disk.
+  fs.writeFileSync(path.join(root, 'wiki', 'a.md'), '---\nid: a\n---\nNEW');
+  // Uncached call sees the update.
+  let liveBody;
+  forEachPage(({ body }) => { liveBody = body; });
+  assert.match(liveBody, /NEW/);
+  // Cached call still sees the original.
+  let stillCached;
+  forEachPage(({ body }) => { stillCached = body; }, { cache: true });
+  assert.match(stillCached, /orig/);
+});
