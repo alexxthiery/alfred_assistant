@@ -795,6 +795,24 @@ function cmdPatch(args) {
     process.exit(1);
   }
 
+  // HR02: validate the prospective post-patch page against the same strict body
+  // rules cmdWrite enforces. Without this, --observation can introduce a fact
+  // without provenance, an invented-verb relation, or a relation to a forbidden
+  // aggregator slug, with no rejection at write time — only the post-write
+  // audit warns in stderr after the commit lands. --soft bypasses, matching
+  // cmdWrite's escape hatch. See audit/12-coherence-robustness.md § validator-timing.
+  if (!args.soft) {
+    const type = fm.type || 'note';
+    const tags = Array.isArray(fm.tags) ? fm.tags : [];
+    const bodyErrors = validateBody({ slug, title: fm.title, type, tags, body: newBody, fm });
+    if (bodyErrors.length) {
+      console.error(`error: validation failed for ${slug}:`);
+      for (const e of bodyErrors) console.error(`  [${e.rule}] ${e.message}`);
+      console.error('  (bypass with --soft, e.g. wiki patch <slug> --observation "..." --soft)');
+      process.exit(3);
+    }
+  }
+
   fm.updated = nowISO();
   fs.writeFileSync(p, serializeFrontmatter(fm, newBody));
   regenerateIndex();

@@ -1,0 +1,7 @@
+{
+  "exitCode": 3,
+  "stderrContains": ["error: validation failed for alice", "invented-verb", "totally_fake_verb_xyz", "bypass with --soft"],
+  "wikiAssertions": {
+    "alice": { "bodyMissing": ["totally_fake_verb_xyz"] }
+  }
+}

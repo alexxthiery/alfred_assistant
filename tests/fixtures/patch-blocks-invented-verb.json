@@ -1,0 +1,4 @@
+{
+  "_comment": "Regression for HR02: cmdPatch now runs validateBody on the prospective post-patch page. An invented relation verb (one not in SCHEMA.md's symmetric / inverse-pairs / one-way allowlist) should be rejected with exit 3 and an explanatory stderr block. Pre-HR02 this would have committed; only the post-write audit hook would have warned in stderr after the fact.",
+  "cmd": ["patch", "alice", "--relation", "totally_fake_verb_xyz [[bob-jones]]"]
+}
