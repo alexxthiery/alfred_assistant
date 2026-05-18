@@ -6,7 +6,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const { AUDIT_RULES, auditPage, strictRuleErrors, severityScore } = require(path.resolve(__dirname, '..', '..', 'bin', 'lib', 'audit.js'));
+const { AUDIT_RULES, auditPage, auditVault, strictRuleErrors, severityScore } = require(path.resolve(__dirname, '..', '..', 'bin', 'lib', 'audit.js'));
 
 function makeSchema(overrides = {}) {
   return {
@@ -271,4 +271,96 @@ test('strictRuleErrors: covers both event-when and event-tag separately', () => 
   const ruleNames = out.map((e) => e.rule).sort();
   assert.ok(ruleNames.includes('event-tag'));
   assert.ok(ruleNames.includes('event-when'));
+});
+
+// ─── HR05: auditVault (cross-page rules) ───────────────────────────────────
+
+function mkPage(slug, body = '', extra = {}) {
+  return {
+    slug,
+    title: extra.title || slug,
+    type: extra.type || 'note',
+    tags: extra.tags || ['meta'],
+    body,
+    fm: extra.fm || {},
+  };
+}
+
+test('auditVault: returns {perPage, hotMentions} with one entry per page', () => {
+  const pages = [mkPage('a', 'body a'), mkPage('b', 'body b')];
+  const out = auditVault({ pages, ...deps() });
+  assert.equal(out.perPage.length, 2);
+  assert.equal(out.perPage[0].slug, 'a');
+  assert.equal(out.perPage[1].slug, 'b');
+  assert.deepEqual(out.hotMentions, []);
+});
+
+test('auditVault: hot-text-mention surfaces phrases in 2+ pages with no canonical stub', () => {
+  // "Alice Smith" appears in two pages, no `alice-smith` slug exists → hot mention.
+  const pages = [
+    mkPage('a', 'I met Alice Smith yesterday.'),
+    mkPage('b', 'And then Alice Smith called.'),
+  ];
+  const out = auditVault({ pages, ...deps() });
+  const phrases = out.hotMentions.map((h) => h.phrase);
+  assert.ok(phrases.includes('Alice Smith'));
+});
+
+test('auditVault: hot-text-mention skips phrase that already has a slug stub', () => {
+  // "Alice Smith" appears across pages but there IS an alice-smith slug → not hot.
+  const pages = [
+    mkPage('a', 'I met Alice Smith yesterday.'),
+    mkPage('b', 'And then Alice Smith called.'),
+    mkPage('alice-smith', '', { title: 'Alice Smith' }),
+  ];
+  const out = auditVault({ pages, ...deps() });
+  const phrases = out.hotMentions.map((h) => h.phrase);
+  assert.equal(phrases.includes('Alice Smith'), false);
+});
+
+test('auditVault: hot-text-mention strips wikilinks before scanning', () => {
+  // Wikilinks like [[Alice Smith]] should NOT be counted as a hot mention.
+  const pages = [
+    mkPage('a', 'I met [[Alice Smith]] yesterday.'),
+    mkPage('b', 'And then [[Alice Smith]] called.'),
+  ];
+  const out = auditVault({ pages, ...deps() });
+  const phrases = out.hotMentions.map((h) => h.phrase);
+  assert.equal(phrases.includes('Alice Smith'), false);
+});
+
+test('auditVault: lonely rule fires on pages with <2 graph connections', () => {
+  // "lone" has zero in/out wikilinks → flagged. "hub" links to many → not flagged.
+  const pages = [
+    mkPage('lone', 'no links here at all.'),
+    mkPage('hub',  'see [[a]] and [[b]]'),
+    mkPage('a', '[[hub]]'),
+    mkPage('b', '[[hub]]'),
+  ];
+  const out = auditVault({ pages, ...deps() });
+  const loneRule = out.perPage.find((r) => r.slug === 'lone').issues.find((i) => i.rule === 'lonely');
+  assert.ok(loneRule, 'lonely should fire on a page with no graph connections');
+  const hubRule = out.perPage.find((r) => r.slug === 'hub').issues.find((i) => i.rule === 'lonely');
+  assert.equal(hubRule, undefined, 'hub has 4+ connections, should not be lonely');
+});
+
+test('auditVault: lonely rule exempts type=todo and type=source', () => {
+  const pages = [
+    mkPage('orphan-todo',   'no links',   { type: 'todo' }),
+    mkPage('orphan-source', 'no links',   { type: 'source' }),
+    mkPage('orphan-entity', 'no links',   { type: 'entity', tags: ['person'] }),
+  ];
+  const out = auditVault({ pages, ...deps() });
+  const todoLonely   = out.perPage.find((r) => r.slug === 'orphan-todo').issues.find((i) => i.rule === 'lonely');
+  const sourceLonely = out.perPage.find((r) => r.slug === 'orphan-source').issues.find((i) => i.rule === 'lonely');
+  const entityLonely = out.perPage.find((r) => r.slug === 'orphan-entity').issues.find((i) => i.rule === 'lonely');
+  assert.equal(todoLonely, undefined);
+  assert.equal(sourceLonely, undefined);
+  assert.ok(entityLonely, 'entity with no connections should still be flagged');
+});
+
+test('auditVault: empty pages list returns empty perPage + empty hotMentions', () => {
+  const out = auditVault({ pages: [], ...deps() });
+  assert.deepEqual(out.perPage, []);
+  assert.deepEqual(out.hotMentions, []);
 });

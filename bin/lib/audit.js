@@ -16,7 +16,7 @@
 'use strict';
 
 const { ENTITY_KIND_TAGS } = require('./schema.js');
-const { parseRelations, parseObservations } = require('./graph.js');
+const { parseRelations, parseObservations, extractWikilinks } = require('./graph.js');
 
 const STRICT_PROV_TYPES = new Set(['entity', 'event', 'concept', 'synthesis']);
 const SUBSTANTIVE_TYPES = new Set(['entity', 'event', 'concept']);
@@ -221,9 +221,82 @@ function severityScore(s) {
   return s === 'high' ? 3 : s === 'medium' ? 2 : 1;
 }
 
+// HR05: vault-wide audit. Runs per-page (auditPage) plus the two cross-page
+// rules (hot-text-mention, lonely) that need a vault-wide view. Pure: takes
+// a pre-built `pages` snapshot + deps; returns the same shape as before
+// extraction ({perPage, hotMentions}).
+//
+// Pages shape: Array<{slug, title, type, tags, fm, body}>.
+// Deps: { schema, knownVerbs }.
+//
+// Why a snapshot? Both cross-page rules need to walk every page's body once;
+// keeping the walk caller-side means cmdIngest/cmdAudit can fold this walk
+// with other passes (see HR23).
+function auditVault({ pages, schema, knownVerbs }) {
+  const perPage = pages.map((p) => ({
+    slug: p.slug,
+    ...auditPage(
+      { slug: p.slug, title: p.title, type: p.type, tags: p.tags, body: p.body, fm: p.fm },
+      { schema, knownVerbs },
+    ),
+  }));
+
+  // hot-text-mention: capitalized 2+ word phrases in prose, appearing across
+  // 2+ pages, with no canonical stub.
+  const HOT_RE = /\b((?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}))\b/g;
+  const STOPWORDS = new Set(['New York', 'Hong Kong', 'San Francisco']);
+  const slugSet = new Set(pages.map((p) => p.slug));
+  const phraseCounts = new Map();
+
+  // lonely: inbound + outbound wikilink count < 2.
+  const wikilinkInbound = {};
+  const wikilinkOutbound = {};
+
+  for (const p of pages) {
+    const stripped = p.body.replace(/\[\[[^\]]+\]\]/g, '');
+    let m;
+    HOT_RE.lastIndex = 0;
+    while ((m = HOT_RE.exec(stripped)) !== null) {
+      const phrase = m[1].trim();
+      if (phrase.length < 6) continue;
+      if (STOPWORDS.has(phrase)) continue;
+      const slugified = phrase.toLowerCase().replace(/\s+/g, '-');
+      if (slugSet.has(slugified)) continue;
+      if (!phraseCounts.has(phrase)) phraseCounts.set(phrase, new Set());
+      phraseCounts.get(phrase).add(p.slug);
+    }
+    const out = new Set(extractWikilinks(p.body));
+    wikilinkOutbound[p.slug] = out.size;
+    for (const t of out) {
+      wikilinkInbound[t] = (wikilinkInbound[t] || 0) + 1;
+    }
+  }
+
+  const hotMentions = [];
+  for (const [phrase, slugs] of phraseCounts.entries()) {
+    if (slugs.size >= 2) hotMentions.push({ phrase, count: slugs.size, pages: [...slugs] });
+  }
+  hotMentions.sort((a, b) => b.count - a.count);
+
+  const pageBySlug = new Map(pages.map((p) => [p.slug, p]));
+  for (const r of perPage) {
+    const inLinks = wikilinkInbound[r.slug] || 0;
+    const outLinks = wikilinkOutbound[r.slug] || 0;
+    const total = inLinks + outLinks;
+    const type = pageBySlug.get(r.slug).type;
+    if (total < 2 && type !== 'todo' && type !== 'source') {
+      r.issues.push({ rule: 'lonely', severity: 'low', detail: `${total} graph connection(s); orphan-risk` });
+      r.score += 1;
+    }
+  }
+
+  return { perPage, hotMentions };
+}
+
 module.exports = {
   AUDIT_RULES,
   auditPage,
+  auditVault,
   strictRuleErrors,
   severityScore,
 };
