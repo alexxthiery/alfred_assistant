@@ -3601,6 +3601,53 @@ function cmdReview(args) {
     })),
   });
 
+  // ── Section: Re-encounter (forcing function for retrieval) ────────────────
+  // Most PKM failure mode is "capture works, retrieval doesn't." Surface a
+  // small mixed sample to force re-reading even when nothing is broken.
+  // Skip auto-files (index/log) and source pages (one-shot ingest).
+  const SUBSTANTIVE = (p) => !['index', 'log'].includes(p.slug) && (p.fm.type || 'note') !== 'source';
+  const withDate = all.filter(SUBSTANTIVE).map((p) => {
+    const u = p.fm.updated || p.fm.created || null;
+    return { slug: p.slug, type: p.fm.type || 'note', updated: u, ts: u ? Date.parse(u) : 0 };
+  });
+  withDate.sort((a, b) => b.ts - a.ts);
+  const recent = withDate.slice(0, 5);
+  const STALE_MS = 180 * 24 * 60 * 60 * 1000;
+  const stale = withDate
+    .filter((p) => p.ts > 0 && today.getTime() - p.ts > STALE_MS)
+    .slice(-10) // oldest-touched: end of desc-sort
+    .reverse()
+    .slice(0, 5);
+  // Deterministic-by-day random sample: hash today's YYYY-MM-DD as a seed.
+  const dayStr = today.toISOString().slice(0, 10);
+  let seed = 0;
+  for (let i = 0; i < dayStr.length; i++) seed = ((seed << 5) - seed + dayStr.charCodeAt(i)) | 0;
+  const rng = () => { seed = (seed * 1664525 + 1013904223) | 0; return ((seed >>> 0) / 0x100000000); };
+  const pool = withDate.slice();
+  const randomSample = [];
+  for (let i = 0; i < 5 && pool.length; i++) {
+    const idx = Math.floor(rng() * pool.length);
+    randomSample.push(pool.splice(idx, 1)[0]);
+  }
+  const reEncounterItems = [];
+  if (recent.length) {
+    reEncounterItems.push({ head: '*recently touched* — open these to remember what you just told yourself', lines: [] });
+    for (const r of recent) reEncounterItems.push({ head: `  ${r.slug} (${r.type}, updated ${(r.updated || '').slice(0, 10)})`, lines: [] });
+  }
+  if (stale.length) {
+    reEncounterItems.push({ head: '*stale long-tail* — untouched >6 months; revisit or retire', lines: [] });
+    for (const s of stale) reEncounterItems.push({ head: `  ${s.slug} (${s.type}, updated ${(s.updated || '').slice(0, 10)})`, lines: [] });
+  }
+  if (randomSample.length) {
+    reEncounterItems.push({ head: '*random sample (seeded by today\'s date)* — forced serendipity', lines: [] });
+    for (const r of randomSample) reEncounterItems.push({ head: `  ${r.slug} (${r.type})`, lines: [] });
+  }
+  sections.push({
+    title: 'Re-encounter (forcing function for retrieval)',
+    note: 'A vault becomes write-only without scheduled re-reading. Open one or two of these. The random sample is deterministic per-day so revisits are stable.',
+    items: reEncounterItems,
+  });
+
   // ── Render ────────────────────────────────────────────────────────────────
   console.log(`# Vault review — ${new Date().toISOString().slice(0, 10)}`);
   console.log('');
