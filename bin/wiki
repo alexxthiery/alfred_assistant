@@ -286,7 +286,7 @@ function cmdWrite(args) {
   const exists = fs.existsSync(filePath);
 
   if (exists && !args.append && !args.replace) {
-    console.error(`Page ${slug} exists. Use --append (add to body) or --replace (overwrite).`);
+    console.error(`error: page ${slug} exists; use --append (add to body) or --replace (overwrite)`);
     process.exit(2);
   }
   if (exists) {
@@ -436,7 +436,7 @@ function cmdLink(args) {
   if (!from || !to) { console.error('Usage: wiki link <from-slug> <to-slug>'); process.exit(1); }
   if (!validSlug(to)) { console.error(`Invalid target slug: ${to}`); process.exit(1); }
   const fromPath = wikiPath(from);
-  if (!fs.existsSync(fromPath)) { console.error(`Page ${from} does not exist.`); console.error(`  Hint: \`wiki resolve "${from}"\` to fuzzy-match similar slugs.`); process.exit(2); }
+  if (!fs.existsSync(fromPath)) { console.error(`error: page ${from} does not exist`); console.error(`  Hint: \`wiki resolve "${from}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   const { fm, body } = parseFrontmatter(fs.readFileSync(fromPath, 'utf-8'));
   if (new RegExp(`\\[\\[${to}\\]\\]`).test(body)) { console.log(`already linked: ${from} -> ${to}`); return; }
   let newBody;
@@ -455,7 +455,7 @@ function cmdLinks(args) {
   const slug = args._[0];
   if (!slug) { console.error('Usage: wiki links <slug>'); process.exit(1); }
   const page = readPage(slug);
-  if (!page) { console.error(`Page ${slug} does not exist.`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
+  if (!page) { console.error(`error: page ${slug} does not exist`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   const out = extractWikilinks(page.body);
   for (const s of out) {
     const exists = fs.existsSync(wikiPath(s));
@@ -482,14 +482,14 @@ function cmdMv(args) {
   const newSlug = args._[1];
   if (!oldSlug || !newSlug) { console.error('Usage: wiki mv <old-slug> <new-slug>'); process.exit(1); }
   if (!validSlug(newSlug)) { console.error(`Invalid new slug: ${newSlug}`); process.exit(1); }
-  if (isReserved(newSlug)) { console.error(`Slug "${newSlug}" is reserved.`); process.exit(1); }
+  if (isReserved(newSlug)) { console.error(`error: slug "${newSlug}" is reserved`); process.exit(1); }
   const { forbidden } = loadSchema();
-  if (forbidden.has(newSlug)) { console.error(`Slug "${newSlug}" is a forbidden aggregator slug.`); process.exit(1); }
+  if (forbidden.has(newSlug)) { console.error(`error: slug "${newSlug}" is a forbidden aggregator slug`); process.exit(1); }
 
   const oldPath = wikiPath(oldSlug);
   const newPath = wikiPath(newSlug);
-  if (!fs.existsSync(oldPath)) { console.error(`Page ${oldSlug} does not exist.`); console.error(`  Hint: \`wiki resolve "${oldSlug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
-  if (fs.existsSync(newPath)) { console.error(`Page ${newSlug} already exists.`); process.exit(2); }
+  if (!fs.existsSync(oldPath)) { console.error(`error: page ${oldSlug} does not exist`); console.error(`  Hint: \`wiki resolve "${oldSlug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
+  if (fs.existsSync(newPath)) { console.error(`error: page ${newSlug} already exists`); process.exit(2); }
 
   fs.renameSync(oldPath, newPath);
   const { fm, body } = parseFrontmatter(fs.readFileSync(newPath, 'utf-8'));
@@ -520,9 +520,9 @@ function cmdMv(args) {
 function cmdDelete(args) {
   const slug = args._[0];
   if (!slug) { console.error('Usage: wiki delete <slug> [--force]'); process.exit(1); }
-  if (isReserved(slug)) { console.error(`Cannot delete reserved page ${slug}.`); process.exit(1); }
+  if (isReserved(slug)) { console.error(`error: cannot delete reserved page ${slug}`); process.exit(1); }
   const p = wikiPath(slug);
-  if (!fs.existsSync(p)) { console.error(`Page ${slug} does not exist.`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
+  if (!fs.existsSync(p)) { console.error(`error: page ${slug} does not exist`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   const re = new RegExp(`\\[\\[${slug}\\]\\]`);
   const incoming = [];
   forEachPage(({ slug: fromSlug, body }) => {
@@ -553,8 +553,8 @@ function cmdMerge(args) {
   if (source === target) { console.error('Source and target must differ.'); process.exit(1); }
   const srcPath = wikiPath(source);
   const tgtPath = wikiPath(target);
-  if (!fs.existsSync(srcPath)) { console.error(`Source ${source} does not exist.`); process.exit(2); }
-  if (!fs.existsSync(tgtPath)) { console.error(`Target ${target} does not exist.`); process.exit(2); }
+  if (!fs.existsSync(srcPath)) { console.error(`error: source ${source} does not exist`); process.exit(2); }
+  if (!fs.existsSync(tgtPath)) { console.error(`error: target ${target} does not exist`); process.exit(2); }
   if (isReserved(source) || isReserved(target)) { console.error('Cannot merge reserved pages.'); process.exit(1); }
 
   const dry = !!args['dry-run'];
@@ -648,7 +648,7 @@ function cmdPatch(args) {
     process.exit(1);
   }
   const p = wikiPath(slug);
-  if (!fs.existsSync(p)) { console.error(`Page ${slug} does not exist.`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
+  if (!fs.existsSync(p)) { console.error(`error: page ${slug} does not exist`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   const { fm, body } = parseFrontmatter(fs.readFileSync(p, 'utf-8'));
   if (fm.source_file) {
     console.error(`Page ${slug} is auto-rendered from ${fm.source_file}. Use \`wiki measure\` to add a row, or edit the source file directly.`);
@@ -701,7 +701,7 @@ function cmdPatch(args) {
       const [v, t] = rel.split('=').map((s) => s.trim());
       line = `- ${v} [[${t}]]`;
     } else {
-      console.error(`Invalid --relation: ${rel}. Use 'verb [[target]]' or 'verb=target'.`);
+      console.error(`error: invalid --relation: ${rel}; use 'verb [[target]]' or 'verb=target'`);
       process.exit(1);
     }
     newBody = newBody.trimEnd() + '\n' + line + '\n';
@@ -713,7 +713,7 @@ function cmdPatch(args) {
   if (args['add-tag']) {
     const t = String(args['add-tag']);
     if (schema.tags && !schema.tags.has(t)) {
-      console.error(`Tag "${t}" not in SCHEMA.md taxonomy. Add to SCHEMA first.`);
+      console.error(`error: tag "${t}" not in SCHEMA.md taxonomy; add to SCHEMA first`);
       process.exit(3);
     }
     if (!tags.includes(t)) { tags.push(t); ops.push(`+tag:${t}`); }
@@ -856,9 +856,9 @@ function todoDone(args) {
   const slug = args._[0];
   if (!slug) { console.error('Usage: wiki todo done <slug>'); process.exit(1); }
   const p = wikiPath(slug);
-  if (!fs.existsSync(p)) { console.error(`Todo ${slug} not found.`); process.exit(2); }
+  if (!fs.existsSync(p)) { console.error(`error: todo ${slug} not found`); process.exit(2); }
   const { fm, body } = parseFrontmatter(fs.readFileSync(p, 'utf-8'));
-  if (fm.type !== 'todo') { console.error(`Page ${slug} is not a todo (type=${fm.type}).`); process.exit(2); }
+  if (fm.type !== 'todo') { console.error(`error: page ${slug} is not a todo (type=${fm.type})`); process.exit(2); }
   fm.status = 'done';
   fm.done_at = nowISO();
   fm.updated = nowISO();
@@ -872,9 +872,9 @@ function todoDefer(args) {
   const slug = args._[0];
   if (!slug || !args.to) { console.error('Usage: wiki todo defer <slug> --to YYYY-MM-DD'); process.exit(1); }
   const p = wikiPath(slug);
-  if (!fs.existsSync(p)) { console.error(`Todo ${slug} not found.`); process.exit(2); }
+  if (!fs.existsSync(p)) { console.error(`error: todo ${slug} not found`); process.exit(2); }
   const { fm, body } = parseFrontmatter(fs.readFileSync(p, 'utf-8'));
-  if (fm.type !== 'todo') { console.error(`Page ${slug} is not a todo.`); process.exit(2); }
+  if (fm.type !== 'todo') { console.error(`error: page ${slug} is not a todo`); process.exit(2); }
   const oldDue = fm.due || '(none)';
   fm.due = args.to;
   fm.updated = nowISO();
@@ -890,7 +890,7 @@ function cmdRelations(args) {
   const slug = args._[0];
   if (slug) {
     const page = readPage(slug);
-    if (!page) { console.error(`Page ${slug} does not exist.`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
+    if (!page) { console.error(`error: page ${slug} does not exist`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
     const out = parseRelations(page.body);
     if (out.length) {
       console.log('# Outbound');
@@ -937,7 +937,7 @@ function cmdObservations(args) {
   };
   if (slug) {
     const page = readPage(slug);
-    if (!page) { console.error(`Page ${slug} does not exist.`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
+    if (!page) { console.error(`error: page ${slug} does not exist`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
     collect(slug, page.body);
   } else {
     forEachPage(({ slug: s, body }) => collect(s, body));
@@ -1022,7 +1022,7 @@ function autolinkSlug(slug, { direction = 'both', dryRun = false, verbose = true
   const tmap = titleMap || (() => { const m = buildTitleMap(); m.sort((a, b) => b.title.length - a.title.length); return m; })();
   let outCount = 0, inCount = 0;
   const p = wikiPath(slug);
-  if (!fs.existsSync(p)) { console.error(`Page ${slug} does not exist.`); return { out: 0, in: 0, total: 0 }; }
+  if (!fs.existsSync(p)) { console.error(`error: page ${slug} does not exist`); return { out: 0, in: 0, total: 0 }; }
 
   // Outbound: scan this page's body for mentions of other titles
   if (direction === 'out' || direction === 'both') {
@@ -1070,7 +1070,7 @@ function autolinkSlug(slug, { direction = 'both', dryRun = false, verbose = true
 function cmdAutolink(args) {
   let direction = args.direction || 'both';
   if (!['in', 'out', 'both'].includes(direction)) {
-    console.error(`Invalid --direction: ${direction}. Must be in|out|both.`);
+    console.error(`error: invalid --direction: ${direction}; must be in|out|both`);
     process.exit(1);
   }
 
@@ -1138,8 +1138,8 @@ function cmdPath(args) {
   const maxHops = parseInt(args['max-hops'] || '3', 10);
   const directed = !!args.directed;
   if (!from || !to) { console.error('Usage: wiki path <from> <to> [--max-hops N] [--directed]'); process.exit(1); }
-  if (!fs.existsSync(wikiPath(from))) { console.error(`Page ${from} does not exist.`); console.error(`  Hint: \`wiki resolve "${from}"\` to fuzzy-match similar slugs.`); process.exit(2); }
-  if (!fs.existsSync(wikiPath(to))) { console.error(`Page ${to} does not exist.`); console.error(`  Hint: \`wiki resolve "${to}"\` to fuzzy-match similar slugs.`); process.exit(2); }
+  if (!fs.existsSync(wikiPath(from))) { console.error(`error: page ${from} does not exist`); console.error(`  Hint: \`wiki resolve "${from}"\` to fuzzy-match similar slugs.`); process.exit(2); }
+  if (!fs.existsSync(wikiPath(to))) { console.error(`error: page ${to} does not exist`); console.error(`  Hint: \`wiki resolve "${to}"\` to fuzzy-match similar slugs.`); process.exit(2); }
 
   // Build adjacency. By default undirected (relation existing in either direction counts as connection).
   // Each edge: { target, verb, dir: 'out'|'in' } so display can show direction of traversal.
@@ -1212,7 +1212,7 @@ function cmdTimeline(args) {
   const slug = args._[0];
   if (!slug) { console.error('Usage: wiki timeline <slug>'); process.exit(1); }
   const page = readPage(slug);
-  if (!page) { console.error(`Page ${slug} does not exist.`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
+  if (!page) { console.error(`error: page ${slug} does not exist`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
 
   const events = [];
   for (const o of parseObservations(page.body)) {
@@ -1342,7 +1342,7 @@ function cmdIngest(args) {
   // Sanity size guard — spec is hand-written JSON describing entities; should be small.
   const MAX_SPEC_BYTES = 2_000_000; // 2 MB
   if (jsonText.length > MAX_SPEC_BYTES) {
-    console.error(`Spec too large: ${jsonText.length} bytes (max ${MAX_SPEC_BYTES}). Split into multiple ingests.`);
+    console.error(`error: spec too large: ${jsonText.length} bytes (max ${MAX_SPEC_BYTES}); split into multiple ingests`);
     process.exit(2);
   }
 
@@ -1554,11 +1554,14 @@ function cmdIngest(args) {
   const touched = [...new Set([...created, ...modified])];
   appendLog('ingest', `${created.length} created, ${modified.length} modified, ${skipped.length} skipped`);
 
-  // 5) Bidirectional autolink on touched slugs
+  // 5) Bidirectional autolink on touched slugs. Failures are non-fatal but
+  // tracked: a single slug failing is a warning, but if more than half of
+  // touched slugs fail we treat it as material breakage and exit 2.
   const titleMap = buildTitleMap();
+  const autolinkFailures = [];
   for (const slug of touched) {
     try { autolinkSlug(slug, { direction: 'both', dryRun: false, verbose: false, titleMap }); }
-    catch (e) { console.error(`autolink ${slug}: ${e.message}`); }
+    catch (e) { autolinkFailures.push({ slug, message: e.message }); }
   }
 
   // 6) Audit touched slugs
@@ -1570,12 +1573,20 @@ function cmdIngest(args) {
   if (created.length) console.log(`  created: ${created.join(', ')}`);
   if (modified.length) console.log(`  modified: ${modified.join(', ')}`);
   if (skipped.length) console.log(`  skipped (already exist): ${skipped.join(', ')}`);
+  if (autolinkFailures.length) {
+    console.error('');
+    console.error(`# autolink failures: ${autolinkFailures.length}/${touched.length}`);
+    for (const f of autolinkFailures) console.error(`  ${f.slug}: ${f.message}`);
+  }
   const dirty = Object.entries(auditResults).filter(([_, r]) => r.score > 0);
+  const autolinkRatio = touched.length ? autolinkFailures.length / touched.length : 0;
+  const autolinkMaterial = autolinkRatio > 0.5;
   if (replayMsgId && !args.replay) {
     captureReplayResult(replayMsgId, {
-      exitCode: dirty.length === 0 ? 0 : 2,
+      exitCode: (dirty.length === 0 && !autolinkMaterial) ? 0 : 2,
       created, modified, skipped,
       audit_dirty: dirty.length,
+      autolink_failures: autolinkFailures.length,
       errors: [],
     });
   }
@@ -1589,6 +1600,10 @@ function cmdIngest(args) {
       for (const i of r.issues) console.error(`    [${i.severity}] ${i.rule}: ${i.detail}`);
     }
     console.error(`  → fix via 'wiki patch <slug> ...' before next ingestion`);
+    process.exit(2);
+  }
+  if (autolinkMaterial) {
+    console.error(`error: autolink failed on >50% of touched pages (${autolinkFailures.length}/${touched.length}); ingest succeeded but downstream link rewriting did not`);
     process.exit(2);
   }
 }
@@ -1769,7 +1784,7 @@ function cmdAudit(args) {
     process.exit(1);
   }
   if (!fs.existsSync(wikiPath(slug))) {
-    console.error(`Page ${slug} does not exist.`);
+    console.error(`error: page ${slug} does not exist`);
     process.exit(1);
   }
   const result = auditSlug(slug);
@@ -1778,9 +1793,10 @@ function cmdAudit(args) {
 }
 
 function cmdGroom(args) {
-  const mechanical = args.mechanical || args._[0] === '--mechanical' || (!args.propose && !args.apply);
-  if (!mechanical) {
-    console.error('wiki groom --mechanical    (other modes: --propose, --apply not implemented)');
+  // Only mechanical mode is implemented today. The flag is accepted for
+  // explicitness but the default behavior is also mechanical.
+  if (args.propose || args.apply) {
+    console.error('error: --propose and --apply are not implemented; only --mechanical (or no flag) works');
     process.exit(1);
   }
   const dryRun = args['dry-run'];

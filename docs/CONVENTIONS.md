@@ -28,15 +28,16 @@ The runbooks in `CLAUDE.md` follow this convention. New docs must too.
 
 ## Error format
 
-Three genres, three shapes.
+Four genres, four shapes.
 
 - Terminal errors (the CLI cannot proceed): `error: <message>`, stderr, non-zero exit.
+- Deliberate refusals (the CLI saw a valid request and intentionally won't perform it, e.g. deleting a page with backlinks): `Refusing: <message>`, stderr, non-zero exit. Distinct from `error:` because the request itself was well-formed — the CLI is enforcing a policy. The `--force` flag is the usual escape hatch.
 - Non-fatal warnings (work continues): `warning: <message>`, stderr.
 - Usage errors (missing/bad invocation): `Usage: wiki <verb> [args]`, stderr, exit 1.
 
 Deprecation warnings are a sub-genre of warning: `[deprecated] wiki <verb>: --old is deprecated; use --new instead` (emitted by the flag-alias hook).
 
-Avoid bare strings like `Page X does not exist.` for terminal errors. Prefer `error: page X does not exist`. (Several legacy sites still use the bare form; new code should follow `error:`.)
+Avoid bare strings like `Page X does not exist.` for terminal errors. Prefer `error: page X does not exist`.
 
 ## Exit codes
 

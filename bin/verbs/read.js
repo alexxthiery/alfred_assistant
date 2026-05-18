@@ -153,7 +153,7 @@ function cmdPrint(args) {
   const slug = args._[0];
   if (!slug) { console.error('Usage: wiki print <slug> [--backlinks] [--links]'); process.exit(1); }
   const p = wikiPath(slug);
-  if (!fs.existsSync(p)) { console.error(`Page ${slug} does not exist.`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
+  if (!fs.existsSync(p)) { console.error(`error: page ${slug} does not exist`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   process.stdout.write(fs.readFileSync(p, 'utf-8'));
   const { body } = parseFrontmatter(fs.readFileSync(p, 'utf-8'));
   if (args.links) {
@@ -181,7 +181,7 @@ function cmdRelated(args) {
   const slug = args._[0];
   if (!slug) { console.error('Usage: wiki related <slug>'); process.exit(1); }
   const page = readPage(slug);
-  if (!page) { console.error(`Page ${slug} does not exist.`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
+  if (!page) { console.error(`error: page ${slug} does not exist`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   const myTags = new Set(Array.isArray(page.fm.tags) ? page.fm.tags : []);
   const myOutbound = new Set(extractWikilinks(page.body));
   const re = new RegExp(`\\[\\[${slug}\\]\\]`);
@@ -216,7 +216,7 @@ function cmdPreview(args) {
   const slug = args._[0];
   if (!slug) { console.error('Usage: wiki preview <slug>'); process.exit(1); }
   const page = readPage(slug);
-  if (!page) { console.error(`Page ${slug} does not exist.`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
+  if (!page) { console.error(`error: page ${slug} does not exist`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   const { fm, body } = page;
   const tags = Array.isArray(fm.tags) ? fm.tags.join(', ') : '';
   const aliases = Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []);
@@ -250,7 +250,7 @@ function cmdContext(args) {
   const slug = args._[0];
   if (!slug) { console.error('Usage: wiki context <slug> [--compact]'); process.exit(1); }
   const page = readPage(slug);
-  if (!page) { console.error(`Page ${slug} does not exist.`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
+  if (!page) { console.error(`error: page ${slug} does not exist`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   const { fm, body } = page;
   const tags = Array.isArray(fm.tags) ? fm.tags.join(', ') : '';
   const aliases = Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []);
