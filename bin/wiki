@@ -44,6 +44,7 @@ const { validateIngestSpec, validateBody: _validateBody } = require('./lib/inges
 const { auditPage } = require('./lib/audit.js');
 const { applyFlagAliases } = require('./lib/flag-aliases.js');
 const { flushStaged } = require('./lib/staged-writes.js');
+const { buildTitleEntries, autolinkBody } = require('./lib/autolink.js');
 const {
   VAULT_ROOT, WIKI_DIR, SCHEMA_PATH, INDEX_PATH, LOG_PATH,
   nowISO, wikiPath, listWikiPages, readPage, forEachPage,
@@ -995,72 +996,9 @@ function cmdObservations(args) {
 // ─── autolink ──────────────────────────────────────────────────────────────
 
 function buildTitleMap() {
-  const map = []; // [{ slug, pattern, source }]
-  forEachPage(({ slug, fm }) => {
-    const title = (fm.title || '').trim();
-    const aliases = Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []);
-    const variants = [title, ...aliases].filter((v) => v && v.length >= 4 && !/^\s*$/.test(v));
-    for (const v of variants) {
-      // Escape regex special chars
-      const escaped = v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      map.push({ slug, pattern: new RegExp(`\\b${escaped}\\b`, 'g'), title: v });
-    }
-  });
-  return map;
-}
-
-function autolinkBody(body, ownSlug, titleMap) {
-  // Split body into segments: code-fence vs prose; only modify prose.
-  const segments = [];
-  let buf = '';
-  let inFence = false;
-  for (const line of body.split('\n')) {
-    if (line.trim().startsWith('```')) {
-      if (buf) segments.push({ kind: inFence ? 'fence' : 'prose', text: buf });
-      buf = line + '\n';
-      // Push the fence line itself as a marker
-      segments.push({ kind: 'fenceMarker', text: buf });
-      buf = '';
-      inFence = !inFence;
-      continue;
-    }
-    buf += line + '\n';
-  }
-  if (buf) segments.push({ kind: inFence ? 'fence' : 'prose', text: buf });
-
-  let injections = 0;
-  const seenSlugs = new Set();
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i];
-    if (seg.kind !== 'prose') continue;
-    let text = seg.text;
-    for (const { slug, pattern, title } of titleMap) {
-      if (slug === ownSlug) continue;
-      if (seenSlugs.has(slug)) continue; // first-mention-per-page
-      // Find first match that isn't already inside [[...]]
-      pattern.lastIndex = 0;
-      let m;
-      let replaced = false;
-      while ((m = pattern.exec(text)) !== null) {
-        const idx = m.index;
-        // Check context: not inside [[...]] or wikilink-like
-        const before = text.slice(Math.max(0, idx - 2), idx);
-        const after = text.slice(idx + m[0].length, idx + m[0].length + 2);
-        if (before.endsWith('[[') || after.startsWith(']]')) continue;
-        // Not inside an existing wikilink target
-        if (/\]\([^)]*$/.test(text.slice(0, idx))) continue; // inside markdown link target like [foo](...)
-        // Replace
-        text = text.slice(0, idx) + `[[${slug}]]` + text.slice(idx + m[0].length);
-        injections++;
-        seenSlugs.add(slug);
-        replaced = true;
-        break;
-      }
-      // (continue to next title)
-    }
-    segments[i] = { kind: 'prose', text };
-  }
-  return { body: segments.map((s) => s.text).join(''), injections };
+  const pages = [];
+  forEachPage(({ slug, fm }) => pages.push({ slug, fm }));
+  return buildTitleEntries(pages);
 }
 
 // Autolink a single slug: inject outbound (other titles → [[slug]]) and/or
