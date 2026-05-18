@@ -104,7 +104,7 @@ const AUDIT_RULES = [
       const uncat = [];
       for (const line of body.split('\n')) {
         if (!/^- /.test(line)) continue;
-        if (/^- (?:~~)?\[(?:fact|hypothesis|opinion|claim|quote|question|decision|todo|idea)\]/.test(line)) continue;
+        if (/^- (?:~~)?\[(?:fact|hypothesis|opinion|claim|quote|question|decision|todo|idea|prediction)\]/.test(line)) continue;
         if (/^- (?:[a-z][a-z_]+|"[^"]+") \[\[[a-z0-9][a-z0-9-]*\]\]/.test(line)) continue;
         uncat.push(line.trim().slice(0, 80));
       }

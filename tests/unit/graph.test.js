@@ -163,6 +163,14 @@ test('parseObservations: marks strikethrough as superseded', () => {
   assert.equal(obs[0].superseded, true);
 });
 
+test('parseObservations: parses prediction category', () => {
+  const body = '- [prediction] X will happen by 2027-06 [confidence: 0.6] ^[telegram:1]';
+  const obs = parseObservations(body);
+  assert.equal(obs.length, 1);
+  assert.equal(obs[0].category, 'prediction');
+  assert.deepEqual(obs[0].provenance, ['telegram:1']);
+});
+
 test('parseObservations: ignores non-observation list items', () => {
   const body = '- works_at [[example-corp]]\n- regular bullet\n- [fact] real';
   const obs = parseObservations(body);

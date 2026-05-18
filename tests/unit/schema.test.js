@@ -22,9 +22,9 @@ const {
 
 // ─── closed-set constants ──────────────────────────────────────────────────
 
-test('KNOWN_TYPES: exactly the 8 documented page types', () => {
-  assert.equal(KNOWN_TYPES.size, 8);
-  for (const t of ['entity', 'concept', 'decision', 'source', 'synthesis', 'todo', 'note', 'event']) {
+test('KNOWN_TYPES: exactly the 9 documented page types', () => {
+  assert.equal(KNOWN_TYPES.size, 9);
+  for (const t of ['entity', 'concept', 'decision', 'source', 'synthesis', 'todo', 'note', 'event', 'question']) {
     assert.ok(KNOWN_TYPES.has(t), `KNOWN_TYPES missing ${t}`);
   }
 });

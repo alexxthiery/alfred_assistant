@@ -58,7 +58,7 @@ function extractProvenanceMarkers(body) {
 // Optional strikethrough wrap: ~~[cat] ...~~
 function parseObservations(body) {
   const out = [];
-  const re = /^- (~~)?\[(fact|hypothesis|opinion|claim|quote|question|decision|todo|idea)\] (.+?)$/gm;
+  const re = /^- (~~)?\[(fact|hypothesis|opinion|claim|quote|question|decision|todo|idea|prediction)\] (.+?)$/gm;
   let m;
   while ((m = re.exec(body)) !== null) {
     const superseded = !!m[1];

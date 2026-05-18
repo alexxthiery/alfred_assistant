@@ -72,6 +72,7 @@ The `type:` frontmatter field must be one of these. The CLI refuses unknown type
 | `todo` | one task | `status: open\|doing\|done\|abandoned`; optional `due`, `priority` | — |
 | `note` | catch-all (use sparingly; lint nags) | — | — |
 | `event` | one calendar event (meeting, appointment, deadline, trip) | `when: YYYY-MM-DD` or ISO8601; optional `duration`, `location`, `attendees: [slug, ...]`, `recurrence` | — |
+| `question` | one open question that accretes hypotheses, evidence, dead-ends, and partial answers over time. Never "answered" — relabeled as `concept` if it stabilizes. Title in interrogative form (e.g. "why does X happen"). | — | ≥1 observation (typically `[hypothesis]` or `[fact]`) |
 
 The CLI rejects `type: note` for pages whose `tags` include `person`, `org`, or `tool` — use `entity` instead.
 
@@ -108,14 +109,16 @@ A categorized inline fact, written as a markdown list item:
 - [opinion] CalDAV is the right protocol; Google Calendar's OAuth is overkill for personal use
 - [idea] An ingestion pipeline that lints and redacts before writing
 - [todo] Email Bob about contract renewal
+- [prediction] Bob will leave ExampleCorp by 2027-06 [confidence: 0.6]
 ```
 
-Categories: `fact`, `hypothesis`, `opinion`, `claim`, `quote`, `question`, `decision`, `todo`, `idea`. The leading `- [category]` makes the line parseable.
+Categories: `fact`, `hypothesis`, `opinion`, `claim`, `quote`, `question`, `decision`, `todo`, `idea`, `prediction`. The leading `- [category]` makes the line parseable.
 
 - `fact` — verified, attributable to a source
 - `hypothesis` — uncertain, unconfirmed (flag for follow-up). Lint warns on hypotheses older than ~90 days.
 - `opinion` — Alice's stance, not a verifiable fact
 - `claim` — third-party assertion (from a paper, person) without independent verification
+- `prediction` — a forward-looking probabilistic claim with `[confidence: 0..1]`, optionally `[by YYYY-MM-DD]` for the resolution date. Resolved later via `--supersede` with the outcome. The corpus of resolved predictions powers calibration scoring.
 
 ### Temporal tags (CLI-parseable)
 
