@@ -1,0 +1,7 @@
+{
+  "_comment": "HR-OOB-C alias-collision: two pages cannot claim the same alias (case-insensitive) even when no .md slug matches the alias value. Setup creates 'alpha-page' with alias 'shared-tag'; the main cmd tries to add the same alias to morgan-smith. Non-functional-alias is silent (no shared-tag.md); alias-collision refuses.",
+  "setup": [
+    ["write", "alpha-page", "--title", "Alpha Page", "--type", "entity", "--tags", "person", "--content", "- [fact] seed body ^[telegram:2026-05-17]", "--aliases", "shared-tag"]
+  ],
+  "cmd": ["patch", "morgan-smith", "--alias", "shared-tag"]
+}

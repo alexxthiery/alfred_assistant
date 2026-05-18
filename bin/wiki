@@ -375,7 +375,7 @@ function cmdWrite(args) {
         validateFm.derived_from = args.derived_from.split(',').map((s) => s.trim()).filter(Boolean);
       }
     }
-    const bodyErrors = validateBody({
+    let bodyErrors = validateBody({
       slug,
       title: args.title || (isAppend ? validateFm.title : slug),
       type: isAppend ? (validateFm.type || 'note') : (explicitType || 'note'),
@@ -383,6 +383,12 @@ function cmdWrite(args) {
       body: validateBodyText,
       fm: validateFm,
     });
+    // HR-OOB-D: narrow escape hatch — bypass only the two alias-class strict
+    // rules. Other strict rules (missing-provenance, invented-verb, etc.) still
+    // apply. Intended for legitimate placeholder-alias workflows.
+    if (args['force-alias']) {
+      bodyErrors = bodyErrors.filter((e) => e.rule !== 'non-functional-alias' && e.rule !== 'alias-collision');
+    }
     if (bodyErrors.length) {
       console.error('error: strict body validation failed (bypass with --soft):');
       for (const e of bodyErrors) {
@@ -853,7 +859,11 @@ function cmdPatch(args) {
   if (!args.soft) {
     const type = fm.type || 'note';
     const tags = Array.isArray(fm.tags) ? fm.tags : [];
-    const bodyErrors = validateBody({ slug, title: fm.title, type, tags, body: newBody, fm });
+    let bodyErrors = validateBody({ slug, title: fm.title, type, tags, body: newBody, fm });
+    // HR-OOB-D: same narrow escape hatch as cmdWrite.
+    if (args['force-alias']) {
+      bodyErrors = bodyErrors.filter((e) => e.rule !== 'non-functional-alias' && e.rule !== 'alias-collision');
+    }
     if (bodyErrors.length) {
       console.error(`error: validation failed for ${slug}:`);
       for (const e of bodyErrors) {
@@ -3677,6 +3687,7 @@ const VERBS = [
       '  wiki write <slug> ... --replace  (overwrite existing page)',
       '  wiki write <slug> ... --no-anchor   (suppress orphan warning)',
       '  wiki write <slug> ... --soft        (downgrade audit issues to warnings)',
+      '  wiki write <slug> ... --force-alias (bypass non-functional-alias and alias-collision strict rules only)',
       '',
       `Types: ${[...KNOWN_TYPES].join(' | ')}`,
       '',
@@ -3717,6 +3728,10 @@ const VERBS = [
       'Combine --supersede with --observation to replace an old fact with a new one.',
       'For deeper changes (re-typing a page, multi-page consistency), use `wiki ingest`',
       'which validates atomically before writing.',
+      '',
+      '--force-alias: bypass only the non-functional-alias and alias-collision strict',
+      'rules (other strict rules still apply). Use sparingly for legitimate',
+      'placeholder-alias workflows; prefer `wiki merge` to resolve duplicates.',
       '',
       'Auto-rendered pages (frontmatter `source_file:` set) refuse patching — use',
       '`wiki measure` to append rows to the source TSV instead.',

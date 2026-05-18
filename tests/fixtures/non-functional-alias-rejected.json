@@ -1,0 +1,4 @@
+{
+  "_comment": "HR-OOB-C: 'wiki patch alice --alias bob' must refuse while bob.md exists (alice.md and bob.md both ship in the template vault). The alias would be functionally inert; rule emits a `wiki merge` fix line.",
+  "cmd": ["patch", "alice", "--alias", "bob"]
+}

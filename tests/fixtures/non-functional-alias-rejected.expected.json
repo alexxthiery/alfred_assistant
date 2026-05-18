@@ -1,0 +1,7 @@
+{
+  "exitCode": 3,
+  "stderrContains": [
+    "non-functional-alias",
+    "wiki merge bob alice"
+  ]
+}

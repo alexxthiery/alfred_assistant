@@ -1,0 +1,7 @@
+{
+  "exitCode": 3,
+  "stderrContains": [
+    "alias-collision",
+    "wiki merge"
+  ]
+}

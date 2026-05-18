@@ -1,0 +1,4 @@
+{
+  "_comment": "HR-OOB-D: --force-alias bypasses non-functional-alias / alias-collision only. Other strict rules (missing-provenance etc.) still apply. Here the patch adds the alias 'bob' to alice while bob.md exists; rule normally refuses, but --force-alias lets it through.",
+  "cmd": ["patch", "alice", "--alias", "bob", "--force-alias"]
+}
