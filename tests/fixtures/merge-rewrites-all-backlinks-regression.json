@@ -1,0 +1,22 @@
+{
+  "_comment": "Regression for HR01: linkRe was constructed with /g flag and called via .test() inside forEachPage. RegExp.test on a global regex advances lastIndex, so pages whose match position is earlier than the accumulated lastIndex were silently skipped. This fixture seeds two pages where the second (alphabetically) has [[bob-jones]] at an offset much smaller than the first page's body length, so the bug deterministically misses the rewrite on the short page.",
+  "setup": [
+    [
+      "write", "aaa-long-bob-mention",
+      "--title", "Aaa long bob mention",
+      "--type", "note",
+      "--tags", "meta",
+      "--content", "- [fact] padding filler one ^[telegram:2026-05-18]\n- [fact] padding filler two ^[telegram:2026-05-18]\n- [fact] padding filler three ^[telegram:2026-05-18]\n- [fact] padding filler four ^[telegram:2026-05-18]\n- [fact] padding filler five ^[telegram:2026-05-18]\n- [fact] padding filler six ^[telegram:2026-05-18]\n- [fact] padding filler seven ^[telegram:2026-05-18]\n- [fact] mentions [[bob-jones]] late in the body ^[telegram:2026-05-18]",
+      "--soft"
+    ],
+    [
+      "write", "aab-short-bob-mention",
+      "--title", "Aab short bob mention",
+      "--type", "note",
+      "--tags", "meta",
+      "--content", "- [fact] [[bob-jones]] ^[telegram:2026-05-18]",
+      "--soft"
+    ]
+  ],
+  "cmd": ["merge", "bob-jones", "bob"]
+}

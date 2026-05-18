@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "bob-jones": { "fileExists": false },
+    "aaa-long-bob-mention": { "bodyContains": ["[[bob]]"], "bodyMissing": ["[[bob-jones]]"] },
+    "aab-short-bob-mention": { "bodyContains": ["[[bob]]"], "bodyMissing": ["[[bob-jones]]"] }
+  }
+}

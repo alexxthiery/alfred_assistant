@@ -501,11 +501,18 @@ function cmdMv(args) {
   fm.aliases = aliases;
   fs.writeFileSync(newPath, serializeFrontmatter(fm, body));
 
-  const linkRe = new RegExp(`\\[\\[${oldSlug}\\]\\]`, 'g');
+  // Two regexes: a non-global one for `.test()` (stateless across iterations),
+  // a global one for `.replace()` (replaces every occurrence). Using the /g
+  // flag for `.test` was a real correctness bug: RegExp.prototype.test on a
+  // global regex advances lastIndex, so consecutive forEachPage iterations
+  // could silently skip pages whose match position was earlier than the
+  // accumulated lastIndex. See audit/12-coherence-robustness.md § stateful-regex.
+  const linkTestRe = new RegExp(`\\[\\[${oldSlug}\\]\\]`);
+  const linkReplaceRe = new RegExp(`\\[\\[${oldSlug}\\]\\]`, 'g');
   let touched = 0;
   forEachPage(({ absPath, raw }) => {
-    if (!linkRe.test(raw)) return;
-    const updated = raw.replace(linkRe, `[[${newSlug}]]`);
+    if (!linkTestRe.test(raw)) return;
+    const updated = raw.replace(linkReplaceRe, `[[${newSlug}]]`);
     const parsed = parseFrontmatter(updated);
     parsed.fm.updated = nowISO();
     fs.writeFileSync(absPath, serializeFrontmatter(parsed.fm, parsed.body));
@@ -582,12 +589,15 @@ function cmdMerge(args) {
   if (newAliases.length) newFm.aliases = newAliases;
   newFm.updated = nowISO();
 
-  // 3. Rewrite [[source]] → [[target]] across all wiki pages, dedup if both appear
-  const linkRe = new RegExp(`\\[\\[${source}\\]\\]`, 'g');
+  // 3. Rewrite [[source]] → [[target]] across all wiki pages, dedup if both appear.
+  // Two regexes: a non-global one for `.test()` (stateless across iterations),
+  // a global one for `.replace()` below. See audit/12 § stateful-regex.
+  const linkTestRe = new RegExp(`\\[\\[${source}\\]\\]`);
+  const linkReplaceRe = new RegExp(`\\[\\[${source}\\]\\]`, 'g');
   const filesToRewrite = [];
   forEachPage(({ slug: fromSlug, absPath, raw }) => {
     if (fromSlug === source) return; // source will be deleted
-    if (linkRe.test(raw)) filesToRewrite.push(absPath);
+    if (linkTestRe.test(raw)) filesToRewrite.push(absPath);
   });
 
   // 4. Dry-run report
@@ -609,7 +619,7 @@ function cmdMerge(args) {
   let rewrittenLines = 0;
   for (const fp of filesToRewrite) {
     const cur = fs.readFileSync(fp, 'utf-8');
-    let updated = cur.replace(linkRe, `[[${target}]]`);
+    let updated = cur.replace(linkReplaceRe, `[[${target}]]`);
     // Dedup adjacent identical relation lines that could result
     // (cheap pass: collapse exact duplicate lines)
     const lines = updated.split('\n');
