@@ -42,6 +42,7 @@ const {
 } = require('./lib/graph.js');
 const { validateIngestSpec, validateBody: _validateBody } = require('./lib/ingest.js');
 const { auditPage } = require('./lib/audit.js');
+const { applyFlagAliases } = require('./lib/flag-aliases.js');
 const {
   VAULT_ROOT, WIKI_DIR, SCHEMA_PATH, INDEX_PATH, LOG_PATH,
   nowISO, wikiPath, listWikiPages, readPage,
@@ -3911,6 +3912,22 @@ if (verb && args.help && cmds[verb]) {
 if (!verb || !cmds[verb]) {
   printGlobalHelp();
   process.exit(1);
+}
+
+// Per-verb flag-rename / removal policy (M14). Entries are added here when a
+// CLI flag is renamed or removed in a release; the deprecation cycle is documented
+// in CONTRIBUTING.md § "Flag-rename policy" (vX.Y warns, vX.(Y+1) errors).
+// Shape: { <verb>: { <old-flag>: '<new-flag>' | null } }. Empty by default.
+const FLAG_ALIASES = {
+  // example: write: { soft: 'lenient' },
+};
+{
+  const { warnings, errors } = applyFlagAliases(verb, args, FLAG_ALIASES);
+  for (const w of warnings) console.error(`[deprecated] wiki ${verb}: ${w}`);
+  if (errors.length) {
+    for (const e of errors) console.error(`error: wiki ${verb}: ${e}`);
+    process.exit(1);
+  }
 }
 
 // Global flag: --no-auto-commit. Honored across every write verb by setting
