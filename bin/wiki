@@ -3556,6 +3556,319 @@ function parseArgs(argv) {
   return out;
 }
 
+// ─── help system (M10 + M11) ───────────────────────────────────────────────
+// Verb help lives in a single data table. printGlobalHelp() iterates by
+// section; printVerbHelp(name) shows the entry's longHelp if defined,
+// otherwise falls back to its synopsis lines.
+
+const SECTIONS = [
+  'READ',
+  'WRITE',
+  'GRAPH + NAVIGATION',
+  'TODO',
+  'HYGIENE',
+  'SQL',
+  'REPLAY',
+  'REVIEW',
+  'MEASUREMENTS',
+  'GIT',
+  'GLOBAL FLAGS',
+];
+
+const VERBS = [
+  // READ
+  { name: 'list',     section: 'READ', lines: ['  list [--tag t] [--type t]                 show all pages'] },
+  { name: 'search',   section: 'READ', lines: ['  search <query> [--tag t] [--title-only]   find by content'] },
+  { name: 'recent',   section: 'READ', lines: ['  recent [--days N] [--type T]              pages updated recently'] },
+  { name: 'preview',  section: 'READ', lines: ['  preview <slug>                            cheap peek (~10 lines, ~150 tokens)'] },
+  { name: 'print',    section: 'READ', lines: ['  print <slug> [--backlinks] [--links]      full page with optional context'] },
+  { name: 'context',  section: 'READ', lines: ['  context <slug>                            bundled: FM + obs + relations + 1-hop neighbors'] },
+  { name: 'sources',  section: 'READ', lines: ['  sources                                   list type=source pages'] },
+  { name: 'related',  section: 'READ', lines: ['  related <slug>                            pages by tag/link proximity'] },
+  { name: 'agenda',   section: 'READ', lines: ['  agenda [today|week|upcoming|past|all]     list type=event pages by when'] },
+
+  // WRITE
+  {
+    name: 'ingest', section: 'WRITE',
+    lines: ['  ingest --stdin | --file <path> [--allow-duplicates]   structured JSON-input compiler'],
+    longHelp: [
+      'wiki ingest — compile a JSON spec into vault writes.',
+      '',
+      'Usage:',
+      '  wiki ingest --stdin              (read spec JSON from stdin)',
+      '  wiki ingest --file <path.json>   (read spec JSON from file)',
+      '  wiki ingest ... --allow-duplicates   (bypass fuzzy duplicate check)',
+      '',
+      'Spec shape (all sections optional, but at least one is required):',
+      '  {',
+      '    "source": "telegram:YYYY-MM-DD",       // required',
+      '    "msg_id": "<inbound-msg-id>",          // optional; triggers replay capture',
+      '    "stubs":    [{"slug","title","type","tags"}, ...],',
+      '    "entities": [{"slug","title","type","tags","facts","relations",...}, ...],',
+      '    "events":   [{"slug","title","when","tags":["event",...], ...}, ...],',
+      '    "patches":  [{"slug","add_facts","add_relations","supersede",...}, ...]',
+      '  }',
+      '',
+      'Validation runs upfront — no partial writes if anything fails. After writes,',
+      'bidirectional autolink runs on touched slugs, then `wiki audit` reports issues.',
+      '',
+      'Exit codes: 0 clean | 2 IO/parse error | 3 validation failed.',
+      '',
+      'See docs/SCHEMA.md § JSON ingestion spec for the full field reference.',
+    ].join('\n'),
+  },
+  {
+    name: 'write', section: 'WRITE',
+    lines: [
+      '  write <slug> --title "..." --type <type> [--tags a,b]',
+      '       [--content "..." | --stdin] [--append|--replace] [--no-anchor] [--soft]',
+      `       types: ${[...KNOWN_TYPES].join('|')}`,
+      '       (strict by default: rejects mislabeled-event, uncategorized bullets, invented verbs,',
+      '        missing provenance on entity/event/concept/synthesis; --soft to bypass)',
+    ],
+    longHelp: [
+      'wiki write — create or update a single page.',
+      '',
+      'Usage:',
+      '  wiki write <slug> --title "..." --type <type> [--tags a,b] [--content "..." | --stdin]',
+      '  wiki write <slug> ... --append   (add body to existing page)',
+      '  wiki write <slug> ... --replace  (overwrite existing page)',
+      '  wiki write <slug> ... --no-anchor   (suppress orphan warning)',
+      '  wiki write <slug> ... --soft        (downgrade audit issues to warnings)',
+      '',
+      `Types: ${[...KNOWN_TYPES].join(' | ')}`,
+      '',
+      'Strict-mode rejections (bypass with --soft):',
+      '  - mislabeled-event: title contains an event keyword but type != event',
+      '  - event-tag: type=event without "event" in tags',
+      '  - event-when: type=event without --when',
+      '  - uncategorized-bullets: body has `- ` lines that aren\'t observations/relations',
+      '  - invented-verb: relation uses a verb not in SCHEMA.md',
+      '  - missing-provenance: substantive types (entity/event/concept/synthesis)',
+      '    with observations but no ^[...] marker',
+      '',
+      'For multi-page writes, prefer `wiki ingest` (atomic upfront validation).',
+      '',
+      'Exit codes: 0 clean | 1 bad args | 2 page-already-exists / auto-rendered | 3 validation failed.',
+    ].join('\n'),
+  },
+  {
+    name: 'patch', section: 'WRITE',
+    lines: [
+      '  patch <slug> [--observation "..."] [--relation "verb [[target]]"]',
+      '              [--supersede "<substring>"]    strike-through old obs + [until today]',
+      '              [--add-tag x] [--remove-tag x] [--alias name]',
+      '              [--summary "..."] [--title "..."]',
+    ],
+    longHelp: [
+      'wiki patch — modify an existing page in place.',
+      '',
+      'Usage:',
+      '  wiki patch <slug> --observation "[fact] <body> #tag"',
+      '  wiki patch <slug> --relation "<verb> [[<target>]]"',
+      '  wiki patch <slug> --supersede "<substring>"   strike old obs + add [until <today>]',
+      '  wiki patch <slug> --add-tag <tag>',
+      '  wiki patch <slug> --remove-tag <tag>',
+      '  wiki patch <slug> --alias <name>',
+      '  wiki patch <slug> --summary "..." | --title "..."',
+      '',
+      'Combine --supersede with --observation to replace an old fact with a new one.',
+      'For deeper changes (re-typing a page, multi-page consistency), use `wiki ingest`',
+      'which validates atomically before writing.',
+      '',
+      'Auto-rendered pages (frontmatter `source_file:` set) refuse patching — use',
+      '`wiki measure` to append rows to the source TSV instead.',
+      '',
+      'Exit codes: 0 clean | 1 bad args | 2 page-not-found / auto-rendered.',
+    ].join('\n'),
+  },
+  { name: 'link',   section: 'WRITE', lines: ['  link <from> <to>                          append [[to]] under ## Links'] },
+  { name: 'mv',     section: 'WRITE', lines: ['  mv <old> <new>                            rename, rewrite backlinks (adds alias)'] },
+  { name: 'delete', section: 'WRITE', lines: ['  delete <slug> [--force]                   remove (refuses if backlinks)'] },
+  { name: 'merge',  section: 'WRITE', lines: ['  merge <source> <target> [--dry-run]       resolve identity: fold source into target'] },
+
+  // GRAPH + NAVIGATION
+  { name: 'links',         section: 'GRAPH + NAVIGATION', lines: ['  links <slug>                              outbound wikilinks'] },
+  { name: 'backlinks',     section: 'GRAPH + NAVIGATION', lines: ['  backlinks <slug>                          inbound wikilinks'] },
+  { name: 'relations',     section: 'GRAPH + NAVIGATION', lines: ['  relations [<slug>]                        parsed typed edges'] },
+  { name: 'observations',  section: 'GRAPH + NAVIGATION', lines: ['  observations [<slug>] [--category fact]   parsed inline facts'] },
+  {
+    name: 'autolink', section: 'GRAPH + NAVIGATION',
+    lines: [
+      '  autolink <slug>|--all [--direction in|out|both] [--dry-run]',
+      '                                            inject wikilinks for known titles',
+    ],
+  },
+  { name: 'resolve',  section: 'GRAPH + NAVIGATION', lines: ['  resolve <fuzzy>                           fuzzy name → slug (top matches)'] },
+  { name: 'path',     section: 'GRAPH + NAVIGATION', lines: ['  path <from> <to> [--max-hops N]           shortest typed-edge path'] },
+  { name: 'hubs',     section: 'GRAPH + NAVIGATION', lines: ['  hubs [--top N]                            most-backlinked pages'] },
+  { name: 'place',    section: 'GRAPH + NAVIGATION', lines: ['  place "concept"                           pre-write helper: existing? similar? suggested'] },
+  { name: 'stubs',    section: 'GRAPH + NAVIGATION', lines: ['  stubs [--top N] [--show-refs]             referenced-but-missing slugs, ranked'] },
+  { name: 'timeline', section: 'GRAPH + NAVIGATION', lines: ['  timeline <slug>                           dated observations + events involving slug, sorted'] },
+
+  // TODO
+  { name: 'todo', section: 'TODO', lines: [
+    '  todo add "title" [--due] [--priority]     todo list [--open|--due-today|--overdue|--done]',
+    '  todo done <slug>                          todo defer <slug> --to YYYY-MM-DD',
+  ] },
+
+  // HYGIENE
+  {
+    name: 'lint', section: 'HYGIENE',
+    lines: [
+      '  lint [--only dead,ids,orphans,tags,types,aggregator,agg-suspect,narrative,density,stale,unsourced,tiers,loneliness]',
+      '       (per-page rules — provenance, type-tag, hypotheses, mislabeled-event — now live in `wiki audit`)',
+      '       [--threshold N]                      (loneliness threshold; default 2)',
+    ],
+    longHelp: [
+      'wiki lint — cross-vault structural checks (vault-wide patterns).',
+      '',
+      'Usage:',
+      '  wiki lint                                 run all rules',
+      '  wiki lint --only <rule1>,<rule2>          run a subset',
+      '  wiki lint --threshold N                   (for loneliness rule)',
+      '',
+      'Available rules:',
+      '  dead          — orphan files with no inbound/outbound references',
+      '  ids           — frontmatter id != filename basename',
+      '  orphans       — pages disconnected from the main component',
+      '  tags          — unknown tags (not in SCHEMA.md taxonomy)',
+      '  types         — unknown types (not in KNOWN_TYPES)',
+      '  aggregator    — pages matching forbidden-aggregator-slug shape',
+      '  agg-suspect   — pages with many tags + many obs (aggregator pattern)',
+      '  narrative     — pages with prose paragraphs instead of structured bullets',
+      '  density       — non-leaf pages with < 2 wikilinks',
+      '  stale         — `updated` older than tag-driven thresholds',
+      '  unsourced     — sources missing raw_path / sha256 / ingested_at',
+      '  tiers         — heavily-referenced slugs without a page (promotion candidates)',
+      '  loneliness    — pages with < N total connections',
+      '',
+      'For per-page audit rules (mislabeled-event, missing-provenance, etc.) use `wiki audit`.',
+      '',
+      'Exit code: 0 if clean, 2 if any rule fires.',
+    ].join('\n'),
+  },
+  { name: 'sync-ids', section: 'HYGIENE', lines: ['  sync-ids [--dry-run]                      sync frontmatter id with filename'] },
+  { name: 'size',     section: 'HYGIENE', lines: ['  size [--threshold N]                      list pages above N body lines'] },
+  { name: 'reindex',  section: 'HYGIENE', lines: ['  reindex                                   regenerate index.md'] },
+  { name: 'groom',    section: 'HYGIENE', lines: ['  groom --mechanical [--dry-run]            auto-fix symmetric relations, bidirectional autolink, report stubs'] },
+  {
+    name: 'audit', section: 'HYGIENE',
+    lines: ['  audit <slug> | --all                      mechanical quality score per page or vault-wide'],
+    longHelp: [
+      'wiki audit — per-page quality + vault-wide cross-page rules.',
+      '',
+      'Usage:',
+      '  wiki audit <slug>       audit a single page',
+      '  wiki audit --all        audit every page in the vault',
+      '',
+      'Per-page rules (severity high/medium/low, weighted into a score):',
+      '  mislabeled-event       (high)  — title has event keyword, type != event',
+      '  mislabeled-entity      (high)  — type=note with entity-kind tag',
+      '  missing-provenance     (high)  — substantive type, obs but no ^[...] marker',
+      '  invented-verb          (high)  — relation verb not in SCHEMA.md',
+      '  event-when             (high)  — type=event without `when` frontmatter',
+      '  event-tag              (medium)— type=event without "event" in tags',
+      '  uncategorized-bullets  (medium)— `- ` lines not observations or relations',
+      '  empty-page             (medium)— substantive type with no obs/relations',
+      '  long-observation       (low)   — obs body > 120 chars (multi-fact suspect)',
+      '',
+      'Cross-page rules (--all only):',
+      '  hot-text-mention       — capitalized 2+ word phrase in 2+ pages, no stub',
+      '  lonely                 — pages with < 2 total inbound + outbound connections',
+      '',
+      'Rules are defined in bin/lib/audit.js as AUDIT_RULES; same table also feeds',
+      '`wiki write`\'s strict-mode rejection set (filtered to strict:true).',
+      '',
+      'Exit codes: 0 clean | 2 issues found.',
+    ].join('\n'),
+  },
+  { name: 'persona-lint', section: 'HYGIENE', lines: ['  persona-lint                              grep persona/schema/docs for unknown `wiki <verb>` references'] },
+  { name: 'migrate',      section: 'HYGIENE', lines: ['  migrate [<slug>] [--dry-run]              apply pending SCHEMA_MIGRATIONS; stamps schema_version on unversioned pages'] },
+  { name: 'preflight',    section: 'HYGIENE', lines: ['  preflight                                 smoke-test node/git/SCHEMA.md/duckdb/curl/SMTP/audit; one-command go/no-go'] },
+
+  // SQL
+  { name: 'sql', section: 'SQL', lines: [
+    '  sql "<query>"                             run SQL against the `vault` table (DuckDB)',
+    '  sql --schema                              describe the `vault` table',
+    '  sql --explore                             open the DuckDB REPL on the DB',
+    '  (DB at .cache/vault.duckdb; rebuilt lazily when any wiki/*.md is newer)',
+  ] },
+
+  // REPLAY
+  { name: 'replay', section: 'REPLAY', lines: [
+    '  replay <msg-id>                           re-run captured spec, diff vs captured result',
+    '  replay --all                              walk all captures, summarize stable/drift',
+    '  (captures live at raw/telegram-replay/<YYYY-MM>/ — auto-written when spec.msg_id is set)',
+  ] },
+
+  // REVIEW
+  { name: 'review', section: 'REVIEW', lines: [
+    '  review                                    Markdown digest of:',
+    '                                            (1) independent mentions (promotion candidates)',
+    '                                            (2) co-occurring slugs with no typed relation',
+    '                                            (3) concept anchors missing (heavily-used tag, no canonical page)',
+    '                                            (4) stale `[as-of]` / past-due `[until]` markers',
+    '                                            (5) decisions without rationale',
+    '                                            (6) orphan sources (ingested, never referenced)',
+    '                                            (7) stale open todos (>60 days)',
+  ] },
+
+  // MEASUREMENTS
+  { name: 'measure', section: 'MEASUREMENTS', lines: [
+    '  measure <series> --date YYYY-MM-DD --field=value [...]',
+    '                                           append a row to raw/measurements/<series>.tsv',
+    '                                           and re-render the matching wiki page.',
+    '                                           auto-derives bmi from height_m+weight_kg, age from --birth.',
+    '  (pages with frontmatter `source_file:` cannot be patched/written — use this verb.)',
+  ] },
+
+  // GIT
+  { name: 'diff',   section: 'GIT', lines: ['  diff [--since "spec"]                     show recent commits (default: 24h)'] },
+  { name: 'revert', section: 'GIT', lines: [
+    '  revert [<commit>|HEAD]                    revert a commit (refuses if working tree dirty)',
+    '  (auto-commit batches all dirty files into one commit; revert may undo more than expected)',
+  ] },
+
+  // GLOBAL FLAGS (not real verbs; rendered last)
+  { name: '__global', section: 'GLOBAL FLAGS', lines: [
+    '  --no-auto-commit                          skip the post-write git commit (or set WIKI_NO_AUTO_COMMIT=1)',
+    '  <verb> --help                             show detailed help for a verb (currently: ingest, write, patch, audit, lint)',
+  ] },
+];
+
+function printGlobalHelp() {
+  console.error('wiki <verb> [args]');
+  console.error('');
+  for (const section of SECTIONS) {
+    const verbs = VERBS.filter((v) => v.section === section);
+    if (!verbs.length) continue;
+    const sectionHeader = {
+      'SQL': 'SQL (DuckDB analytical view — ad-hoc queries over wiki/*.md frontmatter)',
+      'REPLAY': 'REPLAY (re-run captured Telegram-driven ingests — catch persona/CLI drift)',
+      'REVIEW': 'REVIEW (discovery + health digest — run weekly-ish)',
+      'MEASUREMENTS': 'MEASUREMENTS (tabular time-series — growth, BP, fitness, labs)',
+    }[section] || section;
+    console.error(sectionHeader);
+    for (const v of verbs) for (const l of v.lines) console.error(l);
+    console.error('');
+  }
+  console.error(`vault: ${VAULT_ROOT}`);
+}
+
+function printVerbHelp(name) {
+  const v = VERBS.find((x) => x.name === name);
+  if (!v) { printGlobalHelp(); return; }
+  if (v.longHelp) {
+    console.error(v.longHelp);
+  } else {
+    // Fallback: just the synopsis lines.
+    console.error(`wiki ${name} — (no detailed help; see CLAUDE.md and SCHEMA.md)`);
+    console.error('');
+    for (const l of v.lines) console.error(l);
+  }
+}
+
 const verb = process.argv[2];
 const args = parseArgs(process.argv.slice(3));
 const cmds = {
@@ -3589,104 +3902,14 @@ const cmds = {
   diff: cmdDiff, revert: cmdRevert,
 };
 
+// --help on a known verb prints per-verb help (M11); falls through to global
+// help for `wiki --help`, no verb, or unknown verb.
+if (verb && args.help && cmds[verb]) {
+  printVerbHelp(verb);
+  process.exit(0);
+}
 if (!verb || !cmds[verb]) {
-  console.error('wiki <verb> [args]');
-  console.error('');
-  console.error('READ');
-  console.error('  list [--tag t] [--type t]                 show all pages');
-  console.error('  search <query> [--tag t] [--title-only]   find by content');
-  console.error('  recent [--days N] [--type T]              pages updated recently');
-  console.error('  preview <slug>                            cheap peek (~10 lines, ~150 tokens)');
-  console.error('  print <slug> [--backlinks] [--links]      full page with optional context');
-  console.error('  context <slug>                            bundled: FM + obs + relations + 1-hop neighbors');
-  console.error('  sources                                   list type=source pages');
-  console.error('  related <slug>                            pages by tag/link proximity');
-  console.error('  agenda [today|week|upcoming|past|all]     list type=event pages by when');
-  console.error('');
-  console.error('WRITE');
-  console.error('  ingest --stdin | --file <path> [--allow-duplicates]   structured JSON-input compiler');
-  console.error('  write <slug> --title "..." --type <type> [--tags a,b]');
-  console.error('       [--content "..." | --stdin] [--append|--replace] [--no-anchor] [--soft]');
-  console.error(`       types: ${[...KNOWN_TYPES].join('|')}`);
-  console.error('       (strict by default: rejects mislabeled-event, uncategorized bullets, invented verbs,');
-  console.error('        missing provenance on entity/event/concept/synthesis; --soft to bypass)');
-  console.error('  patch <slug> [--observation "..."] [--relation "verb [[target]]"]');
-  console.error('              [--supersede "<substring>"]    strike-through old obs + [until today]');
-  console.error('              [--add-tag x] [--remove-tag x] [--alias name]');
-  console.error('              [--summary "..."] [--title "..."]');
-  console.error('  link <from> <to>                          append [[to]] under ## Links');
-  console.error('  mv <old> <new>                            rename, rewrite backlinks (adds alias)');
-  console.error('  delete <slug> [--force]                   remove (refuses if backlinks)');
-  console.error('  merge <source> <target> [--dry-run]       resolve identity: fold source into target');
-  console.error('');
-  console.error('GRAPH + NAVIGATION');
-  console.error('  links <slug>                              outbound wikilinks');
-  console.error('  backlinks <slug>                          inbound wikilinks');
-  console.error('  relations [<slug>]                        parsed typed edges');
-  console.error('  observations [<slug>] [--category fact]   parsed inline facts');
-  console.error('  autolink <slug>|--all [--direction in|out|both] [--dry-run]');
-  console.error('                                            inject wikilinks for known titles');
-  console.error('  resolve <fuzzy>                           fuzzy name → slug (top matches)');
-  console.error('  path <from> <to> [--max-hops N]           shortest typed-edge path');
-  console.error('  hubs [--top N]                            most-backlinked pages');
-  console.error('  place "concept"                           pre-write helper: existing? similar? suggested');
-  console.error('  stubs [--top N] [--show-refs]             referenced-but-missing slugs, ranked');
-  console.error('  timeline <slug>                           dated observations + events involving slug, sorted');
-  console.error('');
-  console.error('TODO');
-  console.error('  todo add "title" [--due] [--priority]     todo list [--open|--due-today|--overdue|--done]');
-  console.error('  todo done <slug>                          todo defer <slug> --to YYYY-MM-DD');
-  console.error('');
-  console.error('HYGIENE');
-  console.error('  lint [--only dead,ids,orphans,tags,types,aggregator,agg-suspect,narrative,density,stale,unsourced,tiers,loneliness]');
-  console.error('       (per-page rules — provenance, type-tag, hypotheses, mislabeled-event — now live in `wiki audit`)');
-  console.error('       [--threshold N]                      (loneliness threshold; default 2)');
-  console.error('  sync-ids [--dry-run]                      sync frontmatter id with filename');
-  console.error('  size [--threshold N]                      list pages above N body lines');
-  console.error('  reindex                                   regenerate index.md');
-  console.error('  groom --mechanical [--dry-run]            auto-fix symmetric relations, bidirectional autolink, report stubs');
-  console.error('  audit <slug> | --all                      mechanical quality score per page or vault-wide');
-  console.error('  persona-lint                              grep persona/schema/docs for unknown `wiki <verb>` references');
-  console.error('  migrate [<slug>] [--dry-run]              apply pending SCHEMA_MIGRATIONS; stamps schema_version on unversioned pages');
-  console.error('  preflight                                 smoke-test node/git/SCHEMA.md/duckdb/curl/SMTP/audit; one-command go/no-go');
-  console.error('');
-  console.error('SQL (DuckDB analytical view — ad-hoc queries over wiki/*.md frontmatter)');
-  console.error('  sql "<query>"                             run SQL against the `vault` table');
-  console.error('  sql --schema                              describe the `vault` table');
-  console.error('  sql --explore                             open the DuckDB REPL on the DB');
-  console.error('  (DB at .cache/vault.duckdb; rebuilt lazily when any wiki/*.md is newer)');
-  console.error('');
-  console.error('REPLAY (re-run captured Telegram-driven ingests — catch persona/CLI drift)');
-  console.error('  replay <msg-id>                           re-run captured spec, diff vs captured result');
-  console.error('  replay --all                              walk all captures, summarize stable/drift');
-  console.error('  (captures live at raw/telegram-replay/<YYYY-MM>/ — auto-written when spec.msg_id is set)');
-  console.error('');
-  console.error('REVIEW (discovery + health digest — run weekly-ish)');
-  console.error('  review                                    Markdown digest of:');
-  console.error('                                            (1) independent mentions (promotion candidates)');
-  console.error('                                            (2) co-occurring slugs with no typed relation');
-  console.error('                                            (3) concept anchors missing (heavily-used tag, no canonical page)');
-  console.error('                                            (4) stale `[as-of]` / past-due `[until]` markers');
-  console.error('                                            (5) decisions without rationale');
-  console.error('                                            (6) orphan sources (ingested, never referenced)');
-  console.error('                                            (7) stale open todos (>60 days)');
-  console.error('');
-  console.error('MEASUREMENTS (tabular time-series — growth, BP, fitness, labs)');
-  console.error('  measure <series> --date YYYY-MM-DD --field=value [...]');
-  console.error('                                           append a row to raw/measurements/<series>.tsv');
-  console.error('                                           and re-render the matching wiki page.');
-  console.error('                                           auto-derives bmi from height_m+weight_kg, age from --birth.');
-  console.error('  (pages with frontmatter `source_file:` cannot be patched/written — use this verb.)');
-  console.error('');
-  console.error('GIT');
-  console.error('  diff [--since "spec"]                     show recent commits (default: 24h)');
-  console.error('  revert [<commit>|HEAD]                    revert a commit (refuses if working tree dirty)');
-  console.error('  (auto-commit batches all dirty files into one commit; revert may undo more than expected)');
-  console.error('');
-  console.error('GLOBAL FLAGS');
-  console.error('  --no-auto-commit                          skip the post-write git commit (or set WIKI_NO_AUTO_COMMIT=1)');
-  console.error('');
-  console.error(`vault: ${VAULT_ROOT}`);
+  printGlobalHelp();
   process.exit(1);
 }
 
