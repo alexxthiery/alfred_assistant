@@ -57,23 +57,11 @@ const {
 // SLUG_RE, validSlug, isReserved, KNOWN_TYPES, ENTITY_KIND_TAGS, STALE_THRESHOLDS,
 // STALE_DEFAULT_DAYS live in ./lib/schema.js (imported above).
 
-// loadSchema is called 2-3 times per write-class invocation in the natural
-// flow (validateForWrite + validateBody + postWriteAudit each independently
-// fetch it). Memoize with an mtime check so a long-lived process notices
-// edits, but a single CLI invocation parses SCHEMA.md once. Per HR22 /
-// audit/14-perf-efficiency.md § schema-load-redundancy.
-const loadSchema = (() => {
-  let cached = null;
-  let cachedMtime = -1;
-  return () => {
-    let mtime = -1;
-    try { mtime = fs.statSync(SCHEMA_PATH).mtimeMs; } catch {}
-    if (cached !== null && mtime === cachedMtime) return cached;
-    cached = _loadSchema(SCHEMA_PATH);
-    cachedMtime = mtime;
-    return cached;
-  };
-})();
+// Thin path-binding wrapper. The actual memoization (with mtime invalidation)
+// lives in `bin/lib/schema.js::loadSchema` per HR22 / audit/14 §
+// schema-load-redundancy. A single CLI invocation parses SCHEMA.md once even
+// when validateForWrite + validateBody + postWriteAudit each call this.
+const loadSchema = () => _loadSchema(SCHEMA_PATH);
 
 // ─── frontmatter ───────────────────────────────────────────────────────────
 // parseFrontmatter, serializeFrontmatter, migratePage and the schema-version

@@ -114,9 +114,27 @@ function parseSchemaContent(content) {
 // path doesn't exist, returns an empty-schema sentinel (tags === null), which
 // callers interpret as "no schema configured — accept everything." See
 // validateForWrite for how that fallback is handled.
+//
+// Memoized per-path with an mtime invalidation key. Multiple bin/wiki call
+// sites (validateForWrite, validateBody, postWriteAudit) used to each re-read
+// and re-parse SCHEMA.md per invocation; now a single CLI process parses the
+// file once. Long-lived processes (e.g. test runners that load this module
+// before each fixture) observe edits via the mtime check.
+//
+// Cache is exposed as `_schemaCache` (with leading underscore) for tests that
+// need to reset state between assertions. Production code should not touch it.
+const _schemaCache = new Map(); // path -> { mtime, value }
+
 function loadSchema(schemaPath) {
-  if (!fs.existsSync(schemaPath)) return parseSchemaContent('');
-  return parseSchemaContent(fs.readFileSync(schemaPath, 'utf-8'));
+  let mtime = -1;
+  try { mtime = fs.statSync(schemaPath).mtimeMs; } catch {}
+  const cached = _schemaCache.get(schemaPath);
+  if (cached && cached.mtime === mtime) return cached.value;
+  const value = fs.existsSync(schemaPath)
+    ? parseSchemaContent(fs.readFileSync(schemaPath, 'utf-8'))
+    : parseSchemaContent('');
+  _schemaCache.set(schemaPath, { mtime, value });
+  return value;
 }
 
 // Combined set of all legitimate relation verbs (used for invented-verb
@@ -140,4 +158,5 @@ module.exports = {
   parseSchemaContent,
   loadSchema,
   knownRelationVerbs,
+  _schemaCache, // for tests; not part of the stable API
 };
