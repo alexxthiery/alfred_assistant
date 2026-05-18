@@ -1616,21 +1616,47 @@ function auditSlug(slug, opts = {}) {
 }
 
 // Vault-wide audit — also computes cross-page rules (hot-text, lonely).
+// Single forEachPage walk: build an in-memory page table, then compute
+// per-page audits + cross-page rules from that one snapshot. Was 4 walks
+// (auditSlug per page + 2 walks for hot-text/lonely + per-page re-read for
+// type lookup); now one walk.
 function auditAll(opts = {}) {
   const schema = loadSchema();
   const knownVerbs = knownRelationVerbs(schema);
-  const perPage = []; // [{slug, score, issues}]
-  forEachPage(({ slug }) => {
-    perPage.push({ slug, ...auditSlug(slug, { schema, knownVerbs }) });
+
+  // Pass 1: snapshot every page into memory.
+  const pages = []; // [{slug, fm, body, type, tags, title}]
+  forEachPage(({ slug, fm, body }) => {
+    pages.push({
+      slug,
+      fm,
+      body,
+      type: fm.type || 'note',
+      tags: Array.isArray(fm.tags) ? fm.tags : [],
+      title: String(fm.title || slug),
+    });
   });
 
-  // Cross-page rule: hot-text-mention. Capitalized 2+ word phrases appearing as prose in 2+ pages but no stub.
+  // Per-page audit (no disk re-read; auditPage is pure).
+  const perPage = pages.map((p) => ({
+    slug: p.slug,
+    ...auditPage({ slug: p.slug, title: p.title, type: p.type, tags: p.tags, body: p.body, fm: p.fm }, { schema, knownVerbs }),
+  }));
+
+  // Cross-page rule: hot-text-mention. Capitalized 2+ word phrases in prose
+  // appearing across 2+ pages but having no canonical stub.
   const HOT_RE = /\b((?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}))\b/g;
-  const STOPWORDS = new Set(['New York', 'Hong Kong', 'San Francisco']); // common multi-word that ARE legitimate
+  const STOPWORDS = new Set(['New York', 'Hong Kong', 'San Francisco']); // common multi-word phrases that are legitimate
+  const slugSet = new Set(pages.map((p) => p.slug));
   const phraseCounts = new Map(); // phrase -> Set of slugs
-  forEachPage(({ slug, body }) => {
-    // Remove wikilinks first so [[Alice Smith]] doesn't get matched
-    const stripped = body.replace(/\[\[[^\]]+\]\]/g, '');
+
+  // Cross-page rule: lonely. Inbound + outbound graph connections < 2.
+  const wikilinkInbound = {};
+  const wikilinkOutbound = {};
+
+  for (const p of pages) {
+    // hot-text scan on body with wikilinks stripped
+    const stripped = p.body.replace(/\[\[[^\]]+\]\]/g, '');
     let m;
     HOT_RE.lastIndex = 0;
     while ((m = HOT_RE.exec(stripped)) !== null) {
@@ -1638,36 +1664,36 @@ function auditAll(opts = {}) {
       if (phrase.length < 6) continue;
       if (STOPWORDS.has(phrase)) continue;
       const slugified = phrase.toLowerCase().replace(/\s+/g, '-');
-      if (fs.existsSync(wikiPath(slugified))) continue; // already a page
+      if (slugSet.has(slugified)) continue; // already a page
       if (!phraseCounts.has(phrase)) phraseCounts.set(phrase, new Set());
-      phraseCounts.get(phrase).add(slug);
+      phraseCounts.get(phrase).add(p.slug);
     }
-  });
+
+    // wikilink in/out counters
+    const out = new Set(extractWikilinks(p.body));
+    wikilinkOutbound[p.slug] = out.size;
+    for (const t of out) {
+      wikilinkInbound[t] = (wikilinkInbound[t] || 0) + 1;
+    }
+  }
+
   const hotMentions = [];
   for (const [phrase, slugs] of phraseCounts.entries()) {
     if (slugs.size >= 2) hotMentions.push({ phrase, count: slugs.size, pages: [...slugs] });
   }
   hotMentions.sort((a, b) => b.count - a.count);
 
-  // Cross-page rule: lonely. Total inbound + outbound graph connections < 2.
-  const wikilinkInbound = {};
-  const wikilinkOutbound = {};
-  forEachPage(({ slug, body }) => {
-    const out = new Set(extractWikilinks(body));
-    wikilinkOutbound[slug] = out.size;
-    for (const t of out) {
-      wikilinkInbound[t] = (wikilinkInbound[t] || 0) + 1;
-    }
-  });
-  for (const p of perPage) {
-    const inLinks = wikilinkInbound[p.slug] || 0;
-    const outLinks = wikilinkOutbound[p.slug] || 0;
+  // Apply lonely rule using the pre-built in/out counts and the snapshot's
+  // type field — no extra disk read.
+  const pageBySlug = new Map(pages.map((p) => [p.slug, p]));
+  for (const r of perPage) {
+    const inLinks = wikilinkInbound[r.slug] || 0;
+    const outLinks = wikilinkOutbound[r.slug] || 0;
     const total = inLinks + outLinks;
-    const { fm } = parseFrontmatter(fs.readFileSync(wikiPath(p.slug), 'utf-8'));
-    const type = fm.type || 'note';
+    const type = pageBySlug.get(r.slug).type;
     if (total < 2 && type !== 'todo' && type !== 'source') {
-      p.issues.push({ rule: 'lonely', severity: 'low', detail: `${total} graph connection(s); orphan-risk` });
-      p.score += 1;
+      r.issues.push({ rule: 'lonely', severity: 'low', detail: `${total} graph connection(s); orphan-risk` });
+      r.score += 1;
     }
   }
 
@@ -1767,10 +1793,15 @@ function cmdGroom(args) {
   console.log('');
 
   // PASS 1: symmetric + inverse relation enforcement
-  // Build: for each page, the relations parsed from its body.
+  // Walk every page once and accumulate (a) parsed relations per slug and
+  // (b) the wikilink reference counts that PASS 3 reuses for stub debt.
   const pageRelations = new Map(); // slug -> [{verb, target}]
+  const referencedBy = new Map();  // slug -> count (consumed by PASS 3)
   forEachPage(({ slug, body }) => {
     pageRelations.set(slug, parseRelations(body));
+    for (const t of extractWikilinks(body)) {
+      referencedBy.set(t, (referencedBy.get(t) || 0) + 1);
+    }
   });
 
   // Detect missing inverses
@@ -1843,15 +1874,8 @@ function cmdGroom(args) {
   }
   console.log('');
 
-  // PASS 3: report — stub debt
+  // PASS 3: report — stub debt (uses referencedBy built in PASS 1)
   console.log('## stub debt (top 10)');
-  const referencedBy = new Map();
-  forEachPage(({ body }) => {
-    for (const t of extractWikilinks(body)) {
-      if (!referencedBy.has(t)) referencedBy.set(t, 0);
-      referencedBy.set(t, referencedBy.get(t) + 1);
-    }
-  });
   const stubs = [];
   for (const [slug, count] of referencedBy.entries()) {
     if (!fs.existsSync(wikiPath(slug))) stubs.push({ slug, count });
@@ -3549,7 +3573,7 @@ const VERBS = [
   { name: 'recent',   section: 'READ', lines: ['  recent [--days N] [--type T]              pages updated recently'] },
   { name: 'preview',  section: 'READ', lines: ['  preview <slug>                            cheap peek (~10 lines, ~150 tokens)'] },
   { name: 'print',    section: 'READ', lines: ['  print <slug> [--backlinks] [--links]      full page with optional context'] },
-  { name: 'context',  section: 'READ', lines: ['  context <slug>                            bundled: FM + obs + relations + 1-hop neighbors'] },
+  { name: 'context',  section: 'READ', lines: ['  context <slug> [--compact]                bundled: FM + obs + relations + 1-hop neighbors (--compact: agent-friendly, ~30% fewer lines)'] },
   { name: 'sources',  section: 'READ', lines: ['  sources                                   list type=source pages'] },
   { name: 'related',  section: 'READ', lines: ['  related <slug>                            pages by tag/link proximity'] },
   { name: 'agenda',   section: 'READ', lines: ['  agenda [today|week|upcoming|past|all]     list type=event pages by when'] },

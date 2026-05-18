@@ -15,19 +15,17 @@ const path = require('node:path');
 
 const { parseFrontmatter } = require('../lib/frontmatter.js');
 const { extractWikilinks, parseObservations, parseRelations } = require('../lib/graph.js');
-const { WIKI_DIR, wikiPath, listWikiPages, readPage } = require('../lib/vault.js');
+const { WIKI_DIR, wikiPath, listWikiPages, readPage, forEachPage } = require('../lib/vault.js');
 
 function cmdList(args) {
-  const files = listWikiPages();
-  for (const f of files) {
-    const { fm } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
-    const slug = fm.id || f.replace(/\.md$/, '');
+  forEachPage(({ slug: fileSlug, fm }) => {
+    const slug = fm.id || fileSlug;
     const tags = Array.isArray(fm.tags) ? fm.tags : [];
-    if (args.tag && !tags.includes(args.tag)) continue;
-    if (args.type && fm.type !== args.type) continue;
+    if (args.tag && !tags.includes(args.tag)) return;
+    if (args.type && fm.type !== args.type) return;
     const tagStr = tags.length ? `  [${tags.join(', ')}]` : '';
     console.log(`${slug}\t${fm.title || ''}${tagStr}`);
-  }
+  });
 }
 
 function cmdSearch(args) {
@@ -36,24 +34,22 @@ function cmdSearch(args) {
     console.error('Usage: wiki search <query> [--tag tag] [--title-only]');
     process.exit(1);
   }
-  const files = listWikiPages();
   const re = query ? new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') : null;
   let count = 0;
-  for (const f of files) {
-    const { fm, body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+  forEachPage(({ slug: fileSlug, fm, body }) => {
     if (args.tag) {
       const tags = Array.isArray(fm.tags) ? fm.tags : [];
-      if (!tags.includes(args.tag)) continue;
+      if (!tags.includes(args.tag)) return;
     }
-    const slug = fm.id || f.replace(/\.md$/, '');
+    const slug = fm.id || fileSlug;
     const title = fm.title || '';
     if (re) {
       if (args['title-only']) {
-        if (!re.test(title)) continue;
+        if (!re.test(title)) return;
       } else {
         const titleMatch = re.test(title);
         const idx = body.search(re);
-        if (!titleMatch && idx < 0) continue;
+        if (!titleMatch && idx < 0) return;
         console.log(`${slug}\t${title}`);
         if (idx >= 0) {
           const start = Math.max(0, idx - 40);
@@ -61,12 +57,12 @@ function cmdSearch(args) {
           console.log(`    …${body.slice(start, end).replace(/\s+/g, ' ').trim()}…`);
         }
         count++;
-        continue;
+        return;
       }
     }
     console.log(`${slug}\t${title}`);
     count++;
-  }
+  });
   if (count === 0) console.log('(no matches)');
 }
 
@@ -80,13 +76,12 @@ function cmdAgenda(args) {
   const endOfWeek = startOfToday + 7 * 86400 * 1000;
 
   const events = [];
-  for (const f of listWikiPages()) {
-    const { fm } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
-    if (fm.type !== 'event') continue;
-    if (!fm.when) continue;
+  forEachPage(({ slug: fileSlug, fm }) => {
+    if (fm.type !== 'event') return;
+    if (!fm.when) return;
     const ts = Date.parse(fm.when);
-    if (isNaN(ts)) continue;
-    const slug = fm.id || f.replace(/\.md$/, '');
+    if (isNaN(ts)) return;
+    const slug = fm.id || fileSlug;
     events.push({
       slug,
       title: fm.title || slug,
@@ -97,7 +92,7 @@ function cmdAgenda(args) {
       attendees: Array.isArray(fm.attendees) ? fm.attendees : [],
       tags: Array.isArray(fm.tags) ? fm.tags : [],
     });
-  }
+  });
 
   let filtered;
   switch (win) {
@@ -171,12 +166,10 @@ function cmdPrint(args) {
     console.log('\n## Backlinks (computed)\n');
     const re = new RegExp(`\\[\\[${slug}\\]\\]`);
     const hits = [];
-    for (const f of listWikiPages()) {
-      const from = f.replace(/\.md$/, '');
-      if (from === slug) continue;
-      const { body: b } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    forEachPage(({ slug: from, body: b }) => {
+      if (from === slug) return;
       if (re.test(b)) hits.push(from);
-    }
+    });
     for (const s of hits) console.log(`- [[${s}]]`);
     if (hits.length === 0) console.log('_(none)_');
   }
@@ -191,27 +184,26 @@ function cmdRelated(args) {
   if (!page) { console.error(`Page ${slug} does not exist.`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   const myTags = new Set(Array.isArray(page.fm.tags) ? page.fm.tags : []);
   const myOutbound = new Set(extractWikilinks(page.body));
-  const backlinks = new Set();
   const re = new RegExp(`\\[\\[${slug}\\]\\]`);
-  for (const f of listWikiPages()) {
-    const from = f.replace(/\.md$/, '');
-    if (from === slug) continue;
-    const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
-    if (re.test(body)) backlinks.add(from);
-  }
+
+  // Single walk: build the backlinks set + the snapshot needed for scoring.
+  const backlinks = new Set();
+  const others = []; // [{slug, fm, body, outbound}]
+  forEachPage(({ slug: other, fm, body }) => {
+    if (other === slug) return;
+    if (re.test(body)) backlinks.add(other);
+    others.push({ slug: other, fm, body, outbound: new Set(extractWikilinks(body)) });
+  });
+
   const scores = {};
-  for (const f of listWikiPages()) {
-    const other = f.replace(/\.md$/, '');
-    if (other === slug) continue;
-    const { fm, body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
-    const otherTags = new Set(Array.isArray(fm.tags) ? fm.tags : []);
+  for (const o of others) {
+    const otherTags = new Set(Array.isArray(o.fm.tags) ? o.fm.tags : []);
     let score = 0;
     for (const t of myTags) if (otherTags.has(t)) score += 2;
-    if (myOutbound.has(other)) score += 3;
-    if (backlinks.has(other)) score += 3;
-    const otherOutbound = new Set(extractWikilinks(body));
-    for (const t of myOutbound) if (otherOutbound.has(t)) score += 1;
-    if (score > 0) scores[other] = { score, title: fm.title || '', type: fm.type || 'note' };
+    if (myOutbound.has(o.slug)) score += 3;
+    if (backlinks.has(o.slug)) score += 3;
+    for (const t of myOutbound) if (o.outbound.has(t)) score += 1;
+    if (score > 0) scores[o.slug] = { score, title: o.fm.title || '', type: o.fm.type || 'note' };
   }
   const ranked = Object.entries(scores).sort((a, b) => b[1].score - a[1].score);
   if (ranked.length === 0) { console.log('(no related pages)'); return; }
@@ -239,12 +231,10 @@ function cmdPreview(args) {
   // Inbound wikilinks
   const re = new RegExp(`\\[\\[${slug}\\]\\]`);
   let inbound = 0;
-  for (const f of listWikiPages()) {
-    const from = f.replace(/\.md$/, '');
-    if (from === slug) continue;
-    const { body: b } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+  forEachPage(({ slug: from, body: b }) => {
+    if (from === slug) return;
     if (re.test(b)) inbound++;
-  }
+  });
   console.log(`${slug} · ${fm.title || ''} · ${fm.type || 'note'} · ${updated} · [${tags}]`);
   if (aliases.length) console.log(`aliases: ${aliases.join(', ')}`);
   if (fm.summary) console.log(`summary: ${fm.summary}`);
@@ -258,15 +248,19 @@ function cmdPreview(args) {
 
 function cmdContext(args) {
   const slug = args._[0];
-  if (!slug) { console.error('Usage: wiki context <slug>'); process.exit(1); }
+  if (!slug) { console.error('Usage: wiki context <slug> [--compact]'); process.exit(1); }
   const page = readPage(slug);
   if (!page) { console.error(`Page ${slug} does not exist.`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   const { fm, body } = page;
   const tags = Array.isArray(fm.tags) ? fm.tags.join(', ') : '';
   const aliases = Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []);
+  const compact = !!args.compact;
+  // In compact mode: skip section headers, skip decorative blank lines, drop
+  // the leading `# <slug>` banner. Same data, ~30% fewer lines.
+  const sep = () => { if (!compact) console.log(''); };
+  const section = (label) => { if (!compact) console.log(`# ${label}`); };
 
-  // Frontmatter section
-  console.log(`# ${slug}`);
+  if (!compact) console.log(`# ${slug}`);
   console.log(`title:   ${fm.title || ''}`);
   console.log(`type:    ${fm.type || 'note'}`);
   console.log(`tags:    [${tags}]`);
@@ -278,16 +272,16 @@ function cmdContext(args) {
   const EXTERNAL_LINK_FIELDS = ['homepage', 'scholar', 'orcid', 'github', 'linkedin', 'twitter', 'arxiv', 'email'];
   const extLinks = EXTERNAL_LINK_FIELDS.filter((f) => fm[f]);
   if (extLinks.length) {
-    console.log('');
-    console.log('# external');
-    for (const f of extLinks) console.log(`  ${f}: ${fm[f]}`);
+    sep();
+    section('external');
+    for (const f of extLinks) console.log(`${compact ? '' : '  '}${f}: ${fm[f]}`);
   }
 
   // First 5 observations
   const obs = parseObservations(body);
   if (obs.length) {
-    console.log('');
-    console.log('# observations');
+    sep();
+    section('observations');
     for (const o of obs.slice(0, 5)) {
       const marks = [];
       if (o.superseded) marks.push('superseded');
@@ -298,14 +292,14 @@ function cmdContext(args) {
       const annot = marks.length ? `  (${marks.join(', ')})` : '';
       console.log(`- [${o.category}] ${o.body}${annot}`);
     }
-    if (obs.length > 5) console.log(`  (...${obs.length - 5} more)`);
+    if (obs.length > 5) console.log(`${compact ? '' : '  '}(...${obs.length - 5} more)`);
   }
 
   // Outbound relations grouped by verb
   const outRels = parseRelations(body);
   if (outRels.length) {
-    console.log('');
-    console.log('# outbound relations');
+    sep();
+    section('outbound relations');
     const grouped = {};
     for (const r of outRels) (grouped[r.verb] ||= []).push(r.target);
     for (const v of Object.keys(grouped).sort()) {
@@ -316,18 +310,17 @@ function cmdContext(args) {
   // Inbound relations + wikilinks
   const incomingRels = {};
   const incomingLinks = new Set();
-  for (const f of listWikiPages()) {
-    const from = f.replace(/\.md$/, '');
-    if (from === slug) continue;
-    const { body: b } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+  const incomingLinkRe = new RegExp(`\\[\\[${slug}\\]\\]`);
+  forEachPage(({ slug: from, body: b }) => {
+    if (from === slug) return;
     for (const r of parseRelations(b)) {
       if (r.target === slug) (incomingRels[r.verb] ||= []).push(from);
     }
-    if (new RegExp(`\\[\\[${slug}\\]\\]`).test(b)) incomingLinks.add(from);
-  }
+    if (incomingLinkRe.test(b)) incomingLinks.add(from);
+  });
   if (Object.keys(incomingRels).length) {
-    console.log('');
-    console.log('# inbound relations');
+    sep();
+    section('inbound relations');
     for (const v of Object.keys(incomingRels).sort()) {
       console.log(`- ${v}: ${incomingRels[v].map((s) => `[[${s}]]`).join(', ')}`);
     }
@@ -341,8 +334,8 @@ function cmdContext(args) {
   for (const v of Object.values(incomingRels)) for (const s of v) neighbors.add(s);
   neighbors.delete(slug);
   if (neighbors.size) {
-    console.log('');
-    console.log('# 1-hop neighbors');
+    sep();
+    section('1-hop neighbors');
     console.log([...neighbors].sort().map((s) => `[[${s}]]`).join(' '));
   }
 }
