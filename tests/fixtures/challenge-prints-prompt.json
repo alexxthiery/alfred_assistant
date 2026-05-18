@@ -1,0 +1,4 @@
+{
+  "_comment": "wiki challenge <slug> prints the page followed by a structured red-team prompt. The verb itself is dumb-by-design; the agent reading the output produces the critique.",
+  "cmd": ["challenge", "alice"]
+}

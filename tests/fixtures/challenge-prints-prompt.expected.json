@@ -1,0 +1,11 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "Challenge prompt for [[alice]]",
+    "Strongest objection",
+    "Missing alternatives",
+    "Hidden assumptions",
+    "Provenance gaps",
+    "What new evidence would change my mind"
+  ]
+}

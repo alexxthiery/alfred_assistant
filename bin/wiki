@@ -54,7 +54,7 @@ const {
 } = require('./lib/vault.js');
 const {
   cmdList, cmdSearch, cmdRecent, cmdPreview, cmdPrint,
-  cmdSources, cmdRelated, cmdAgenda, cmdContext,
+  cmdSources, cmdRelated, cmdAgenda, cmdContext, cmdChallenge,
 } = require('./verbs/read.js');
 
 // VAULT_ROOT detection + WIKI_DIR/SCHEMA_PATH/INDEX_PATH/LOG_PATH constants +
@@ -3783,6 +3783,9 @@ const VERBS = [
     '  agenda --on YYYY-MM-DD                    on-this-day: events + birthdays sharing MM-DD (any year)',
     '  agenda --month-day MM-DD                  same as --on but year-agnostic',
   ] },
+  { name: 'challenge', section: 'READ', lines: [
+    '  challenge <slug>                          print page + red-team prompt (forces dissent, not confirmation)',
+  ] },
 
   // WRITE
   {
@@ -4078,7 +4081,7 @@ const cmds = {
   // read
   list: cmdList, search: cmdSearch, recent: cmdRecent, print: cmdPrint,
   sources: cmdSources, related: cmdRelated,
-  preview: cmdPreview, context: cmdContext, agenda: cmdAgenda,
+  preview: cmdPreview, context: cmdContext, agenda: cmdAgenda, challenge: cmdChallenge,
   // write
   write: cmdWrite, link: cmdLink, mv: cmdMv, delete: cmdDelete, patch: cmdPatch, merge: cmdMerge,
   ingest: cmdIngest,

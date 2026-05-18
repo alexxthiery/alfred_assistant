@@ -263,6 +263,41 @@ function cmdPrint(args) {
 
 function cmdSources() { cmdList({ _: [], type: 'source' }); }
 
+// cmdChallenge: persona-driven red-team verb. Prints the page followed by a
+// structured prompt instructing the agent to argue against it. Mechanism is
+// dumb-by-design (a print + a prompt block); the intelligence lives in the
+// agent reading the output. The point is the *forcing function*: explicit
+// dissent rather than confirmation.
+function cmdChallenge(args) {
+  const slug = args._[0];
+  if (!slug) {
+    console.error('Usage: wiki challenge <slug>');
+    console.error('  Prints the page and a red-team prompt asking the agent to argue against it.');
+    process.exit(1);
+  }
+  const p = wikiPath(slug);
+  if (!fs.existsSync(p)) {
+    console.error(`error: page ${slug} does not exist`);
+    console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`);
+    process.exit(2);
+  }
+  process.stdout.write(fs.readFileSync(p, 'utf-8'));
+  console.log('');
+  console.log('---');
+  console.log(`# Challenge prompt for [[${slug}]]`);
+  console.log('');
+  console.log('Read the page above and produce a structured red-team critique.');
+  console.log('Do NOT defend the page or hedge. Argue as if you disagree.');
+  console.log('');
+  console.log('1. **Strongest objection.** Pick the single weakest claim and explain why it might be wrong.');
+  console.log('2. **Missing alternatives.** Two plausible competing positions the page does not consider.');
+  console.log('3. **Hidden assumptions.** What does the page take for granted that a critical reader would question?');
+  console.log('4. **Provenance gaps.** Which claims rest on weak evidence (single source, no [as-of], outdated, motivated)?');
+  console.log('5. **What new evidence would change my mind.** Concrete, falsifiable.');
+  console.log('');
+  console.log('Where you cite the page, quote the exact line. Be specific, not abstract.');
+}
+
 function cmdRelated(args) {
   const slug = args._[0];
   if (!slug) { console.error('Usage: wiki related <slug>'); process.exit(1); }
@@ -437,4 +472,5 @@ module.exports = {
   cmdRelated,
   cmdAgenda,
   cmdContext,
+  cmdChallenge,
 };
