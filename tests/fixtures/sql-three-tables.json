@@ -1,0 +1,4 @@
+{
+  "_comment": "wiki sql builds three tables (vault, observations, relations). Smoke: a query joining all three returns expected results against the template vault.",
+  "cmd": ["sql", "SELECT v.type, COUNT(*) AS n FROM vault v GROUP BY v.type ORDER BY v.type;"]
+}

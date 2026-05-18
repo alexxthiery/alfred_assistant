@@ -2680,17 +2680,38 @@ function cmdReplay(args) {
 const CACHE_DIR = path.join(VAULT_ROOT, '.cache');
 const DB_PATH = path.join(CACHE_DIR, 'vault.duckdb');
 const DB_NDJSON_PATH = path.join(CACHE_DIR, 'vault.ndjson');
+const OBS_NDJSON_PATH = path.join(CACHE_DIR, 'observations.ndjson');
+const REL_NDJSON_PATH = path.join(CACHE_DIR, 'relations.ndjson');
 
 function buildVaultNdjson() {
   const wikilinkRe = /\[\[([a-z0-9][a-z0-9-]*)\]\]/g;
   const mentions = new Map();
   const pages = [];
+  const obsRows = [];
+  const relRows = [];
   const arr = (v) => Array.isArray(v) ? v : (v ? [v] : []);
   forEachPage(({ slug, fm, body }) => {
     const obs = parseObservations(body);
     const rels = parseRelations(body);
-    const counts = { fact: 0, hypothesis: 0, opinion: 0, claim: 0 };
+    const counts = { fact: 0, hypothesis: 0, opinion: 0, claim: 0, prediction: 0, question: 0, decision: 0, todo: 0, idea: 0, quote: 0 };
     for (const o of obs) if (counts[o.category] !== undefined) counts[o.category]++;
+    for (const o of obs) {
+      obsRows.push({
+        slug,
+        category: o.category,
+        body: o.body,
+        superseded: !!o.superseded,
+        since: o.dates && o.dates.since || null,
+        until: o.dates && o.dates.until || null,
+        as_of: o.dates && o.dates.asOf || null,
+        on_date: o.dates && o.dates.on || null,
+        by_date: o.dates && o.dates.by || null,
+        provenance: arr(o.provenance),
+      });
+    }
+    for (const r of rels) {
+      relRows.push({ slug, verb: r.verb, target: r.target });
+    }
     let m;
     wikilinkRe.lastIndex = 0;
     while ((m = wikilinkRe.exec(body)) !== null) {
@@ -2708,6 +2729,8 @@ function buildVaultNdjson() {
       n_hypotheses: counts.hypothesis,
       n_opinions: counts.opinion,
       n_claims: counts.claim,
+      n_predictions: counts.prediction,
+      n_questions: counts.question,
       n_relations: rels.length,
       raw_path: fm.raw_path || null,
       decided_on: fm.decided_on || null,
@@ -2717,12 +2740,19 @@ function buildVaultNdjson() {
       status: fm.status || null,
       due: fm.due || null,
       when_: fm.when || null,  // `when` is a SQL reserved word in some contexts
+      born: fm.born || null,
+      visibility: fm.visibility || null,
+      sensitive: fm.sensitive === true || fm.sensitive === 'true' ? true : false,
+      confidence: fm.confidence != null && fm.confidence !== '' ? Number(fm.confidence) : null,
+      body_chars: body ? body.length : 0,
     });
   });
   for (const p of pages) p.mention_count = mentions.get(p.slug) || 0;
   fs.mkdirSync(CACHE_DIR, { recursive: true });
   fs.writeFileSync(DB_NDJSON_PATH, pages.map((p) => JSON.stringify(p)).join('\n') + '\n');
-  return pages.length;
+  fs.writeFileSync(OBS_NDJSON_PATH, obsRows.map((o) => JSON.stringify(o)).join('\n') + (obsRows.length ? '\n' : ''));
+  fs.writeFileSync(REL_NDJSON_PATH, relRows.map((r) => JSON.stringify(r)).join('\n') + (relRows.length ? '\n' : ''));
+  return { pages: pages.length, observations: obsRows.length, relations: relRows.length };
 }
 
 function loadVaultDb() {
@@ -2736,24 +2766,28 @@ function loadVaultDb() {
   }
   if (!needRebuild) return DB_PATH;
 
-  const n = buildVaultNdjson();
+  const counts = buildVaultNdjson();
   const { spawnSync } = require('child_process');
   if (fs.existsSync(DB_PATH)) fs.unlinkSync(DB_PATH);
   // Array-form: DB_PATH and the SQL string are passed as separate argv entries
   // so duckdb receives them as a database path + a query, no shell interpolation.
-  // SQL still uses bound DB_NDJSON_PATH (single-quote-escaped) since DuckDB's
-  // parameter binding here is in the SQL string itself, not at the shell layer.
+  const esc = (p) => p.replace(/'/g, "''");
   const sql = [
-    "CREATE TABLE vault AS SELECT * FROM read_json_auto(?, format='newline_delimited');",
+    `CREATE TABLE vault AS SELECT * FROM read_json_auto('${esc(DB_NDJSON_PATH)}', format='newline_delimited');`,
+    `CREATE TABLE observations AS SELECT * FROM read_json_auto('${esc(OBS_NDJSON_PATH)}', format='newline_delimited');`,
+    `CREATE TABLE relations AS SELECT * FROM read_json_auto('${esc(REL_NDJSON_PATH)}', format='newline_delimited');`,
     "CREATE INDEX vault_slug ON vault(slug);",
-  ].join(' ').replace('?', `'${DB_NDJSON_PATH.replace(/'/g, "''")}'`);
+    "CREATE INDEX observations_slug ON observations(slug);",
+    "CREATE INDEX relations_slug ON relations(slug);",
+    "CREATE INDEX relations_target ON relations(target);",
+  ].join(' ');
   const r = spawnSync('duckdb', [DB_PATH, sql], { encoding: 'utf-8' });
   if (r.error || r.status !== 0) {
     const msg = (r.stderr || '').split('\n')[0] || (r.error && r.error.message) || `exit ${r.status}`;
     console.error(`error: failed to build DuckDB at ${DB_PATH}: ${msg}`);
     process.exit(2);
   }
-  console.error(`(rebuilt vault.duckdb: ${n} pages)`);
+  console.error(`(rebuilt vault.duckdb: ${counts.pages} pages, ${counts.observations} observations, ${counts.relations} relations)`);
   return DB_PATH;
 }
 
@@ -2767,8 +2801,16 @@ function cmdSql(args) {
   const dbPath = loadVaultDb();
 
   if (args.schema) {
-    console.log("Table 'vault' columns (one row per page):");
-    spawnSync('duckdb', [dbPath, '-c', 'DESCRIBE vault;'], { stdio: 'inherit' });
+    console.log("Three tables. Columns:");
+    for (const t of ['vault', 'observations', 'relations']) {
+      console.log(`\n--- ${t} ---`);
+      spawnSync('duckdb', [dbPath, '-c', `DESCRIBE ${t};`], { stdio: 'inherit' });
+    }
+    console.log('\nNotes:');
+    console.log('  - `vault`: one row per page (slug, type, tags, frontmatter fields, n_* counts).');
+    console.log('  - `observations`: one row per categorized body bullet ([fact]/[hypothesis]/[prediction]/etc).');
+    console.log('  - `relations`: one row per "- verb [[target]]" typed relation.');
+    console.log('  - Joins: observations.slug = vault.slug; relations.slug = vault.slug.');
     return;
   }
   if (args.explore) {
