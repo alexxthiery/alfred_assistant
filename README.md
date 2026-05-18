@@ -47,7 +47,7 @@ alfred_assistant/
     example-vault/        # 5-page demo vault you can experiment against
   tests/
     vault/                # template vault used by wiki-test (fresh copy per fixture)
-    fixtures/             # 16 canonical JSON specs + expected outputs
+    fixtures/             # JSON specs + expected outputs (cmd-shape and ingest-shape; see tests/fixtures/README.md)
   tools/
     scan-pii.sh           # pre-commit PII scanner (used in development)
   install.sh              # symlinks bin/ into a target vault's .bin/
@@ -95,8 +95,16 @@ Setup is in `docs/WEEKLY-DIGEST.md`.
 ./bin/wiki-test
 ```
 
-Should print `16/16 passed`.
-Each fixture runs `wiki ingest` against a fresh copy of `tests/vault/` and diffs the output against `<fixture>.expected.json`.
+Should print `N/N passed` (count grows over time as new fixtures land).
+Each fixture either runs `wiki ingest` against a fresh copy of `tests/vault/` (ingest-shape) or invokes the CLI directly (cmd-shape), then diffs against `<fixture>.expected.json`. See `tests/fixtures/README.md` for the two shapes and the assertion vocabulary.
+
+Unit tests for the pure helpers in `bin/lib/` live under `tests/unit/`:
+
+```bash
+npm test          # unit tests + fixture suite
+npm run test:unit
+npm run test:fixtures
+```
 
 ## PII discipline
 
