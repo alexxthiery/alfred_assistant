@@ -200,32 +200,59 @@ test('migratePage: bad schema_version throws', () => {
   );
 });
 
-test('migratePage: applies a registered transform end-to-end', () => {
-  // Temporarily register a fake 1→2 transform that adds a marker.
-  // (Reset after the test so we don't leak state into other tests.)
-  SCHEMA_MIGRATIONS[1] = ({ fm, body }) => {
-    fm.migrated_marker = 'yes';
-    return { fm, body };
+test('migratePage: HR08 — applies a registered transform end-to-end (1→2 via opts)', () => {
+  // HR08: opts.currentVersion + opts.migrations let tests exercise the chain
+  // without bumping the module-level CURRENT_SCHEMA_VERSION constant.
+  const migrations = {
+    1: ({ fm, body }) => { fm.migrated_marker = 'yes'; return { fm, body }; },
   };
-  // Need to monkey-patch the module's view of CURRENT_SCHEMA_VERSION too —
-  // can't do that cleanly without restructuring, so this test only
-  // exercises the dispatch when no migrations span the gap. We assert
-  // the gap detection works: with CURRENT=1, fromVersion=1 means no
-  // transforms run, and the registered fake transform is skipped.
-  const { fm: outFm } = migratePage({ id: 'x' }, '');
-  assert.equal(outFm.migrated_marker, undefined,
-    'with CURRENT=1 and fromVersion=1, no transforms should run (gap is 0)');
-  delete SCHEMA_MIGRATIONS[1];
+  const { fm: outFm, fromVersion, toVersion } = migratePage(
+    { id: 'x' }, 'body',
+    { currentVersion: 2, migrations },
+  );
+  assert.equal(fromVersion, 1);
+  assert.equal(toVersion, 2);
+  assert.equal(outFm.schema_version, 2);
+  assert.equal(outFm.migrated_marker, 'yes');
 });
 
-test('migratePage: missing migration in the gap throws clearly', () => {
-  // Simulate what would happen if CURRENT_SCHEMA_VERSION were bumped
-  // to 2 but no migration 1→2 was registered. We can't change the
-  // module's CURRENT, so instead we test the inverse: a page with
-  // schema_version below current, where current=1 — i.e., the case
-  // doesn't actually arise yet, so this just documents the contract.
-  // When CURRENT > 1 lands, expand this test.
-  // (Placeholder kept so the contract is visible in the test file.)
-  assert.equal(CURRENT_SCHEMA_VERSION, 1,
-    'this test is a stub until CURRENT_SCHEMA_VERSION > 1; revisit when first real migration registers');
+test('migratePage: HR08 — multi-step chain (1→2→3) runs every transform', () => {
+  const migrations = {
+    1: ({ fm, body }) => { fm.step1 = true; return { fm, body }; },
+    2: ({ fm, body }) => { fm.step2 = true; return { fm, body }; },
+  };
+  const { fm: outFm, toVersion } = migratePage(
+    { id: 'x' }, '',
+    { currentVersion: 3, migrations },
+  );
+  assert.equal(toVersion, 3);
+  assert.equal(outFm.step1, true);
+  assert.equal(outFm.step2, true);
+});
+
+test('migratePage: HR08 — page already at currentVersion (via opts) runs zero transforms', () => {
+  const migrations = { 1: () => { throw new Error('should not run'); } };
+  const { fm: outFm, fromVersion, toVersion } = migratePage(
+    { id: 'x', schema_version: 2 }, '',
+    { currentVersion: 2, migrations },
+  );
+  assert.equal(fromVersion, 2);
+  assert.equal(toVersion, 2);
+  assert.equal(outFm.schema_version, 2);
+});
+
+test('migratePage: HR08 — opts.currentVersion=3 + page=999 throws NEWER_CLI', () => {
+  assert.throws(
+    () => migratePage({ id: 'x', schema_version: 999 }, '', { currentVersion: 3 }),
+    (e) => e.code === 'NEWER_CLI' && /999 > current 3/.test(e.message),
+  );
+});
+
+test('migratePage: HR08 — missing migration in the gap throws clearly', () => {
+  // Now testable via opts: pretend the module is at CURRENT=2 but no 1→2
+  // migration is registered. The walker should throw with the gap pinpointed.
+  assert.throws(
+    () => migratePage({ id: 'x' }, '', { currentVersion: 2, migrations: {} }),
+    /no migration registered for schema_version 1 → 2/,
+  );
 });

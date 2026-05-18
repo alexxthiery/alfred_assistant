@@ -68,25 +68,32 @@ function serializeFrontmatter(fm, body) {
   return lines.join('\n') + '\n' + body.replace(/^\n+/, '');
 }
 
-// Apply SCHEMA_MIGRATIONS to a single parsed page. Returns { fm, body, fromVersion, toVersion }
+// Apply migrations to a single parsed page. Returns { fm, body, fromVersion, toVersion }
 // where fromVersion is the page's pre-migration version (missing field → 1), and
-// toVersion is CURRENT_SCHEMA_VERSION (or the highest reachable version if a transform
-// fails). Throws if fromVersion > CURRENT (with .code='NEWER_CLI').
-function migratePage(fm, body) {
+// toVersion is the target currentVersion. Throws if fromVersion > current (with
+// .code='NEWER_CLI'), or if a needed migration is missing.
+//
+// HR08: accepts explicit `opts.currentVersion` and `opts.migrations` overrides so
+// unit tests can exercise the full migration chain without bumping the module's
+// CURRENT_SCHEMA_VERSION constant. Production callers (cmdMigrate) pass no opts;
+// behavior is unchanged.
+function migratePage(fm, body, opts = {}) {
+  const currentVersion = opts.currentVersion != null ? opts.currentVersion : CURRENT_SCHEMA_VERSION;
+  const migrations = opts.migrations || SCHEMA_MIGRATIONS;
   const fromVersion = fm.schema_version == null ? 1 : Number(fm.schema_version);
   if (!Number.isFinite(fromVersion) || fromVersion < 1) {
     throw new Error(`bad schema_version: ${fm.schema_version}`);
   }
-  if (fromVersion > CURRENT_SCHEMA_VERSION) {
-    const err = new Error(`schema_version ${fromVersion} > current ${CURRENT_SCHEMA_VERSION} (page written by a newer CLI)`);
+  if (fromVersion > currentVersion) {
+    const err = new Error(`schema_version ${fromVersion} > current ${currentVersion} (page written by a newer CLI)`);
     err.code = 'NEWER_CLI';
     throw err;
   }
   let v = fromVersion;
   let curFm = fm;
   let curBody = body;
-  while (v < CURRENT_SCHEMA_VERSION) {
-    const xform = SCHEMA_MIGRATIONS[v];
+  while (v < currentVersion) {
+    const xform = migrations[v];
     if (!xform) {
       throw new Error(`no migration registered for schema_version ${v} → ${v + 1}`);
     }
@@ -95,8 +102,8 @@ function migratePage(fm, body) {
     curBody = out.body;
     v++;
   }
-  curFm.schema_version = CURRENT_SCHEMA_VERSION;
-  return { fm: curFm, body: curBody, fromVersion, toVersion: CURRENT_SCHEMA_VERSION };
+  curFm.schema_version = currentVersion;
+  return { fm: curFm, body: curBody, fromVersion, toVersion: currentVersion };
 }
 
 module.exports = {
