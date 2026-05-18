@@ -45,6 +45,7 @@ const { auditPage } = require('./lib/audit.js');
 const { applyFlagAliases } = require('./lib/flag-aliases.js');
 const { flushStaged } = require('./lib/staged-writes.js');
 const { buildTitleEntries, autolinkBody } = require('./lib/autolink.js');
+const { formatIndex, formatLogLine, applyExtraFrontmatter } = require('./lib/maintenance.js');
 const {
   VAULT_ROOT, WIKI_DIR, SCHEMA_PATH, INDEX_PATH, LOG_PATH,
   nowISO, wikiPath, listWikiPages, readPage, forEachPage,
@@ -85,32 +86,15 @@ const loadSchema = () => _loadSchema(SCHEMA_PATH);
 
 function regenerateIndex() {
   fs.mkdirSync(WIKI_DIR, { recursive: true });
-  const byType = {};
-  forEachPage(({ slug: fileSlug, fm, body }) => {
-    const slug = fm.id || fileSlug;
-    const title = fm.title || slug;
-    const type = fm.type || 'note';
-    const summary = firstBodyLine(body);
-    (byType[type] ||= []).push({ slug, title, summary });
-  });
-  const sections = Object.keys(byType).sort();
-  const out = ['# Wiki Index', '', `_Regenerated ${nowISO()}_`, ''];
-  if (sections.length === 0) out.push('_(empty)_');
-  for (const type of sections) {
-    out.push(`## ${type}`);
-    out.push('');
-    for (const p of byType[type]) {
-      out.push(`- [[${p.slug}]] — ${p.title}${p.summary ? `: ${p.summary}` : ''}`);
-    }
-    out.push('');
-  }
-  fs.writeFileSync(INDEX_PATH, out.join('\n'));
+  const pages = [];
+  forEachPage(({ slug, fm, body }) => pages.push({ slug, fm, body }));
+  fs.writeFileSync(INDEX_PATH, formatIndex(pages, { now: nowISO() }));
 }
 
 function appendLog(op, detail) {
   fs.mkdirSync(WIKI_DIR, { recursive: true });
   const ts = nowISO().replace('T', ' ').slice(0, 19);
-  const line = `## [${ts}] ${op} | ${detail}\n`;
+  const line = formatLogLine(ts, op, detail);
   if (!fs.existsSync(LOG_PATH)) {
     fs.writeFileSync(LOG_PATH, `# Wiki Log\n\n${line}`);
   } else {
@@ -414,24 +398,6 @@ function cmdWrite(args) {
       console.error(`  - Running 'wiki autolink ${slug}' to scan for bidirectional links`);
       console.error('Use --no-anchor to suppress this warning for genuine root pages.');
       appendLog('orphan-warning', slug);
-    }
-  }
-}
-
-function applyExtraFrontmatter(fm, args) {
-  const FIELDS = [
-    'status', 'due', 'priority', 'decided_on', 'supersedes', 'derived_from',
-    'raw_path', 'sha256', 'aliases', 'source',
-    'homepage', 'scholar', 'orcid', 'github', 'linkedin', 'twitter', 'arxiv', 'email',
-    'when', 'duration', 'location', 'attendees', 'recurrence',
-  ];
-  for (const f of FIELDS) {
-    if (args[f] !== undefined && args[f] !== false) {
-      if (['derived_from', 'supersedes', 'aliases', 'attendees'].includes(f) && typeof args[f] === 'string') {
-        fm[f] = args[f].split(',').map((s) => s.trim()).filter(Boolean);
-      } else {
-        fm[f] = args[f];
-      }
     }
   }
 }
