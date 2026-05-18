@@ -155,6 +155,48 @@ Worked example: add a fixture for `wiki todo done`.
 
 You do not need to read `bin/wiki-test` internals beyond what `tests/fixtures/README.md` lists. The fixture API surface is small and stable.
 
+### Runbook 4: Extract a pure helper into `bin/lib/`
+
+When inline logic in `bin/wiki` gets duplicated, grows fiddly enough to deserve unit tests, or starts looking like a reusable primitive, pull it into a `bin/lib/<name>.js` module. The 12-module split today (audit, autolink, frontmatter, graph, ingest, maintenance, schema, staged-writes, vault, vault-root, …) is the cumulative result.
+
+Worked example: extracting `autolinkBody` into `bin/lib/autolink.js` (commit 4cfa380).
+
+1. **Identify the pure core.** The function should depend only on its arguments — no `fs`, no `process`, no module-scope state. If it currently reads files, the call site (in `bin/wiki`) is the fs-touching wrapper; the lib gets the post-read inputs as parameters.
+2. **Create `bin/lib/<name>.js`** with a short header comment naming the contract: what the function takes, what it returns, what it does NOT do (no fs, no globals, re-entrant). Use `'use strict';`. Export named functions via `module.exports`.
+3. **Write `tests/unit/<name>.test.js`** with `node:test` + `node:assert/strict`. Cover the happy path, every documented branch, and the boundary cases the function actually has (regex specials, empty inputs, missing optional fields). Anywhere from 5 to 20 tests is normal; the autolink module has 15, staged-writes has 6.
+4. **Replace the inline copy in `bin/wiki`** with `const { fn } = require('./lib/<name>.js')`. If multiple call sites had duplicated the logic, sweep them all — the value of extraction is one source of truth.
+5. **Run `npm test`**. Both legs must pass: unit (`node --test 'tests/unit/*.test.js'`) and the existing fixture suite (`bin/wiki-test`). If only the unit suite passes, the call-site rewiring missed something — a `git diff bin/wiki` against the pre-extraction state usually shows it.
+
+Keep the extracted lib pure. Do not start adding fs reads or env-var lookups later. If a new caller needs that, build a second fs-touching wrapper (e.g., `bin/lib/schema.js::loadSchema` wraps `parseSchemaContent`), don't pollute the pure core.
+
+### Runbook 5: Add an audit rule
+
+The audit machinery has two surfaces: per-page rules in `bin/lib/audit.js::AUDIT_RULES` (one entry shared by `wiki audit` and write-time strict mode), and cross-page rules in `bin/lib/audit.js::auditVault` (need a vault-wide view). The AUDIT_RULES table is the easier one and where most rules belong.
+
+Worked example: an `aliases-empty-string` rule that flags `aliases:` arrays containing `""`.
+
+1. **Append an entry to `AUDIT_RULES`** in `bin/lib/audit.js`:
+   ```js
+   {
+     name: 'aliases-empty-string',
+     severity: 'medium',
+     strict: false,
+     check: ({ fm }) => {
+       const aliases = Array.isArray(fm.aliases) ? fm.aliases : [];
+       const bad = aliases.filter((a) => a === '' || /^\s*$/.test(a));
+       if (!bad.length) return null;
+       return { detail: `aliases contains ${bad.length} empty string(s); remove or fill in` };
+     },
+   },
+   ```
+   `severity` is `'high'` / `'medium'` / `'low'` (scoring weights 3 / 2 / 1). `strict: true` means the rule blocks at write time via `validateBody` — only use for true correctness failures, not for stylistic nudges. Most new rules are `strict: false`.
+2. **Add a unit test** in `tests/unit/audit.test.js`. The pattern: a positive case (rule fires with the expected `detail`), a negative case (rule does not fire on clean input), and one edge case (e.g., aliases-as-string-not-array doesn't crash). Existing tests in that file are a template.
+3. **Add an integration fixture** under `tests/fixtures/<rule-name>.{json,expected.json}`. The fixture exercises the rule end-to-end via a `wiki audit <slug>` command. See Runbook 3.
+
+For cross-page rules (hot-text-mention, lonely), extend `auditVault` in `bin/lib/audit.js` directly — they need the full pages snapshot. Same test pattern, but the unit test calls `auditVault({pages, …})` instead of `auditPage`.
+
+After landing, the rule shows up automatically in `wiki audit` (which iterates AUDIT_RULES) and — if `strict: true` — in `wiki write` strict mode. No dispatch wiring; the table is the dispatch.
+
 ## Pointers
 
 - **What an agent should do at runtime** → `docs/PERSONA.template.md`
