@@ -15,26 +15,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { parseFrontmatter } = require('./frontmatter.js');
-
-function detectVaultRoot() {
-  // 1. Explicit env override (used by tests + scripted invocations).
-  if (process.env.WIKI_ROOT) return process.env.WIKI_ROOT;
-  // 2. Walk up from cwd looking for .alfred.yml (vault root marker).
-  let dir = process.cwd();
-  while (true) {
-    if (fs.existsSync(path.join(dir, '.alfred.yml'))) return dir;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  // 3. Resolve from script location: <vault>/.bin/wiki → <vault>.
-  try {
-    const scriptDir = path.dirname(fs.realpathSync(process.argv[1]));
-    if (path.basename(scriptDir) === '.bin') return path.dirname(scriptDir);
-  } catch {}
-  // 4. Fall back to cwd.
-  return process.cwd();
-}
+const { detectVaultRoot } = require('./vault-root.js');
 
 const VAULT_ROOT  = detectVaultRoot();
 const WIKI_DIR    = path.join(VAULT_ROOT, 'wiki');
