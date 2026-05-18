@@ -628,36 +628,57 @@ function cmdMerge(args) {
     return;
   }
 
-  // 5. Write target with merged content + frontmatter
-  fs.writeFileSync(tgtPath, serializeFrontmatter(newFm, mergedBody));
-
-  // 6. Rewrite each file
+  // 5–6. Stage all writes (target merge + per-page rewrites) into a Map; flush
+  // via temp+renameSync per entry only after every staged write computed
+  // without throwing. Mirrors the M08 staged-write pattern from cmdIngest:
+  // a mid-loop failure leaves the vault untouched instead of partially merged.
+  // See audit/12-coherence-robustness.md § concurrency-atomicity (HR03).
+  /** @type {Map<string,string>} absolute-path -> serialized content */
+  const staged = new Map();
   let rewrittenLines = 0;
-  for (const fp of filesToRewrite) {
-    const cur = fs.readFileSync(fp, 'utf-8');
-    let updated = cur.replace(linkReplaceRe, `[[${target}]]`);
-    // Dedup adjacent identical relation lines that could result
-    // (cheap pass: collapse exact duplicate lines)
-    const lines = updated.split('\n');
-    const seen = new Set();
-    const dedup = [];
-    for (const l of lines) {
-      const t = l.trim();
-      // Only dedup microsyntax lines to avoid removing legitimate repeated prose
-      if (/^- (?:\[[a-z]+\]|"[^"]+"|[a-z_]+) (?:[A-Z]|\[\[)/.test(t) || /^- [a-z_]+ \[\[/.test(t)) {
-        if (seen.has(t)) continue;
-        seen.add(t);
+
+  try {
+    // 5. Target with merged content + frontmatter.
+    staged.set(tgtPath, serializeFrontmatter(newFm, mergedBody));
+
+    // 6. Each backlink page: substitute [[source]] -> [[target]], dedup
+    //    microsyntax lines that may now collide with target's existing ones.
+    for (const fp of filesToRewrite) {
+      const cur = fs.readFileSync(fp, 'utf-8');
+      let updated = cur.replace(linkReplaceRe, `[[${target}]]`);
+      const lines = updated.split('\n');
+      const seen = new Set();
+      const dedup = [];
+      for (const l of lines) {
+        const t = l.trim();
+        // Only dedup microsyntax lines to avoid removing legitimate repeated prose
+        if (/^- (?:\[[a-z]+\]|"[^"]+"|[a-z_]+) (?:[A-Z]|\[\[)/.test(t) || /^- [a-z_]+ \[\[/.test(t)) {
+          if (seen.has(t)) continue;
+          seen.add(t);
+        }
+        dedup.push(l);
       }
-      dedup.push(l);
+      updated = dedup.join('\n');
+      const parsed = parseFrontmatter(updated);
+      parsed.fm.updated = nowISO();
+      staged.set(fp, serializeFrontmatter(parsed.fm, parsed.body));
+      rewrittenLines++;
     }
-    updated = dedup.join('\n');
-    const parsed = parseFrontmatter(updated);
-    parsed.fm.updated = nowISO();
-    fs.writeFileSync(fp, serializeFrontmatter(parsed.fm, parsed.body));
-    rewrittenLines++;
+  } catch (e) {
+    console.error(`error: merge aborted before any writes: ${e.message}`);
+    process.exit(2);
   }
 
-  // 7. Delete source
+  // Flush staged writes via temp+rename per page (fs-level atomicity per write).
+  const flushPid = process.pid;
+  for (const [p, content] of staged) {
+    const tmp = `${p}.tmp-merge-${flushPid}`;
+    fs.writeFileSync(tmp, content);
+    fs.renameSync(tmp, p);
+  }
+
+  // 7. Delete source (last; unlink has no rollback, but by here every staged
+  // write has succeeded).
   fs.unlinkSync(srcPath);
 
   regenerateIndex();
