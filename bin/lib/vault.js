@@ -58,6 +58,24 @@ function readPage(slug) {
   return parseFrontmatter(fs.readFileSync(p, 'utf-8'));
 }
 
+// forEachPage(cb): iterate every wiki page once, with frontmatter parsed.
+// cb({ slug, file, absPath, fm, body, raw }) -> any. Returning `false` breaks
+// the loop early (other return values are ignored).
+//
+// Centralizes the read+parse pattern that appears at 30+ sites in bin/wiki.
+// Per-process caching is intentionally NOT applied here because several callers
+// mutate pages mid-walk (mv backlink rewrite, autolink). Cache only after a
+// pass that audits write-during-iteration sites.
+function forEachPage(cb) {
+  for (const file of listWikiPages()) {
+    const slug = file.replace(/\.md$/, '');
+    const absPath = path.join(WIKI_DIR, file);
+    const raw = fs.readFileSync(absPath, 'utf-8');
+    const { fm, body } = parseFrontmatter(raw);
+    if (cb({ slug, file, absPath, fm, body, raw }) === false) return;
+  }
+}
+
 module.exports = {
   VAULT_ROOT, WIKI_DIR, SCHEMA_PATH, INDEX_PATH, LOG_PATH,
   detectVaultRoot,
@@ -65,4 +83,5 @@ module.exports = {
   wikiPath,
   listWikiPages,
   readPage,
+  forEachPage,
 };

@@ -45,7 +45,7 @@ const { auditPage } = require('./lib/audit.js');
 const { applyFlagAliases } = require('./lib/flag-aliases.js');
 const {
   VAULT_ROOT, WIKI_DIR, SCHEMA_PATH, INDEX_PATH, LOG_PATH,
-  nowISO, wikiPath, listWikiPages, readPage,
+  nowISO, wikiPath, listWikiPages, readPage, forEachPage,
 } = require('./lib/vault.js');
 const {
   cmdList, cmdSearch, cmdRecent, cmdPreview, cmdPrint,
@@ -79,16 +79,14 @@ const loadSchema = () => _loadSchema(SCHEMA_PATH);
 
 function regenerateIndex() {
   fs.mkdirSync(WIKI_DIR, { recursive: true });
-  const files = listWikiPages();
   const byType = {};
-  for (const f of files) {
-    const parsed = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
-    const slug = parsed.fm.id || f.replace(/\.md$/, '');
-    const title = parsed.fm.title || slug;
-    const type = parsed.fm.type || 'note';
-    const summary = firstBodyLine(parsed.body);
+  forEachPage(({ slug: fileSlug, fm, body }) => {
+    const slug = fm.id || fileSlug;
+    const title = fm.title || slug;
+    const type = fm.type || 'note';
+    const summary = firstBodyLine(body);
     (byType[type] ||= []).push({ slug, title, summary });
-  }
+  });
   const sections = Object.keys(byType).sort();
   const out = ['# Wiki Index', '', `_Regenerated ${nowISO()}_`, ''];
   if (sections.length === 0) out.push('_(empty)_');
@@ -396,12 +394,10 @@ function cmdWrite(args) {
     let hasInbound = false;
     if (!hasOutbound) {
       const re = new RegExp(`\\[\\[${slug}\\]\\]`);
-      for (const f of listWikiPages()) {
-        const fromSlug = f.replace(/\.md$/, '');
-        if (fromSlug === slug) continue;
-        const { body: b } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
-        if (re.test(b)) { hasInbound = true; break; }
-      }
+      forEachPage(({ slug: fromSlug, body: b }) => {
+        if (fromSlug === slug) return;
+        if (re.test(b)) { hasInbound = true; return false; }
+      });
     }
     if (!hasOutbound && !hasInbound && listWikiPages().length > 1) {
       console.error('');
@@ -472,14 +468,11 @@ function cmdBacklinks(args) {
   const slug = args._[0];
   if (!slug) { console.error('Usage: wiki backlinks <slug>'); process.exit(1); }
   const re = new RegExp(`\\[\\[${slug}\\]\\]`);
-  const files = listWikiPages();
   const hits = [];
-  for (const f of files) {
-    const fromSlug = f.replace(/\.md$/, '');
-    if (fromSlug === slug) continue;
-    const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+  forEachPage(({ slug: fromSlug, body }) => {
+    if (fromSlug === slug) return;
     if (re.test(body)) hits.push(fromSlug);
-  }
+  });
   for (const s of hits) console.log(s);
   if (hits.length === 0) console.log('(no inbound links)');
 }
@@ -510,17 +503,14 @@ function cmdMv(args) {
 
   const linkRe = new RegExp(`\\[\\[${oldSlug}\\]\\]`, 'g');
   let touched = 0;
-  for (const f of listWikiPages()) {
-    const p = path.join(WIKI_DIR, f);
-    const cur = fs.readFileSync(p, 'utf-8');
-    if (linkRe.test(cur)) {
-      const updated = cur.replace(linkRe, `[[${newSlug}]]`);
-      const parsed = parseFrontmatter(updated);
-      parsed.fm.updated = nowISO();
-      fs.writeFileSync(p, serializeFrontmatter(parsed.fm, parsed.body));
-      touched++;
-    }
-  }
+  forEachPage(({ absPath, raw }) => {
+    if (!linkRe.test(raw)) return;
+    const updated = raw.replace(linkRe, `[[${newSlug}]]`);
+    const parsed = parseFrontmatter(updated);
+    parsed.fm.updated = nowISO();
+    fs.writeFileSync(absPath, serializeFrontmatter(parsed.fm, parsed.body));
+    touched++;
+  });
 
   regenerateIndex();
   appendLog('mv', `${oldSlug} -> ${newSlug} (rewrote ${touched} backlinks)`);
@@ -535,12 +525,10 @@ function cmdDelete(args) {
   if (!fs.existsSync(p)) { console.error(`Page ${slug} does not exist.`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   const re = new RegExp(`\\[\\[${slug}\\]\\]`);
   const incoming = [];
-  for (const f of listWikiPages()) {
-    const fromSlug = f.replace(/\.md$/, '');
-    if (fromSlug === slug) continue;
-    const body = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8')).body;
+  forEachPage(({ slug: fromSlug, body }) => {
+    if (fromSlug === slug) return;
     if (re.test(body)) incoming.push(fromSlug);
-  }
+  });
   if (incoming.length && !args.force) {
     console.error(`Refusing: ${slug} has ${incoming.length} inbound link(s) from: ${incoming.join(', ')}`);
     console.error('Use --force to delete anyway (links will become dead).');
@@ -597,13 +585,10 @@ function cmdMerge(args) {
   // 3. Rewrite [[source]] → [[target]] across all wiki pages, dedup if both appear
   const linkRe = new RegExp(`\\[\\[${source}\\]\\]`, 'g');
   const filesToRewrite = [];
-  for (const f of listWikiPages()) {
-    const fromSlug = f.replace(/\.md$/, '');
-    if (fromSlug === source) continue; // source will be deleted
-    const fp = path.join(WIKI_DIR, f);
-    const cur = fs.readFileSync(fp, 'utf-8');
-    if (linkRe.test(cur)) filesToRewrite.push(fp);
-  }
+  forEachPage(({ slug: fromSlug, absPath, raw }) => {
+    if (fromSlug === source) return; // source will be deleted
+    if (linkRe.test(raw)) filesToRewrite.push(absPath);
+  });
 
   // 4. Dry-run report
   if (dry) {
@@ -842,19 +827,17 @@ function todoAdd(args) {
 
 function todoList(args) {
   const today = nowISO().slice(0, 10);
-  const files = listWikiPages();
   const rows = [];
-  for (const f of files) {
-    const { fm } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
-    if (fm.type !== 'todo') continue;
+  forEachPage(({ slug: fileSlug, fm }) => {
+    if (fm.type !== 'todo') return;
     const status = fm.status || 'open';
-    if (args.open && status !== 'open') continue;
-    if (args.done && status !== 'done') continue;
-    if (args['due-today'] && fm.due !== today) continue;
-    if (args.overdue && (!fm.due || fm.due >= today)) continue;
-    const slug = fm.id || f.replace(/\.md$/, '');
+    if (args.open && status !== 'open') return;
+    if (args.done && status !== 'done') return;
+    if (args['due-today'] && fm.due !== today) return;
+    if (args.overdue && (!fm.due || fm.due >= today)) return;
+    const slug = fm.id || fileSlug;
     rows.push({ slug, title: fm.title || '', status, due: fm.due || '', priority: fm.priority || '' });
-  }
+  });
   const prio = { high: 0, med: 1, medium: 1, low: 2 };
   rows.sort((a, b) => {
     if (a.status !== b.status) return a.status === 'open' ? -1 : 1;
@@ -915,14 +898,12 @@ function cmdRelations(args) {
     }
     // Inbound: scan all pages for relations targeting this slug
     const incoming = [];
-    for (const f of listWikiPages()) {
-      const from = f.replace(/\.md$/, '');
-      if (from === slug) continue;
-      const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    forEachPage(({ slug: from, body }) => {
+      if (from === slug) return;
       for (const r of parseRelations(body)) {
         if (r.target === slug) incoming.push({ from, verb: r.verb });
       }
-    }
+    });
     if (incoming.length) {
       console.log('\n# Inbound');
       for (const r of incoming) console.log(`  ${r.from}\t${r.verb}\t${slug}`);
@@ -930,13 +911,11 @@ function cmdRelations(args) {
     if (out.length === 0 && incoming.length === 0) console.log('(no relations)');
   } else {
     // Dump whole graph
-    for (const f of listWikiPages()) {
-      const from = f.replace(/\.md$/, '');
-      const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+    forEachPage(({ slug: from, body }) => {
       for (const r of parseRelations(body)) {
         console.log(`${from}\t${r.verb}\t${r.target}`);
       }
-    }
+    });
   }
 }
 
@@ -961,11 +940,7 @@ function cmdObservations(args) {
     if (!page) { console.error(`Page ${slug} does not exist.`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
     collect(slug, page.body);
   } else {
-    for (const f of listWikiPages()) {
-      const s = f.replace(/\.md$/, '');
-      const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
-      collect(s, body);
-    }
+    forEachPage(({ slug: s, body }) => collect(s, body));
   }
 }
 
@@ -973,9 +948,7 @@ function cmdObservations(args) {
 
 function buildTitleMap() {
   const map = []; // [{ slug, pattern, source }]
-  for (const f of listWikiPages()) {
-    const slug = f.replace(/\.md$/, '');
-    const { fm } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+  forEachPage(({ slug, fm }) => {
     const title = (fm.title || '').trim();
     const aliases = Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []);
     const variants = [title, ...aliases].filter((v) => v && v.length >= 4 && !/^\s*$/.test(v));
@@ -984,7 +957,7 @@ function buildTitleMap() {
       const escaped = v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       map.push({ slug, pattern: new RegExp(`\\b${escaped}\\b`, 'g'), title: v });
     }
-  }
+  });
   return map;
 }
 
@@ -1068,21 +1041,18 @@ function autolinkSlug(slug, { direction = 'both', dryRun = false, verbose = true
   if (direction === 'in' || direction === 'both') {
     const myEntry = tmap.filter((e) => e.slug === slug);
     if (myEntry.length) {
-      for (const f of listWikiPages()) {
-        const fromSlug = f.replace(/\.md$/, '');
-        if (fromSlug === slug) continue;
-        const fp = path.join(WIKI_DIR, f);
-        const { fm: ffm, body: fbody } = parseFrontmatter(fs.readFileSync(fp, 'utf-8'));
+      forEachPage(({ slug: fromSlug, absPath, fm: ffm, body: fbody }) => {
+        if (fromSlug === slug) return;
         // Pretend titleMap contains only my entries (so we link FROM this page TO `slug`)
         const { body: newBody, injections } = autolinkBody(fbody, fromSlug, myEntry);
         if (injections > 0) {
           inCount += injections;
           if (!dryRun) {
             ffm.updated = nowISO();
-            fs.writeFileSync(fp, serializeFrontmatter(ffm, newBody));
+            fs.writeFileSync(absPath, serializeFrontmatter(ffm, newBody));
           }
         }
-      }
+      });
     }
   }
 
@@ -1138,14 +1108,13 @@ function cmdAutolink(args) {
 // Thin fs wrapper over scoreSlugCandidates (in ./lib/graph.js): builds the
 // page list from disk, then defers all scoring to the pure core.
 function resolveSlugCandidates(query, opts = {}) {
-  const pages = listWikiPages().map((f) => {
-    const slug = f.replace(/\.md$/, '');
-    const { fm } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
-    return {
+  const pages = [];
+  forEachPage(({ slug, fm }) => {
+    pages.push({
       slug,
       title: (fm.title || '').trim(),
       aliases: Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []),
-    };
+    });
   });
   return scoreSlugCandidates(query, pages, opts);
 }
@@ -1175,9 +1144,7 @@ function cmdPath(args) {
   // Build adjacency. By default undirected (relation existing in either direction counts as connection).
   // Each edge: { target, verb, dir: 'out'|'in' } so display can show direction of traversal.
   const adj = {};
-  for (const f of listWikiPages()) {
-    const slug = f.replace(/\.md$/, '');
-    const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+  forEachPage(({ slug, body }) => {
     adj[slug] = adj[slug] || [];
     for (const r of parseRelations(body)) {
       adj[slug].push({ target: r.target, verb: r.verb, dir: 'out' });
@@ -1186,7 +1153,7 @@ function cmdPath(args) {
         adj[r.target].push({ target: slug, verb: r.verb, dir: 'in' });
       }
     }
-  }
+  });
 
   // BFS
   const queue = [{ slug: from, path: [from], edges: [] }];
@@ -1220,12 +1187,11 @@ function cmdPath(args) {
 function cmdHubs(args) {
   const topN = parseInt(args.top || '10', 10);
   const counts = {};
-  for (const f of listWikiPages()) {
-    const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+  forEachPage(({ body }) => {
     for (const t of extractWikilinks(body)) {
       counts[t] = (counts[t] || 0) + 1;
     }
-  }
+  });
   const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, topN);
   for (const [slug, n] of ranked) {
     const p = wikiPath(slug);
@@ -1257,11 +1223,10 @@ function cmdTimeline(args) {
   }
 
   // Also pull type=event pages where this slug is an attendee.
-  for (const f of listWikiPages()) {
-    const { fm } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
-    if (fm.type !== 'event' || !fm.when) continue;
+  forEachPage(({ slug: pageSlug, fm }) => {
+    if (fm.type !== 'event' || !fm.when) return;
     const attendees = Array.isArray(fm.attendees) ? fm.attendees : [];
-    const eventSlug = fm.id || f.replace(/\.md$/, '');
+    const eventSlug = fm.id || pageSlug;
     if (attendees.includes(slug) || eventSlug === slug) {
       events.push({
         date: String(fm.when).slice(0, 10),
@@ -1269,7 +1234,7 @@ function cmdTimeline(args) {
         obs: { category: 'event', body: `${fm.title || eventSlug} → [[${eventSlug}]]` },
       });
     }
-  }
+  });
 
   if (events.length === 0) { console.log(`(no dated observations or events on ${slug})`); return; }
   events.sort((a, b) => a.date.localeCompare(b.date));
@@ -1281,14 +1246,12 @@ function cmdTimeline(args) {
 function cmdStubs(args) {
   const topN = parseInt(args.top || '50', 10);
   const referencedBy = new Map(); // slug -> Set of slugs that link to it
-  for (const f of listWikiPages()) {
-    const from = f.replace(/\.md$/, '');
-    const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+  forEachPage(({ slug: from, body }) => {
     for (const t of extractWikilinks(body)) {
       if (!referencedBy.has(t)) referencedBy.set(t, new Set());
       referencedBy.get(t).add(from);
     }
-  }
+  });
   const stubs = [];
   for (const [slug, refs] of referencedBy.entries()) {
     if (!fs.existsSync(wikiPath(slug))) {
@@ -1656,22 +1619,16 @@ function auditSlug(slug, opts = {}) {
 function auditAll(opts = {}) {
   const schema = loadSchema();
   const knownVerbs = knownRelationVerbs(schema);
-  const pages = listWikiPages();
   const perPage = []; // [{slug, score, issues}]
-  for (const f of pages) {
-    const slug = f.replace(/\.md$/, '');
-    if (slug === 'index' || slug === 'log') continue;
+  forEachPage(({ slug }) => {
     perPage.push({ slug, ...auditSlug(slug, { schema, knownVerbs }) });
-  }
+  });
 
   // Cross-page rule: hot-text-mention. Capitalized 2+ word phrases appearing as prose in 2+ pages but no stub.
   const HOT_RE = /\b((?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}))\b/g;
   const STOPWORDS = new Set(['New York', 'Hong Kong', 'San Francisco']); // common multi-word that ARE legitimate
   const phraseCounts = new Map(); // phrase -> Set of slugs
-  for (const f of pages) {
-    const slug = f.replace(/\.md$/, '');
-    if (slug === 'index' || slug === 'log') continue;
-    const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+  forEachPage(({ slug, body }) => {
     // Remove wikilinks first so [[Alice Smith]] doesn't get matched
     const stripped = body.replace(/\[\[[^\]]+\]\]/g, '');
     let m;
@@ -1685,7 +1642,7 @@ function auditAll(opts = {}) {
       if (!phraseCounts.has(phrase)) phraseCounts.set(phrase, new Set());
       phraseCounts.get(phrase).add(slug);
     }
-  }
+  });
   const hotMentions = [];
   for (const [phrase, slugs] of phraseCounts.entries()) {
     if (slugs.size >= 2) hotMentions.push({ phrase, count: slugs.size, pages: [...slugs] });
@@ -1695,15 +1652,13 @@ function auditAll(opts = {}) {
   // Cross-page rule: lonely. Total inbound + outbound graph connections < 2.
   const wikilinkInbound = {};
   const wikilinkOutbound = {};
-  for (const f of pages) {
-    const slug = f.replace(/\.md$/, '');
-    const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+  forEachPage(({ slug, body }) => {
     const out = new Set(extractWikilinks(body));
     wikilinkOutbound[slug] = out.size;
     for (const t of out) {
       wikilinkInbound[t] = (wikilinkInbound[t] || 0) + 1;
     }
-  }
+  });
   for (const p of perPage) {
     const inLinks = wikilinkInbound[p.slug] || 0;
     const outLinks = wikilinkOutbound[p.slug] || 0;
@@ -1814,11 +1769,9 @@ function cmdGroom(args) {
   // PASS 1: symmetric + inverse relation enforcement
   // Build: for each page, the relations parsed from its body.
   const pageRelations = new Map(); // slug -> [{verb, target}]
-  for (const f of pages) {
-    const slug = f.replace(/\.md$/, '');
-    const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+  forEachPage(({ slug, body }) => {
     pageRelations.set(slug, parseRelations(body));
-  }
+  });
 
   // Detect missing inverses
   const missing = []; // {fromSlug, verb, targetSlug, neededVerb}
@@ -1893,13 +1846,12 @@ function cmdGroom(args) {
   // PASS 3: report — stub debt
   console.log('## stub debt (top 10)');
   const referencedBy = new Map();
-  for (const f of listWikiPages()) {
-    const { body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+  forEachPage(({ body }) => {
     for (const t of extractWikilinks(body)) {
       if (!referencedBy.has(t)) referencedBy.set(t, 0);
       referencedBy.set(t, referencedBy.get(t) + 1);
     }
-  }
+  });
   const stubs = [];
   for (const [slug, count] of referencedBy.entries()) {
     if (!fs.existsSync(wikiPath(slug))) stubs.push({ slug, count });
@@ -1926,9 +1878,7 @@ function cmdPlace(args) {
   // 1. Find existing matches via resolve (re-use logic)
   const qLower = query.toLowerCase();
   const matches = [];
-  for (const f of listWikiPages()) {
-    const slug = f.replace(/\.md$/, '');
-    const { fm, body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+  forEachPage(({ slug, fm }) => {
     const title = (fm.title || '').trim();
     const aliases = Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []);
     if (slug === query || (title && title.toLowerCase() === qLower)) {
@@ -1938,7 +1888,7 @@ function cmdPlace(args) {
     } else if (title && (title.toLowerCase().includes(qLower) || qLower.includes(title.toLowerCase())) && title.length >= 3) {
       matches.push({ slug, confidence: 0.7, reason: `substring of title "${title}"` });
     }
-  }
+  });
 
   if (matches.length > 0) {
     matches.sort((a, b) => b.confidence - a.confidence);
@@ -1953,9 +1903,7 @@ function cmdPlace(args) {
   const queryTokens = qLower.split(/[^a-z0-9]+/).filter((t) => t.length >= 3);
   const queryTokensSet = new Set(queryTokens);
   const similar = {};
-  for (const f of listWikiPages()) {
-    const slug = f.replace(/\.md$/, '');
-    const { fm, body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+  forEachPage(({ slug, fm, body }) => {
     const title = (fm.title || '').toLowerCase();
     const titleTokens = title.split(/[^a-z0-9]+/).filter(Boolean);
     let score = 0;
@@ -1965,7 +1913,7 @@ function cmdPlace(args) {
       if (body.toLowerCase().includes(t)) { score += 1; break; }
     }
     if (score > 0) similar[slug] = { score, fm };
-  }
+  });
 
   const ranked = Object.entries(similar).sort((a, b) => b[1].score - a[1].score).slice(0, 5);
   if (ranked.length) {
@@ -2007,13 +1955,10 @@ function cmdPlace(args) {
 function cmdSize(args) {
   const threshold = parseInt(args.threshold || '150', 10);
   const rows = [];
-  for (const f of listWikiPages()) {
-    const slug = f.replace(/\.md$/, '');
-    const content = fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8');
-    const { fm, body } = parseFrontmatter(content);
+  forEachPage(({ slug, fm, body }) => {
     const lines = body.split('\n').length;
     if (lines >= threshold) rows.push({ slug, lines, title: fm.title || '', type: fm.type || 'note' });
-  }
+  });
   rows.sort((a, b) => b.lines - a.lines);
   if (rows.length === 0) { console.log(`(no pages above ${threshold} lines)`); return; }
   for (const r of rows) console.log(`${r.lines}\t${r.type}\t${r.slug}\t${r.title}`);
@@ -2021,20 +1966,18 @@ function cmdSize(args) {
 
 function cmdSyncIds(args) {
   const fixed = [];
-  for (const f of listWikiPages()) {
-    const filenameSlug = f.replace(/\.md$/, '');
-    const { fm, body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+  forEachPage(({ slug: filenameSlug, absPath, fm, body }) => {
     if (fm.id && fm.id !== filenameSlug) {
       if (args['dry-run']) {
         console.log(`${filenameSlug}: id=${fm.id} (would fix to ${filenameSlug})`);
       } else {
         fm.id = filenameSlug;
         fm.updated = nowISO();
-        fs.writeFileSync(path.join(WIKI_DIR, f), serializeFrontmatter(fm, body));
+        fs.writeFileSync(absPath, serializeFrontmatter(fm, body));
         fixed.push(filenameSlug);
       }
     }
-  }
+  });
   if (!args['dry-run']) {
     if (fixed.length) {
       regenerateIndex();
@@ -2057,22 +2000,20 @@ function staleThresholdFor(tags) {
 }
 
 function cmdLint(args) {
-  const files = listWikiPages();
-  const slugs = new Set(files.map((f) => f.replace(/\.md$/, '')));
+  const slugs = new Set();
   const outboundByPage = {};
   const inboundByPage = {};
   const tagCounts = {};
   const pages = {};
-  for (const f of files) {
-    const slug = f.replace(/\.md$/, '');
-    const { fm, body } = parseFrontmatter(fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8'));
+  forEachPage(({ slug, fm, body }) => {
+    slugs.add(slug);
     pages[slug] = { fm, body };
     const out = extractWikilinks(body);
     outboundByPage[slug] = out;
     for (const t of out) (inboundByPage[t] ||= []).push(slug);
     const tags = Array.isArray(fm.tags) ? fm.tags : [];
     for (const tag of tags) tagCounts[tag] = (tagCounts[tag] || 0) + 1;
-  }
+  });
 
   const schema = loadSchema();
   const filter = args.only ? new Set(String(args.only).split(',')) : null;
@@ -2608,10 +2549,7 @@ function buildVaultNdjson() {
   const mentions = new Map();
   const pages = [];
   const arr = (v) => Array.isArray(v) ? v : (v ? [v] : []);
-  for (const f of listWikiPages()) {
-    const slug = f.replace(/\.md$/, '');
-    const raw = fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8');
-    const { fm, body } = parseFrontmatter(raw);
+  forEachPage(({ slug, fm, body }) => {
     const obs = parseObservations(body);
     const rels = parseRelations(body);
     const counts = { fact: 0, hypothesis: 0, opinion: 0, claim: 0 };
@@ -2643,7 +2581,7 @@ function buildVaultNdjson() {
       due: fm.due || null,
       when_: fm.when || null,  // `when` is a SQL reserved word in some contexts
     });
-  }
+  });
   for (const p of pages) p.mention_count = mentions.get(p.slug) || 0;
   fs.mkdirSync(CACHE_DIR, { recursive: true });
   fs.writeFileSync(DB_NDJSON_PATH, pages.map((p) => JSON.stringify(p)).join('\n') + '\n');
@@ -3213,12 +3151,8 @@ function cmdMigrate(args) {
 }
 
 function cmdReview(args) {
-  const all = listWikiPages().map((f) => {
-    const slug = f.replace(/\.md$/, '');
-    const raw = fs.readFileSync(path.join(WIKI_DIR, f), 'utf-8');
-    const { fm, body } = parseFrontmatter(raw);
-    return { slug, fm, body };
-  });
+  const all = [];
+  forEachPage(({ slug, fm, body }) => all.push({ slug, fm, body }));
 
   // Build a "known surface forms" set: every slug, every title, every alias, lowercased.
   const known = new Set();
