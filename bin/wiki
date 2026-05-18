@@ -426,7 +426,7 @@ function cmdLink(args) {
   if (!from || !to) { console.error('Usage: wiki link <from-slug> <to-slug>'); process.exit(1); }
   if (!validSlug(to)) { console.error(`Invalid target slug: ${to}`); process.exit(1); }
   const fromPath = wikiPath(from);
-  if (!fs.existsSync(fromPath)) { console.error(`Page ${from} does not exist.`); process.exit(2); }
+  if (!fs.existsSync(fromPath)) { console.error(`Page ${from} does not exist.`); console.error(`  Hint: \`wiki resolve "${from}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   const { fm, body } = parseFrontmatter(fs.readFileSync(fromPath, 'utf-8'));
   if (new RegExp(`\\[\\[${to}\\]\\]`).test(body)) { console.log(`already linked: ${from} -> ${to}`); return; }
   let newBody;
@@ -445,7 +445,7 @@ function cmdLinks(args) {
   const slug = args._[0];
   if (!slug) { console.error('Usage: wiki links <slug>'); process.exit(1); }
   const page = readPage(slug);
-  if (!page) { console.error(`Page ${slug} does not exist.`); process.exit(2); }
+  if (!page) { console.error(`Page ${slug} does not exist.`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   const out = extractWikilinks(page.body);
   for (const s of out) {
     const exists = fs.existsSync(wikiPath(s));
@@ -481,7 +481,7 @@ function cmdMv(args) {
 
   const oldPath = wikiPath(oldSlug);
   const newPath = wikiPath(newSlug);
-  if (!fs.existsSync(oldPath)) { console.error(`Page ${oldSlug} does not exist.`); process.exit(2); }
+  if (!fs.existsSync(oldPath)) { console.error(`Page ${oldSlug} does not exist.`); console.error(`  Hint: \`wiki resolve "${oldSlug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   if (fs.existsSync(newPath)) { console.error(`Page ${newSlug} already exists.`); process.exit(2); }
 
   fs.renameSync(oldPath, newPath);
@@ -518,7 +518,7 @@ function cmdDelete(args) {
   if (!slug) { console.error('Usage: wiki delete <slug> [--force]'); process.exit(1); }
   if (isReserved(slug)) { console.error(`Cannot delete reserved page ${slug}.`); process.exit(1); }
   const p = wikiPath(slug);
-  if (!fs.existsSync(p)) { console.error(`Page ${slug} does not exist.`); process.exit(2); }
+  if (!fs.existsSync(p)) { console.error(`Page ${slug} does not exist.`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   const re = new RegExp(`\\[\\[${slug}\\]\\]`);
   const incoming = [];
   for (const f of listWikiPages()) {
@@ -649,7 +649,7 @@ function cmdPatch(args) {
     process.exit(1);
   }
   const p = wikiPath(slug);
-  if (!fs.existsSync(p)) { console.error(`Page ${slug} does not exist.`); process.exit(2); }
+  if (!fs.existsSync(p)) { console.error(`Page ${slug} does not exist.`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   const { fm, body } = parseFrontmatter(fs.readFileSync(p, 'utf-8'));
   if (fm.source_file) {
     console.error(`Page ${slug} is auto-rendered from ${fm.source_file}. Use \`wiki measure\` to add a row, or edit the source file directly.`);
@@ -893,7 +893,7 @@ function cmdRelations(args) {
   const slug = args._[0];
   if (slug) {
     const page = readPage(slug);
-    if (!page) { console.error(`Page ${slug} does not exist.`); process.exit(2); }
+    if (!page) { console.error(`Page ${slug} does not exist.`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
     const out = parseRelations(page.body);
     if (out.length) {
       console.log('# Outbound');
@@ -944,7 +944,7 @@ function cmdObservations(args) {
   };
   if (slug) {
     const page = readPage(slug);
-    if (!page) { console.error(`Page ${slug} does not exist.`); process.exit(2); }
+    if (!page) { console.error(`Page ${slug} does not exist.`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
     collect(slug, page.body);
   } else {
     for (const f of listWikiPages()) {
@@ -1155,8 +1155,8 @@ function cmdPath(args) {
   const maxHops = parseInt(args['max-hops'] || '3', 10);
   const directed = !!args.directed;
   if (!from || !to) { console.error('Usage: wiki path <from> <to> [--max-hops N] [--directed]'); process.exit(1); }
-  if (!fs.existsSync(wikiPath(from))) { console.error(`Page ${from} does not exist.`); process.exit(2); }
-  if (!fs.existsSync(wikiPath(to))) { console.error(`Page ${to} does not exist.`); process.exit(2); }
+  if (!fs.existsSync(wikiPath(from))) { console.error(`Page ${from} does not exist.`); console.error(`  Hint: \`wiki resolve "${from}"\` to fuzzy-match similar slugs.`); process.exit(2); }
+  if (!fs.existsSync(wikiPath(to))) { console.error(`Page ${to} does not exist.`); console.error(`  Hint: \`wiki resolve "${to}"\` to fuzzy-match similar slugs.`); process.exit(2); }
 
   // Build adjacency. By default undirected (relation existing in either direction counts as connection).
   // Each edge: { target, verb, dir: 'out'|'in' } so display can show direction of traversal.
@@ -1232,7 +1232,7 @@ function cmdTimeline(args) {
   const slug = args._[0];
   if (!slug) { console.error('Usage: wiki timeline <slug>'); process.exit(1); }
   const page = readPage(slug);
-  if (!page) { console.error(`Page ${slug} does not exist.`); process.exit(2); }
+  if (!page) { console.error(`Page ${slug} does not exist.`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
 
   const events = [];
   for (const o of parseObservations(page.body)) {
