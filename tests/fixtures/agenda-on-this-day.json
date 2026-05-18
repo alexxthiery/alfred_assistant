@@ -1,0 +1,12 @@
+{
+  "_comment": "Calendar/on-this-day support: setup creates (a) a person 'carol' with born:1985-03-14, (b) a person 'dave' with born:03-14 (year unknown), (c) an event 'eclipse-day' with when:2024-03-14, and (d) an event on a different day. `wiki agenda --on 1999-03-14` should surface the two people + the eclipse, NOT the off-day event.",
+  "setup": [
+    ["write", "carol", "--title", "Carol", "--type", "entity", "--tags", "person", "--content", "- [fact] seed body ^[telegram:2026-05-17]"],
+    ["patch", "carol", "--born", "1985-03-14"],
+    ["write", "dave", "--title", "Dave", "--type", "entity", "--tags", "person", "--content", "- [fact] seed body ^[telegram:2026-05-17]"],
+    ["patch", "dave", "--born", "03-14"],
+    ["write", "eclipse-day", "--title", "Eclipse day", "--type", "event", "--tags", "event,travel", "--when", "2024-03-14", "--content", "- [fact] seed body ^[telegram:2026-05-17]"],
+    ["write", "off-day-event", "--title", "Off-day event", "--type", "event", "--tags", "event,travel", "--when", "2024-04-14", "--content", "- [fact] seed body ^[telegram:2026-05-17]"]
+  ],
+  "cmd": ["agenda", "--on", "1999-03-14"]
+}

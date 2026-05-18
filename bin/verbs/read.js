@@ -76,12 +76,38 @@ function cmdSearch(args) {
 
 function cmdAgenda(args) {
   // Windows: today | week | upcoming (default) | past | all
-  // Accept either positional (wiki agenda today) or --window flag
+  // Plus: --on YYYY-MM-DD (or --month-day MM-DD) — "on this calendar day, any
+  // year": matches event pages whose `when` shares MM-DD and person pages whose
+  // `born` shares MM-DD. Year-only `when` (e.g. "2022-12") still has YYYY-MM
+  // so its MM is comparable; date-less entries are skipped.
   const win = (args._[0] || args.window || 'upcoming').toLowerCase();
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const endOfToday = startOfToday + 86400 * 1000 - 1;
   const endOfWeek = startOfToday + 7 * 86400 * 1000;
+
+  // --on / --month-day handling (independent of the standard window switch).
+  let onMD = null; // 'MM-DD' or null
+  if (args['month-day']) {
+    const v = String(args['month-day']);
+    if (!/^\d{2}-\d{2}$/.test(v)) {
+      console.error(`error: --month-day must be MM-DD (got "${v}")`);
+      process.exit(1);
+    }
+    onMD = v;
+  } else if (args.on) {
+    const v = String(args.on);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+      console.error(`error: --on must be YYYY-MM-DD (got "${v}")`);
+      process.exit(1);
+    }
+    onMD = v.slice(5);
+  }
+
+  if (onMD) {
+    cmdAgendaOnThisDay(onMD);
+    return;
+  }
 
   const events = [];
   forEachPage(({ slug: fileSlug, fm }) => {
@@ -134,6 +160,58 @@ function cmdAgenda(args) {
     if (e.location) parts.push(`@ ${e.location}`);
     if (e.attendees.length) parts.push(`w/ ${e.attendees.map((a) => `[[${a}]]`).join(', ')}`);
     console.log(parts.join('  '));
+  }
+}
+
+// On-this-day query. md is 'MM-DD'. Surfaces:
+//   - every `type: event` page whose `when` shares MM-DD (any year)
+//   - every page with `born:` whose value shares MM-DD (year known or unknown)
+// Output is two sections; either may be empty.
+function cmdAgendaOnThisDay(md) {
+  const events = [];
+  const birthdays = [];
+  forEachPage(({ slug: fileSlug, fm }) => {
+    const slug = fm.id || fileSlug;
+    if (fm.type === 'event' && fm.when) {
+      const when = String(fm.when);
+      // 'when' may be YYYY, YYYY-MM, YYYY-MM-DD, or full ISO. Extract MM-DD if
+      // present; year-only entries lack a day so they cannot match.
+      const dateOnly = when.slice(0, 10);
+      if (dateOnly.length === 10 && dateOnly.slice(5) === md) {
+        events.push({ slug, title: fm.title || slug, when: dateOnly });
+      }
+    }
+    if (fm.born) {
+      const v = String(fm.born);
+      let bornMD = null;
+      let bornYear = null;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { bornYear = v.slice(0, 4); bornMD = v.slice(5); }
+      else if (/^\d{2}-\d{2}$/.test(v)) { bornMD = v; }
+      if (bornMD === md) {
+        birthdays.push({ slug, title: fm.title || slug, born: v, year: bornYear });
+      }
+    }
+  });
+
+  events.sort((a, b) => a.when.localeCompare(b.when));
+  birthdays.sort((a, b) => (a.year || '9999').localeCompare(b.year || '9999'));
+
+  if (events.length === 0 && birthdays.length === 0) {
+    console.log(`(nothing on ${md})`);
+    return;
+  }
+  if (events.length) {
+    console.log(`## events on ${md} (any year)`);
+    for (const e of events) console.log(`  ${e.when}  [[${e.slug}]]`);
+  }
+  if (birthdays.length) {
+    if (events.length) console.log('');
+    console.log(`## birthdays on ${md}`);
+    const thisYear = new Date().getFullYear();
+    for (const b of birthdays) {
+      const ageStr = b.year ? ` (turns ${thisYear - Number(b.year)})` : '';
+      console.log(`  ${b.born}  [[${b.slug}]]${ageStr}`);
+    }
   }
 }
 

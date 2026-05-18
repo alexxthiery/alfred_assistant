@@ -718,7 +718,7 @@ function cmdPatch(args) {
   if (!slug) {
     console.error('Usage: wiki patch <slug> [--observation "[fact] body #tag"] [--relation "verb [[target]]"]');
     console.error('              [--add-tag <tag>] [--remove-tag <tag>] [--alias <name>]');
-    console.error('              [--summary "..."] [--title "..."]');
+    console.error('              [--summary "..."] [--title "..."] [--born YYYY-MM-DD | MM-DD]');
     process.exit(1);
   }
   const p = wikiPath(slug);
@@ -814,6 +814,19 @@ function cmdPatch(args) {
   if (args.summary !== undefined && args.summary !== false) {
     fm.summary = String(args.summary);
     ops.push('summary');
+  }
+
+  // Birth date. Accept YYYY-MM-DD (year known) or MM-DD (month/day only, year
+  // unknown). The MM-DD form is what enables `wiki agenda --on` to surface
+  // birthdays without needing the birth year.
+  if (args.born !== undefined && args.born !== false) {
+    const v = String(args.born).trim();
+    if (!/^(\d{4}-\d{2}-\d{2}|\d{2}-\d{2})$/.test(v)) {
+      console.error(`error: --born must be YYYY-MM-DD or MM-DD (got "${v}")`);
+      process.exit(3);
+    }
+    fm.born = v;
+    ops.push(`born:${v}`);
   }
 
   // External-link fields (homepage, scholar, orcid, github, etc.)
@@ -3637,7 +3650,11 @@ const VERBS = [
   { name: 'context',  section: 'READ', lines: ['  context <slug> [--compact]                bundled: FM + obs + relations + 1-hop neighbors (--compact: agent-friendly, ~30% fewer lines)'] },
   { name: 'sources',  section: 'READ', lines: ['  sources                                   list type=source pages'] },
   { name: 'related',  section: 'READ', lines: ['  related <slug>                            pages by tag/link proximity'] },
-  { name: 'agenda',   section: 'READ', lines: ['  agenda [today|week|upcoming|past|all]     list type=event pages by when'] },
+  { name: 'agenda',   section: 'READ', lines: [
+    '  agenda [today|week|upcoming|past|all]     list type=event pages by when',
+    '  agenda --on YYYY-MM-DD                    on-this-day: events + birthdays sharing MM-DD (any year)',
+    '  agenda --month-day MM-DD                  same as --on but year-agnostic',
+  ] },
 
   // WRITE
   {
@@ -3711,7 +3728,7 @@ const VERBS = [
       '  patch <slug> [--observation "..."] [--relation "verb [[target]]"]',
       '              [--supersede "<substring>"]    strike-through old obs + [until today]',
       '              [--add-tag x] [--remove-tag x] [--alias name]',
-      '              [--summary "..."] [--title "..."]',
+      '              [--summary "..."] [--title "..."] [--born YYYY-MM-DD | MM-DD]',
     ],
     longHelp: [
       'wiki patch — modify an existing page in place.',

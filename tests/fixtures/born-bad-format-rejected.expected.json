@@ -1,0 +1,4 @@
+{
+  "exitCode": 3,
+  "stderrContains": ["--born must be YYYY-MM-DD or MM-DD"]
+}

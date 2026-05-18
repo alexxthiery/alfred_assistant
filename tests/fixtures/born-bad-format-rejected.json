@@ -1,0 +1,7 @@
+{
+  "_comment": "--born accepts only YYYY-MM-DD or MM-DD. A free-text value is refused with exit 3.",
+  "setup": [
+    ["write", "person-with-bad-born", "--title", "P", "--type", "entity", "--tags", "person", "--content", "- [fact] seed body ^[telegram:2026-05-17]"]
+  ],
+  "cmd": ["patch", "person-with-bad-born", "--born", "march-14"]
+}

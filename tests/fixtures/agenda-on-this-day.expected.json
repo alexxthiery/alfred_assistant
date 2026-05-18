@@ -1,0 +1,11 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "events on 03-14",
+    "2024-03-14",
+    "[[eclipse-day]]",
+    "birthdays on 03-14",
+    "[[carol]]",
+    "[[dave]]"
+  ]
+}

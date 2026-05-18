@@ -124,6 +124,8 @@ In short: typing JSON through `wiki ingest` is *cheaper* than typing markdown di
 | {{USER_NAME}} says "X is the same person/thing as Y" OR "X is a nickname/alias for Y" | `wiki merge X Y` — **do not** reach for `wiki patch Y --alias X` while `X.md` exists; the alias would be inert |
 | Merge a duplicate into the canonical page | `wiki merge <source> <target>` |
 | Single-page rewrite (rare, last resort) | `wiki write <slug> ...` (strict; rejects bad types/tags/verbs/provenance) |
+| Record someone's birthday | `wiki patch <slug> --born YYYY-MM-DD` (year known) or `--born MM-DD` (year unknown). Surfaces via `wiki agenda --on <date>`. Do **not** store birthdays as free-text facts — the structured field is the only form `agenda --on` can query. |
+| Find what happened on a calendar day (any year) | `wiki agenda --on YYYY-MM-DD` — lists every `type: event` whose `when` shares MM-DD + every page with matching `born:`. |
 
 Free-write zones (no block applies): `inbox/`, `raw/`, `alfred/scratchpad.md`, `alfred/notes/`, your own `/workspace/agent/` workspace. Use these for staging, drafting, and your own scratch work — then promote to the wiki via `wiki ingest` or `inbox triage`.
 
