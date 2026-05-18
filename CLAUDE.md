@@ -78,6 +78,7 @@ The repo is currently in audit-remediation mode. Tracker in `audit/WORKPLAN.md` 
 - `bin/lib/frontmatter.js` (partial H04) — frontmatter helpers extracted from `bin/wiki`, paired with `tests/unit/frontmatter.test.js`.
 - `docs/WEEKLY-DIGEST.md` (H01) — pipeline documentation that was previously a dangling reference.
 - `tests/fixtures/README.md` (M18) — fixture format + tests/vault coupling.
+- `wiki preflight` (M12) — one-shot env/dependency check. Run first when dropping into an unfamiliar vault.
 
 If you find yourself reading code that the audit has already analysed, check `audit/00-summary.md` for the high-level findings first.
 

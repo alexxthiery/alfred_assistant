@@ -1,0 +1,12 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "[PASS]  node",
+    "[PASS]  schema",
+    "[PASS]  wiki-dir",
+    "[SKIP]  email-digest",
+    "[PASS]  audit-smoke",
+    "12 pages, 0 audit issues",
+    "preflight: OK"
+  ]
+}

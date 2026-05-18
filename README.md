@@ -70,6 +70,7 @@ $EDITOR ~/my-vault/.alfred.yml           # set user.slug, user.name, email.from
 
 # 4. Sanity-check
 cd ~/my-vault
+wiki preflight            # one-shot env + dependency check; should report OK
 wiki list                 # should print "no pages yet" or similar
 ```
 

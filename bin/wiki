@@ -2849,6 +2849,164 @@ const REVIEW_STOPWORDS = new Set([
 //
 // Exits 0 if clean, 2 if any unknown verb was found.
 
+// ─── preflight ─────────────────────────────────────────────────────────────
+// Pre-use smoke test. Reports PASS/WARN/FAIL/SKIP per check + recovery hints.
+// Exits 0 if every check is PASS/WARN/SKIP; 1 if anything FAILed. Designed
+// to be the first command a forker runs after install.sh — answers
+// "does my install actually work?" in one shot.
+
+function cmdPreflight(args) {
+  const { execSync } = require('child_process');
+  const results = [];
+  const push = (name, status, msg, hint) => results.push({ name, status, msg, hint });
+
+  // Resolve a binary on PATH without throwing.
+  const which = (bin) => {
+    try {
+      const out = execSync(`command -v ${bin}`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+      return out.trim() || null;
+    } catch { return null; }
+  };
+
+  // 1. Node version (>= 18). Stdlib only; no external check needed.
+  {
+    const major = parseInt(process.versions.node.split('.')[0], 10);
+    if (major >= 18) {
+      push('node', 'PASS', `${process.versions.node}`);
+    } else {
+      push('node', 'FAIL', `${process.versions.node} (need >= 18)`,
+        'Upgrade Node: nvm install 18 (or your distro\'s package manager).');
+    }
+  }
+
+  // 2. git binary + .git directory.
+  {
+    const gitBin = which('git');
+    const gitDir = path.join(VAULT_ROOT, '.git');
+    if (!gitBin) {
+      push('git', 'FAIL', 'git binary not on PATH',
+        'Install git. Without it, auto-commit + revert are unavailable.');
+    } else if (!fs.existsSync(gitDir)) {
+      push('git', 'WARN', `binary OK but ${VAULT_ROOT}/.git missing`,
+        'Initialize: cd ' + VAULT_ROOT + ' && git init && git add -A && git commit -m init');
+    } else {
+      push('git', 'PASS', `${gitBin}`);
+    }
+  }
+
+  // 3. SCHEMA.md at vault root (canonical contract).
+  if (fs.existsSync(SCHEMA_PATH)) {
+    push('schema', 'PASS', `${SCHEMA_PATH}`);
+  } else {
+    push('schema', 'FAIL', `${SCHEMA_PATH} missing`,
+      'Re-run install.sh ' + VAULT_ROOT + ' from the alfred_assistant repo, or copy docs/SCHEMA.md by hand.');
+  }
+
+  // 4. .alfred.yml (optional but recommended).
+  const cfgPath = path.join(VAULT_ROOT, '.alfred.yml');
+  if (fs.existsSync(cfgPath)) {
+    push('config', 'PASS', `${cfgPath}`);
+  } else {
+    push('config', 'WARN', `${cfgPath} missing`,
+      'Copy examples/.alfred.yml.example into the vault root and fill in user.slug / user.name / email.from.');
+  }
+
+  // 5. wiki/ directory.
+  if (fs.existsSync(WIKI_DIR)) {
+    const pageCount = listWikiPages().length;
+    push('wiki-dir', 'PASS', `${pageCount} page${pageCount === 1 ? '' : 's'}`);
+  } else {
+    push('wiki-dir', 'WARN', `${WIKI_DIR} missing`,
+      'Run `mkdir -p ' + WIKI_DIR + '`; it will be created on first write anyway.');
+  }
+
+  // 6. duckdb (optional — only needed for `wiki sql`).
+  {
+    const duckBin = which('duckdb');
+    if (duckBin) push('duckdb', 'PASS', `${duckBin}`);
+    else push('duckdb', 'WARN', 'not on PATH',
+      '`wiki sql` will be unavailable. Install via brew/apt/etc. if you want SQL queries.');
+  }
+
+  // 7. curl (required by email-digest).
+  {
+    const curlBin = which('curl');
+    if (curlBin) push('curl', 'PASS', `${curlBin}`);
+    else push('curl', 'FAIL', 'not on PATH',
+      'Install curl. email-digest cannot send mail without it.');
+  }
+
+  // 8. email-digest credentials + reachability.
+  {
+    const hasFrom = !!process.env.EMAIL_FROM;
+    const hasPw = !!process.env.GMAIL_APP_PASSWORD;
+    if (!hasFrom || !hasPw) {
+      push('email-digest', 'SKIP',
+        `env vars missing (EMAIL_FROM=${hasFrom ? 'set' : 'unset'}, GMAIL_APP_PASSWORD=${hasPw ? 'set' : 'unset'})`,
+        'Set both in .env to enable the weekly digest. See docs/WEEKLY-DIGEST.md.');
+    } else {
+      const digestBin = path.join(VAULT_ROOT, '.bin', 'email-digest');
+      const bin = fs.existsSync(digestBin) ? digestBin : 'email-digest';
+      try {
+        execSync(`echo dryrun | ${bin} --dry-run --subject "preflight" --to "${process.env.EMAIL_FROM}"`,
+          { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+        push('email-digest', 'PASS', 'SMTP+auth reachable');
+      } catch (e) {
+        push('email-digest', 'FAIL', 'dry-run failed',
+          'Run `bin/email-digest --dry-run --subject t --to ' + process.env.EMAIL_FROM + '` directly to see the error.');
+      }
+    }
+  }
+
+  // 9. wiki audit --all smoke. We don't FAIL on rule hits — only on execution
+  // errors (broken SCHEMA.md, fs issues, etc.). Rule hits are reported as PASS
+  // with a count so the forker sees their baseline.
+  try {
+    const schema = loadSchema();
+    const knownVerbs = knownRelationVerbs(schema);
+    const pages = listWikiPages();
+    let issueCount = 0;
+    for (const f of pages) {
+      const slug = f.replace(/\.md$/, '');
+      const r = auditSlug(slug, { schema, knownVerbs });
+      issueCount += r.issues.length;
+    }
+    push('audit-smoke', 'PASS', `${pages.length} page${pages.length === 1 ? '' : 's'}, ${issueCount} audit issue${issueCount === 1 ? '' : 's'}`);
+  } catch (e) {
+    push('audit-smoke', 'FAIL', `execution error: ${e.message.split('\n')[0]}`,
+      'Likely a malformed SCHEMA.md. Compare against docs/SCHEMA.md in the alfred_assistant repo.');
+  }
+
+  // ─── render ────────────────────────────────────────────────────────────
+  const padName = Math.max(...results.map((r) => r.name.length));
+  let failCount = 0, warnCount = 0;
+  for (const r of results) {
+    const tag = r.status.padEnd(4);
+    const name = r.name.padEnd(padName);
+    console.log(`  [${tag}]  ${name}   ${r.msg}`);
+    if (r.status === 'FAIL') failCount++;
+    if (r.status === 'WARN') warnCount++;
+  }
+
+  // Print hints below the table for items with FAIL/WARN.
+  const withHints = results.filter((r) => r.hint && (r.status === 'FAIL' || r.status === 'WARN'));
+  if (withHints.length) {
+    console.log('');
+    for (const r of withHints) console.log(`  ${r.name}: ${r.hint}`);
+  }
+
+  // Summary
+  console.log('');
+  if (failCount === 0) {
+    const summary = `preflight: OK${warnCount ? ` (${warnCount} warning${warnCount === 1 ? '' : 's'})` : ''}`;
+    console.log(summary);
+    process.exit(0);
+  } else {
+    console.error(`preflight: ${failCount} check${failCount === 1 ? '' : 's'} failed${warnCount ? `, ${warnCount} warning${warnCount === 1 ? '' : 's'}` : ''}`);
+    process.exit(1);
+  }
+}
+
 function cmdPersonaLint(args) {
   const candidates = [
     'CLAUDE.md',
@@ -3381,7 +3539,7 @@ const cmds = {
   todo: cmdTodo,
   // hygiene
   lint: cmdLint, reindex: cmdReindex, 'sync-ids': cmdSyncIds, size: cmdSize, groom: cmdGroom, audit: cmdAudit,
-  'persona-lint': cmdPersonaLint, migrate: cmdMigrate,
+  'persona-lint': cmdPersonaLint, migrate: cmdMigrate, preflight: cmdPreflight,
   // measurements (tabular time-series)
   measure: cmdMeasure,
   // review (discovery + health digest)
@@ -3453,6 +3611,7 @@ if (!verb || !cmds[verb]) {
   console.error('  audit <slug> | --all                      mechanical quality score per page or vault-wide');
   console.error('  persona-lint                              grep persona/schema/docs for unknown `wiki <verb>` references');
   console.error('  migrate [<slug>] [--dry-run]              apply pending SCHEMA_MIGRATIONS; stamps schema_version on unversioned pages');
+  console.error('  preflight                                 smoke-test node/git/SCHEMA.md/duckdb/curl/SMTP/audit; one-command go/no-go');
   console.error('');
   console.error('SQL (DuckDB analytical view — ad-hoc queries over wiki/*.md frontmatter)');
   console.error('  sql "<query>"                             run SQL against the `vault` table');

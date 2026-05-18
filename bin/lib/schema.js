@@ -39,9 +39,18 @@ const isReserved = (slug) => slug === 'index' || slug === 'log';
 // to distinguish "no schema configured" from "schema declares no tags."
 function parseSchemaContent(content) {
   if (typeof content !== 'string' || content.length === 0) {
-    // Match the empty-shape that bin/wiki's loadSchema returned pre-extraction
-    // when SCHEMA.md was missing. Callers handle tags===null as "no schema."
-    return { tags: null, forbidden: new Set(), symmetric: new Set(), inverses: new Map() };
+    // Callers handle tags===null as "no schema configured." Other fields are
+    // empty collections so iterating them (e.g. knownRelationVerbs) doesn't
+    // throw. (Pre-extraction code omitted oneWay+eventKeywords here; that was
+    // a latent bug surfaced by `wiki preflight` running without SCHEMA.md.)
+    return {
+      tags: null,
+      forbidden: new Set(),
+      symmetric: new Set(),
+      inverses: new Map(),
+      oneWay: new Set(),
+      eventKeywords: new Set(),
+    };
   }
 
   let tags = null;
@@ -106,9 +115,7 @@ function parseSchemaContent(content) {
 // callers interpret as "no schema configured — accept everything." See
 // validateForWrite for how that fallback is handled.
 function loadSchema(schemaPath) {
-  if (!fs.existsSync(schemaPath)) {
-    return { tags: null, forbidden: new Set(), symmetric: new Set(), inverses: new Map() };
-  }
+  if (!fs.existsSync(schemaPath)) return parseSchemaContent('');
   return parseSchemaContent(fs.readFileSync(schemaPath, 'utf-8'));
 }
 
