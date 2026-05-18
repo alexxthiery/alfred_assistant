@@ -45,7 +45,7 @@ const { auditPage } = require('./lib/audit.js');
 const { applyFlagAliases } = require('./lib/flag-aliases.js');
 const { flushStaged } = require('./lib/staged-writes.js');
 const { buildTitleEntries, autolinkBody } = require('./lib/autolink.js');
-const { formatIndex, formatLogLine, applyExtraFrontmatter } = require('./lib/maintenance.js');
+const { formatIndex, formatLogLine, applyExtraFrontmatter, validateAliasArg, aliasValueError } = require('./lib/maintenance.js');
 const {
   VAULT_ROOT, WIKI_DIR, SCHEMA_PATH, INDEX_PATH, LOG_PATH,
   nowISO, wikiPath, listWikiPages, readPage, forEachPage,
@@ -306,6 +306,13 @@ function cmdWrite(args) {
     }
   }
 
+  // HR07: refuse aliases containing `,` or `]` on both create and append paths.
+  const aliasErrors = validateAliasArg(args.aliases);
+  if (aliasErrors.length) {
+    for (const e of aliasErrors) console.error(`error: ${e}`);
+    process.exit(3);
+  }
+
   let body = '';
   if (args.stdin) body = fs.readFileSync(0, 'utf-8');
   else if (args.content) body = args.content;
@@ -556,7 +563,12 @@ function cmdMerge(args) {
   const srcAliases = Array.isArray(srcParsed.fm.aliases) ? srcParsed.fm.aliases : (srcParsed.fm.aliases ? [srcParsed.fm.aliases] : []);
   const newAliases = [...tgtAliases];
   for (const a of [source, srcParsed.fm.title, ...srcAliases]) {
-    if (a && !newAliases.includes(a)) newAliases.push(a);
+    if (!a || newAliases.includes(a)) continue;
+    // HR07: refuse to promote a comma/]-bearing value (could happen if source
+    // was written pre-HR07). User must fix the source page first.
+    const aliasErr = aliasValueError(a);
+    if (aliasErr) { console.error(`error: ${aliasErr} (would be promoted to target alias on merge)`); process.exit(3); }
+    newAliases.push(a);
   }
   if (newAliases.length) newFm.aliases = newAliases;
   newFm.updated = nowISO();
@@ -725,8 +737,10 @@ function cmdPatch(args) {
 
   // Alias
   if (args.alias) {
-    const aliases = Array.isArray(fm.aliases) ? [...fm.aliases] : (fm.aliases ? [fm.aliases] : []);
     const a = String(args.alias);
+    const aliasErr = aliasValueError(a);
+    if (aliasErr) { console.error(`error: ${aliasErr}`); process.exit(3); }
+    const aliases = Array.isArray(fm.aliases) ? [...fm.aliases] : (fm.aliases ? [fm.aliases] : []);
     if (!aliases.includes(a)) { aliases.push(a); ops.push(`+alias:${a}`); }
     fm.aliases = aliases;
   }
@@ -752,6 +766,11 @@ function cmdPatch(args) {
     const oldTitle = fm.title;
     const newTitle = String(args.title);
     if (oldTitle && oldTitle !== newTitle) {
+      // HR07: if old title would become an alias and contains `,` or `]`,
+      // refuse — would corrupt the round-trip. (Pre-HR07 pages could have
+      // such titles; this halts before we propagate the hazard.)
+      const titleErr = aliasValueError(oldTitle);
+      if (titleErr) { console.error(`error: ${titleErr} (would be promoted to alias on title rename)`); process.exit(3); }
       const aliases = Array.isArray(fm.aliases) ? [...fm.aliases] : (fm.aliases ? [fm.aliases] : []);
       if (!aliases.includes(oldTitle)) aliases.push(oldTitle);
       fm.aliases = aliases;

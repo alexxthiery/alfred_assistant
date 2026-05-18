@@ -115,17 +115,20 @@ test('boundary: ISO timestamp value (contains `:`) is corrupted by the parser', 
     'ISO timestamps with colons survive the round-trip (greedy tail capture)');
 });
 
-test('boundary: alias containing `,` is mis-split on parse (HR07 pin)', () => {
+test('boundary: alias containing `,` is mis-split on parse (HR07 documented limitation)', () => {
   // serializeFrontmatter writes `aliases: [Doe, John]` for ["Doe, John"]; the
-  // parser then splits on `,` and yields ["Doe", "John"] — wrong. This is
-  // the known-unsafe shape from audit/12 § parser-robustness. The test pins
-  // current behavior so the HR07 fix lands as an intentional change here.
+  // parser then splits on `,` and yields ["Doe", "John"] — wrong. HR07 (shipped
+  // in session 26) closes this hazard at the write path: the CLI now refuses
+  // to write an alias containing `,` or `]`, so this lossy parse can never be
+  // triggered from a CLI-written page. The parse/serialize behavior itself is
+  // unchanged — pinning it documents that we accepted the round-trip limitation
+  // rather than fixing it in the parser. See tests/unit/maintenance-validate-aliases.test.js
+  // for the write-path rejection contract.
   const fm = { id: 'x', aliases: ['Doe, John'] };
   const text = serializeFrontmatter({ ...fm }, '');
   const out = parseFrontmatter(text);
-  // CURRENT behavior: two entries, not one.
-  assert.deepEqual(out.fm.aliases, ['Doe', 'John'],
-    'until HR07 ships, an alias containing `,` round-trips as two aliases — pinned');
+  // Parse/serialize behavior remains lossy for the unreachable case.
+  assert.deepEqual(out.fm.aliases, ['Doe', 'John']);
 });
 
 test('boundary: alias containing `]` happens to round-trip (single slice)', () => {

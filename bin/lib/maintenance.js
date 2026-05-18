@@ -32,6 +32,36 @@ const EXTRA_FIELDS = [
 
 const LIST_FIELDS = new Set(['derived_from', 'supersedes', 'aliases', 'attendees']);
 
+// HR07: parse/serialize round-trip is lossy for aliases containing `,` or `]`
+// (audit/12 § parser-robustness). User chose the reject-at-write path: any
+// alias containing one of these forbidden characters is refused before the
+// page is written, so the lossy-round-trip case can never materialize from
+// the CLI. Returns [] on safe input, or a single-element error array.
+const ALIAS_FORBIDDEN_CHARS = /[,\]]/;
+function aliasValueError(value) {
+  if (typeof value !== 'string' || value.length === 0) return null;
+  const m = value.match(ALIAS_FORBIDDEN_CHARS);
+  if (!m) return null;
+  return `alias "${value}" contains forbidden character "${m[0]}" (commas and right brackets break the frontmatter round-trip; see HR07)`;
+}
+function validateAliasArg(arg) {
+  if (arg === undefined || arg === null || arg === false) return [];
+  const list = Array.isArray(arg)
+    ? arg
+    : (typeof arg === 'string' ? arg.split(',').map((s) => s.trim()).filter(Boolean) : []);
+  // Special case: a comma-string `"Foo, Bar"` from CLI is the *intended* two-alias
+  // form, not one alias with a comma. But a comma-string `"Doe, John"` cannot be
+  // distinguished from the same — so the user is stuck. We accept this as the
+  // documented trade-off: array form (one alias per element) is the only safe
+  // way to pass an alias that needs a comma in it (which we now refuse anyway).
+  const errors = [];
+  for (const v of list) {
+    const e = aliasValueError(v);
+    if (e) errors.push(e);
+  }
+  return errors;
+}
+
 function formatIndex(pages, opts = {}) {
   const now = opts.now || '';
   const byType = {};
@@ -72,4 +102,12 @@ function applyExtraFrontmatter(fm, args) {
   }
 }
 
-module.exports = { formatIndex, formatLogLine, applyExtraFrontmatter, EXTRA_FIELDS, LIST_FIELDS };
+module.exports = {
+  formatIndex,
+  formatLogLine,
+  applyExtraFrontmatter,
+  validateAliasArg,
+  aliasValueError,
+  EXTRA_FIELDS,
+  LIST_FIELDS,
+};
