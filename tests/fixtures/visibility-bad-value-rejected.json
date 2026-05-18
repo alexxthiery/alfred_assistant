@@ -1,0 +1,7 @@
+{
+  "_comment": "visibility accepts only private/personal/public. Any other value exits 3.",
+  "setup": [
+    ["write", "vis-test", "--title", "V", "--type", "entity", "--tags", "person", "--content", "- [fact] seed ^[telegram:2026-05-17]"]
+  ],
+  "cmd": ["patch", "vis-test", "--visibility", "secret"]
+}

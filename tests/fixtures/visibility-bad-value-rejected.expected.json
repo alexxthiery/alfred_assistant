@@ -1,0 +1,4 @@
+{
+  "exitCode": 3,
+  "stderrContains": ["--visibility must be private|personal|public"]
+}

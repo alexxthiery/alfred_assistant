@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "visibility: public",
+    "sensitive: false",
+    "confidence: 0.7"
+  ]
+}

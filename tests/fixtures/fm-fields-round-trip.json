@@ -1,0 +1,8 @@
+{
+  "_comment": "Tier-3 frontmatter fields: visibility, sensitive, confidence. Patch sets all three; bodyContains assertions verify they round-trip via the serializer.",
+  "setup": [
+    ["write", "field-test", "--title", "Field test", "--type", "entity", "--tags", "person", "--content", "- [fact] seed ^[telegram:2026-05-17]"],
+    ["patch", "field-test", "--visibility", "public", "--sensitive", "false", "--confidence", "0.7"]
+  ],
+  "cmd": ["print", "field-test"]
+}
