@@ -82,6 +82,23 @@ const loadSchema = () => _loadSchema(SCHEMA_PATH);
 // top). loadSchema is wrapped at the top so existing call-sites still work
 // with no-arg invocation; the underlying function takes a path.
 
+// HR06: read + parse + refuse if the frontmatter block is opened but not
+// closed. Use at any site that intends to mutate the parsed fm and write
+// the page back (the unsafe pattern: lose all original metadata silently).
+// Read-only callers (audit, list, context, etc.) keep using parseFrontmatter
+// directly — tolerating malformed input is the documented contract there.
+function readPageForWrite(absPath) {
+  const raw = fs.readFileSync(absPath, 'utf-8');
+  const parsed = parseFrontmatter(raw);
+  if (parsed.malformed) {
+    console.error(`error: page ${absPath} has malformed frontmatter (opened with --- but no closing ---)`);
+    console.error(`  Refusing to re-serialize; this would silently drop all original metadata.`);
+    console.error(`  Fix the page by hand: add a closing --- line where the frontmatter block ends.`);
+    process.exit(2);
+  }
+  return parsed;
+}
+
 // ─── auto-maintained files ─────────────────────────────────────────────────
 
 function regenerateIndex() {
@@ -351,7 +368,7 @@ function cmdWrite(args) {
 
   let op = 'create';
   if (isAppend) {
-    const { fm, body: curBody } = parseFrontmatter(fs.readFileSync(filePath, 'utf-8'));
+    const { fm, body: curBody } = readPageForWrite(filePath);
     fm.updated = nowISO();
     applyExtraFrontmatter(fm, args);
     const newBody = curBody.trimEnd() + (body ? '\n\n' + body : '') + '\n';
@@ -416,7 +433,7 @@ function cmdLink(args) {
   if (!validSlug(to)) { console.error(`Invalid target slug: ${to}`); process.exit(1); }
   const fromPath = wikiPath(from);
   if (!fs.existsSync(fromPath)) { console.error(`error: page ${from} does not exist`); console.error(`  Hint: \`wiki resolve "${from}"\` to fuzzy-match similar slugs.`); process.exit(2); }
-  const { fm, body } = parseFrontmatter(fs.readFileSync(fromPath, 'utf-8'));
+  const { fm, body } = readPageForWrite(fromPath);
   if (new RegExp(`\\[\\[${to}\\]\\]`).test(body)) { console.log(`already linked: ${from} -> ${to}`); return; }
   let newBody;
   if (/^## Links\b/m.test(body)) {
@@ -480,7 +497,7 @@ function cmdMv(args) {
   let touched = 0;
   try {
     // 1. Renamed page content (read from oldPath since rename hasn't happened yet).
-    const { fm, body } = parseFrontmatter(fs.readFileSync(oldPath, 'utf-8'));
+    const { fm, body } = readPageForWrite(oldPath);
     fm.id = newSlug;
     fm.updated = nowISO();
     const aliases = Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []);
@@ -559,8 +576,8 @@ function cmdMerge(args) {
   if (isReserved(source) || isReserved(target)) { console.error('Cannot merge reserved pages.'); process.exit(1); }
 
   const dry = !!args['dry-run'];
-  const srcParsed = parseFrontmatter(fs.readFileSync(srcPath, 'utf-8'));
-  const tgtParsed = parseFrontmatter(fs.readFileSync(tgtPath, 'utf-8'));
+  const srcParsed = readPageForWrite(srcPath);
+  const tgtParsed = readPageForWrite(tgtPath);
 
   // 1. Compose merged body for target
   const mergedBody = tgtParsed.body.trimEnd() + '\n\n## Merged from ' + source + '\n\n' + srcParsed.body.trimEnd() + '\n';
@@ -673,7 +690,7 @@ function cmdPatch(args) {
   }
   const p = wikiPath(slug);
   if (!fs.existsSync(p)) { console.error(`error: page ${slug} does not exist`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
-  const { fm, body } = parseFrontmatter(fs.readFileSync(p, 'utf-8'));
+  const { fm, body } = readPageForWrite(p);
   if (fm.source_file) {
     console.error(`Page ${slug} is auto-rendered from ${fm.source_file}. Use \`wiki measure\` to add a row, or edit the source file directly.`);
     process.exit(2);
@@ -906,7 +923,7 @@ function todoDone(args) {
   if (!slug) { console.error('Usage: wiki todo done <slug>'); process.exit(1); }
   const p = wikiPath(slug);
   if (!fs.existsSync(p)) { console.error(`error: todo ${slug} not found`); process.exit(2); }
-  const { fm, body } = parseFrontmatter(fs.readFileSync(p, 'utf-8'));
+  const { fm, body } = readPageForWrite(p);
   if (fm.type !== 'todo') { console.error(`error: page ${slug} is not a todo (type=${fm.type})`); process.exit(2); }
   fm.status = 'done';
   fm.done_at = nowISO();
@@ -922,7 +939,7 @@ function todoDefer(args) {
   if (!slug || !args.to) { console.error('Usage: wiki todo defer <slug> --to YYYY-MM-DD'); process.exit(1); }
   const p = wikiPath(slug);
   if (!fs.existsSync(p)) { console.error(`error: todo ${slug} not found`); process.exit(2); }
-  const { fm, body } = parseFrontmatter(fs.readFileSync(p, 'utf-8'));
+  const { fm, body } = readPageForWrite(p);
   if (fm.type !== 'todo') { console.error(`error: page ${slug} is not a todo`); process.exit(2); }
   const oldDue = fm.due || '(none)';
   fm.due = args.to;
@@ -1012,7 +1029,10 @@ function autolinkSlug(slug, { direction = 'both', dryRun = false, verbose = true
 
   // Outbound: scan this page's body for mentions of other titles
   if (direction === 'out' || direction === 'both') {
-    const { fm, body } = parseFrontmatter(fs.readFileSync(p, 'utf-8'));
+    // autolink only writes back if injections occur; readPageForWrite is
+    // safe even if no write follows (the read+refuse-malformed is
+    // independent of whether we ultimately serialize).
+    const { fm, body } = readPageForWrite(p);
     const { body: newBody, injections } = autolinkBody(body, slug, tmap);
     if (injections > 0) {
       outCount = injections;

@@ -23,7 +23,16 @@ const SCHEMA_MIGRATIONS = {
 
 function parseFrontmatter(content) {
   const m = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-  if (!m) return { fm: {}, body: content };
+  if (!m) {
+    // HR06: distinguish "no frontmatter at all" (legal: bare-body page) from
+    // "frontmatter started but never closed" (data hazard: a write-path
+    // caller that re-serializes silently drops the original metadata). The
+    // marker is "content starts with --- and a newline" — if it does and we
+    // failed to match, we have an opened-but-never-closed block. See
+    // audit/12 § parser-robustness.
+    const malformed = /^---\r?\n/.test(content);
+    return { fm: {}, body: content, malformed };
+  }
   const fm = {};
   for (const line of m[1].split('\n')) {
     const kv = line.match(/^(\w+):\s*(.*)$/);
@@ -35,7 +44,7 @@ function parseFrontmatter(content) {
     }
     fm[k] = v;
   }
-  return { fm, body: m[2] };
+  return { fm, body: m[2], malformed: false };
 }
 
 function serializeFrontmatter(fm, body) {

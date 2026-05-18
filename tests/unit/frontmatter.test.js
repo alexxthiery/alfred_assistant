@@ -21,7 +21,7 @@ const {
 
 test('parseFrontmatter: returns empty fm for content with no frontmatter block', () => {
   const out = parseFrontmatter('just a body');
-  assert.deepEqual(out, { fm: {}, body: 'just a body' });
+  assert.deepEqual(out, { fm: {}, body: 'just a body', malformed: false });
 });
 
 test('parseFrontmatter: parses scalar fields', () => {
@@ -56,6 +56,38 @@ test('parseFrontmatter: separates body cleanly even when body contains "---"', (
   const { fm: parsed, body } = parseFrontmatter(input);
   assert.equal(parsed.id, 'x');
   assert.equal(body, 'body line 1\n---\nbody line 3\n');
+});
+
+// ─── HR06: malformed-frontmatter detection ─────────────────────────────────
+
+test('parseFrontmatter: bare-body page is malformed:false (legal — no FM block)', () => {
+  const out = parseFrontmatter('just a body line\nmore body\n');
+  assert.equal(out.malformed, false);
+  assert.deepEqual(out.fm, {});
+});
+
+test('parseFrontmatter: opened-but-never-closed FM block is malformed:true', () => {
+  // The hazard from audit/12 § parser-robustness: page started with --- and a
+  // line of frontmatter, but the closing --- got truncated. Today this parses
+  // as {fm:{}, body: <everything>}, indistinguishable from a bare-body page —
+  // a subsequent re-serialize would silently drop all the original metadata.
+  // HR06: malformed:true so the write-path can refuse.
+  const input = '---\nid: alice\ntitle: Alice\n(no closing fence)\nbody continues\n';
+  const out = parseFrontmatter(input);
+  assert.equal(out.malformed, true);
+  assert.deepEqual(out.fm, {}, 'no FM extracted on malformed input');
+});
+
+test('parseFrontmatter: --- followed by CRLF still detected as malformed', () => {
+  const input = '---\r\nid: x\nno close\n';
+  const out = parseFrontmatter(input);
+  assert.equal(out.malformed, true);
+});
+
+test('parseFrontmatter: well-formed FM block is malformed:false', () => {
+  const out = parseFrontmatter('---\nid: x\n---\nbody\n');
+  assert.equal(out.malformed, false);
+  assert.equal(out.fm.id, 'x');
 });
 
 // ─── serializeFrontmatter ──────────────────────────────────────────────────
