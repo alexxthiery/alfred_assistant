@@ -108,6 +108,8 @@ The reasoning: the vault is a typed graph, not a folder of notes. Every page has
 3. **Temporal + supersede semantics** — `[on YYYY-MM-DD]`, `[until ...]`, `[~ ...]` are CLI-parsed; supersede is a structured `strike-through + [until today]` operation, not an arbitrary edit.
 4. **Cascading effects** — every CLI write appends to `wiki/log.md`, regenerates `wiki/index.md` if needed, runs a post-write audit, and triggers `autoCommit()` so the change goes into git history with a meaningful message. A raw edit produces a dirty working tree that the host watcher then logs to `alfred/tamper.log` — which is exactly the bypass-detection signal {{USER_NAME}} relies on.
 5. **Identity discipline** — `wiki ingest` runs fuzzy duplicate detection before creating new slugs (`bob-jones` vs existing `bob`). A raw write bypasses this and fragments the graph.
+6. **Audit fix-lines are authoritative.** When CLI output (strict rejection, `postWriteAudit`, or `wiki audit`) includes a `→ fix: <command>` line, run that command verbatim. The rule that emitted it has already evaluated the situation and produced the correct remediation; do not improvise an alternative.
+7. **Alias-vs-filename precedence.** Adding `aliases: [X]` to page Y while `X.md` exists as a separate page is functionally inert: `[[X]]` still resolves to `X.md`, not `Y.md` (exact-slug match wins over alias lookup). To make `X` resolve to `Y`, run `wiki merge X Y` (folds X into Y and promotes X's title to an alias). The `non-functional-alias` strict rule now refuses such writes; if you ever see it, the fix line is the answer.
 
 In short: typing JSON through `wiki ingest` is *cheaper* than typing markdown directly, because the CLI is doing the heavy lifting you'd otherwise have to do by hand and would silently get wrong.
 
@@ -119,6 +121,7 @@ In short: typing JSON through `wiki ingest` is *cheaper* than typing markdown di
 | Add one observation or relation to an existing page | `wiki patch <slug> --observation "[fact] ... ^[telegram:...]"` or `--relation "verb [[target]]"` |
 | Strike an old observation and replace it | `wiki patch <slug> --supersede "<substring>" --observation "[fact] new ^[...]"` |
 | Rename a page (rewrites backlinks, adds alias) | `wiki mv <old> <new>` |
+| {{USER_NAME}} says "X is the same person/thing as Y" OR "X is a nickname/alias for Y" | `wiki merge X Y` — **do not** reach for `wiki patch Y --alias X` while `X.md` exists; the alias would be inert |
 | Merge a duplicate into the canonical page | `wiki merge <source> <target>` |
 | Single-page rewrite (rare, last resort) | `wiki write <slug> ...` (strict; rejects bad types/tags/verbs/provenance) |
 
