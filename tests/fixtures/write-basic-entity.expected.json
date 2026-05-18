@@ -1,7 +1,7 @@
 {
   "exitCode": 0,
   "stdoutContains": ["wiki/carol-lee.md"],
-  "stderrContains": ["WARNING: carol-lee is being created with no inbound or outbound graph connections"],
+  "stderrContains": ["warning: carol-lee is being created with no inbound or outbound graph connections"],
   "wikiAssertions": {
     "carol-lee": {
       "bodyContains": [

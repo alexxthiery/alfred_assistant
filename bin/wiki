@@ -301,7 +301,7 @@ function cmdWrite(args) {
   if (exists) {
     const existingFm = parseFrontmatter(fs.readFileSync(filePath, 'utf-8')).fm;
     if (existingFm.source_file) {
-      console.error(`Page ${slug} is auto-rendered from ${existingFm.source_file}. Use \`wiki measure\` to add a row, or edit the source file directly.`);
+      console.error(`error: page ${slug} is auto-rendered from ${existingFm.source_file}. Use \`wiki measure\` to add a row, or edit the source file directly.`);
       process.exit(2);
     }
   }
@@ -319,7 +319,7 @@ function cmdWrite(args) {
       derivedFrom: args.derived_from,
     }, { isAppend });
     if (validationErrors.length) {
-      console.error('Rejected:');
+      console.error('error: write validation failed:');
       for (const e of validationErrors) console.error(`  ${e}`);
       process.exit(3);
     }
@@ -362,7 +362,7 @@ function cmdWrite(args) {
       fm: validateFm,
     });
     if (bodyErrors.length) {
-      console.error('Rejected (strict body validation; bypass with --soft):');
+      console.error('error: strict body validation failed (bypass with --soft):');
       for (const e of bodyErrors) console.error(`  [${e.rule}] ${e.message}`);
       process.exit(3);
     }
@@ -417,8 +417,8 @@ function cmdWrite(args) {
     }
     if (!hasOutbound && !hasInbound && listWikiPages().length > 1) {
       console.error('');
-      console.error(`WARNING: ${slug} is being created with no inbound or outbound graph connections.`);
-      console.error('This page will be an orphan. Consider:');
+      console.error(`warning: ${slug} is being created with no inbound or outbound graph connections (orphan).`);
+      console.error('  Consider:');
       console.error(`  - Adding a relation in body (e.g. - works_at [[some-slug]])`);
       console.error(`  - Running 'wiki place "<title>"' to find a better home`);
       console.error(`  - Running 'wiki autolink ${slug}' to scan for bidirectional links`);
@@ -432,7 +432,7 @@ function cmdLink(args) {
   const from = args._[0];
   const to = args._[1];
   if (!from || !to) { console.error('Usage: wiki link <from-slug> <to-slug>'); process.exit(1); }
-  if (!validSlug(to)) { console.error(`Invalid target slug: ${to}`); process.exit(1); }
+  if (!validSlug(to)) { console.error(`error: invalid target slug: ${to}`); process.exit(1); }
   const fromPath = wikiPath(from);
   if (!fs.existsSync(fromPath)) { console.error(`error: page ${from} does not exist`); console.error(`  Hint: \`wiki resolve "${from}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   const { fm, body } = readPageForWrite(fromPath);
@@ -479,7 +479,7 @@ function cmdMv(args) {
   const oldSlug = args._[0];
   const newSlug = args._[1];
   if (!oldSlug || !newSlug) { console.error('Usage: wiki mv <old-slug> <new-slug>'); process.exit(1); }
-  if (!validSlug(newSlug)) { console.error(`Invalid new slug: ${newSlug}`); process.exit(1); }
+  if (!validSlug(newSlug)) { console.error(`error: invalid new slug: ${newSlug}`); process.exit(1); }
   if (isReserved(newSlug)) { console.error(`error: slug "${newSlug}" is reserved`); process.exit(1); }
   const { forbidden } = loadSchema();
   if (forbidden.has(newSlug)) { console.error(`error: slug "${newSlug}" is a forbidden aggregator slug`); process.exit(1); }
@@ -570,12 +570,12 @@ function cmdMerge(args) {
     console.error('  deletes source.');
     process.exit(1);
   }
-  if (source === target) { console.error('Source and target must differ.'); process.exit(1); }
+  if (source === target) { console.error('error: source and target must differ'); process.exit(1); }
   const srcPath = wikiPath(source);
   const tgtPath = wikiPath(target);
   if (!fs.existsSync(srcPath)) { console.error(`error: source ${source} does not exist`); process.exit(2); }
   if (!fs.existsSync(tgtPath)) { console.error(`error: target ${target} does not exist`); process.exit(2); }
-  if (isReserved(source) || isReserved(target)) { console.error('Cannot merge reserved pages.'); process.exit(1); }
+  if (isReserved(source) || isReserved(target)) { console.error('error: cannot merge reserved pages'); process.exit(1); }
 
   const dry = !!args['dry-run'];
   const srcParsed = readPageForWrite(srcPath);
@@ -694,7 +694,7 @@ function cmdPatch(args) {
   if (!fs.existsSync(p)) { console.error(`error: page ${slug} does not exist`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   const { fm, body } = readPageForWrite(p);
   if (fm.source_file) {
-    console.error(`Page ${slug} is auto-rendered from ${fm.source_file}. Use \`wiki measure\` to add a row, or edit the source file directly.`);
+    console.error(`error: page ${slug} is auto-rendered from ${fm.source_file}. Use \`wiki measure\` to add a row, or edit the source file directly.`);
     process.exit(2);
   }
   const schema = loadSchema();
@@ -708,11 +708,11 @@ function cmdPatch(args) {
     const lines = newBody.split('\n');
     const idx = lines.findIndex((l) => /^- (?:~~)?\[/.test(l) && l.includes(needle));
     if (idx < 0) {
-      console.error(`No observation matching: ${needle}`);
+      console.error(`error: no observation matching: ${needle}`);
       process.exit(3);
     }
     if (/^- ~~/.test(lines[idx])) {
-      console.error(`Already superseded: ${lines[idx]}`);
+      console.error(`error: already superseded: ${lines[idx]}`);
       process.exit(3);
     }
     const today = nowISO().slice(0, 10);
@@ -815,7 +815,7 @@ function cmdPatch(args) {
   }
 
   if (ops.length === 0) {
-    console.error('Nothing to patch. Pass at least one of --observation, --relation, --add-tag, --remove-tag, --alias, --summary, --title.');
+    console.error('error: nothing to patch. Pass at least one of --observation, --relation, --add-tag, --remove-tag, --alias, --summary, --title.');
     process.exit(1);
   }
 
@@ -1340,7 +1340,7 @@ function cmdIngest(args) {
   if (args.stdin) {
     jsonText = fs.readFileSync(0, 'utf-8');
   } else if (args.file) {
-    if (!fs.existsSync(args.file)) { console.error(`File not found: ${args.file}`); process.exit(1); }
+    if (!fs.existsSync(args.file)) { console.error(`error: file not found: ${args.file}`); process.exit(1); }
     jsonText = fs.readFileSync(args.file, 'utf-8');
   } else {
     console.error('Usage: wiki ingest --stdin   |   wiki ingest --file <path.json>');
@@ -1358,7 +1358,7 @@ function cmdIngest(args) {
   try {
     spec = JSON.parse(jsonText);
   } catch (e) {
-    console.error(`Invalid JSON: ${e.message}`);
+    console.error(`error: invalid JSON: ${e.message}`);
     process.exit(2);
   }
 
@@ -2589,7 +2589,7 @@ function loadVaultDb() {
   const r = spawnSync('duckdb', [DB_PATH, sql], { encoding: 'utf-8' });
   if (r.error || r.status !== 0) {
     const msg = (r.stderr || '').split('\n')[0] || (r.error && r.error.message) || `exit ${r.status}`;
-    console.error(`Failed to build DuckDB at ${DB_PATH}: ${msg}`);
+    console.error(`error: failed to build DuckDB at ${DB_PATH}: ${msg}`);
     process.exit(2);
   }
   console.error(`(rebuilt vault.duckdb: ${n} pages)`);
@@ -2708,8 +2708,8 @@ function cmdMeasure(args) {
   fs.mkdirSync(MEASUREMENTS_DIR, { recursive: true });
   const tsvPath = path.join(MEASUREMENTS_DIR, `${series}.tsv`);
   if (!fs.existsSync(tsvPath)) {
-    console.error(`Series TSV not found: ${tsvPath}`);
-    console.error(`Create it first with a header row, e.g.:`);
+    console.error(`error: series TSV not found: ${tsvPath}`);
+    console.error(`  Create it first with a header row, e.g.:`);
     console.error(`  printf 'date\\theight_m\\tweight_kg\\tbmi\\tsource\\n' > ${tsvPath}`);
     process.exit(2);
   }
@@ -2719,7 +2719,7 @@ function cmdMeasure(args) {
 
   const { header, rows } = readTsv(tsvPath);
   if (rows.find((r) => r.date === args.date)) {
-    console.error(`Row for date ${args.date} already exists in ${series}.tsv. Edit the TSV directly to update.`);
+    console.error(`error: row for date ${args.date} already exists in ${series}.tsv. Edit the TSV directly to update.`);
     process.exit(3);
   }
 
@@ -2745,7 +2745,7 @@ function cmdMeasure(args) {
   // Validate required columns (skip derived if we filled them in).
   for (const h of header) {
     if (newRow[h] === undefined || newRow[h] === '') {
-      console.error(`Missing column "${h}". Pass --${h}=<value> or supply --birth (for age) / both height_m+weight_kg (for bmi).`);
+      console.error(`error: missing column "${h}". Pass --${h}=<value> or supply --birth (for age) / both height_m+weight_kg (for bmi).`);
       process.exit(1);
     }
   }
