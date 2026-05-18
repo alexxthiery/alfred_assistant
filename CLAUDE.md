@@ -8,6 +8,18 @@ Single-user, self-hosted personal-knowledge agent. The "vault" is a typed graph 
 
 The repo is *the published surface* (CLI + docs + tests). The user's actual vault lives elsewhere on their machine and is mounted into the agent container at runtime via `.alfred.yml`.
 
+## Starting cold — which runbook?
+
+Match your task to one of these and jump to the linked section:
+
+- Editing or adding a verb in `bin/wiki` → **Runbook 1** below.
+- Adding a closed-set tag, page type, or relation verb → **Runbook 2** below.
+- Adding a fixture or smoke test → **Runbook 3** below.
+- Extracting a pure helper into `bin/lib/` → **Runbook 4** below.
+- Adding an audit rule → **Runbook 5** below.
+
+If your task does not fit any of these, read the file map next.
+
 ## File map (with token budget)
 
 Approximate token counts assume ~4 chars/token. Sizes accurate as of the latest commit on `main`.
