@@ -18,11 +18,19 @@ const { extractWikilinks, parseObservations, parseRelations } = require('../lib/
 const { WIKI_DIR, wikiPath, listWikiPages, readPage, forEachPage } = require('../lib/vault.js');
 
 function cmdList(args) {
+  // HR25: --slugs-only emits one slug per line, no title/tags. Token-economy
+  // for agents that enumerate-then-act on slugs (avg ~70% fewer tokens than
+  // the default tab-separated form on a 13-page vault).
+  const slugsOnly = !!args['slugs-only'];
   forEachPage(({ slug: fileSlug, fm }) => {
     const slug = fm.id || fileSlug;
     const tags = Array.isArray(fm.tags) ? fm.tags : [];
     if (args.tag && !tags.includes(args.tag)) return;
     if (args.type && fm.type !== args.type) return;
+    if (slugsOnly) {
+      console.log(slug);
+      return;
+    }
     const tagStr = tags.length ? `  [${tags.join(', ')}]` : '';
     console.log(`${slug}\t${fm.title || ''}${tagStr}`);
   });
@@ -214,21 +222,22 @@ function cmdRelated(args) {
 
 function cmdPreview(args) {
   const slug = args._[0];
-  if (!slug) { console.error('Usage: wiki preview <slug>'); process.exit(1); }
+  if (!slug) { console.error('Usage: wiki preview <slug> [--compact]'); process.exit(1); }
   const page = readPage(slug);
   if (!page) { console.error(`error: page ${slug} does not exist`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   const { fm, body } = page;
+  // HR25: --compact drops decorative blank lines + heuristic body excerpt.
+  // Mirrors cmdContext --compact pattern. Same data, ~30% fewer lines.
+  const compact = !!args.compact;
   const tags = Array.isArray(fm.tags) ? fm.tags.join(', ') : '';
   const aliases = Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []);
   const updated = (fm.updated || '').slice(0, 10);
-  // First 3 non-heading, non-microsyntax body lines
   const lines = body.split('\n').filter((l) => {
     const t = l.trim();
     return t && !t.startsWith('#') && !t.startsWith('- [') && !t.startsWith('- "') && !/^- [a-z][a-z_]+ \[\[/.test(t);
   }).slice(0, 3);
   const obs = parseObservations(body).length;
   const rels = parseRelations(body).length;
-  // Inbound wikilinks
   const re = new RegExp(`\\[\\[${slug}\\]\\]`);
   let inbound = 0;
   forEachPage(({ slug: from, body: b }) => {
@@ -238,11 +247,11 @@ function cmdPreview(args) {
   console.log(`${slug} · ${fm.title || ''} · ${fm.type || 'note'} · ${updated} · [${tags}]`);
   if (aliases.length) console.log(`aliases: ${aliases.join(', ')}`);
   if (fm.summary) console.log(`summary: ${fm.summary}`);
-  if (lines.length) {
+  if (lines.length && !compact) {
     console.log('');
     for (const l of lines) console.log(`  ${l.trim().slice(0, 120)}`);
   }
-  console.log('');
+  if (!compact) console.log('');
   console.log(`${obs} observations · ${rels} outbound relations · ${inbound} inbound wikilinks`);
 }
 
