@@ -7,11 +7,17 @@
 // Each entry: { name, severity, strict, check(input, deps) }.
 //   input: { slug, title, type, tags, body, fm }
 //   deps:  { schema, knownVerbs }
-//   check: returns null (clean) or { detail, message, examples? }
+//   check: returns null (clean) or { detail, message?, examples?, fix? }
 //     detail  → used by audit-shape output
 //     message → used by validateBody-shape output (with extra guidance)
+//     fix     → HR-OOB-A: a concrete verb invocation the agent or human can
+//               run verbatim to resolve the finding. Surfaced by callers
+//               (postWriteAudit, auditAll, strict-rejection printer) as a
+//               `→ fix: <command>` line right under the finding. Rule
+//               authors should produce this string with all slug/value
+//               substitutions already filled in.
 //
-// auditPage runs all rules; iterateStrict runs only `strict: true` rules.
+// auditPage runs all rules; strictRuleErrors runs only `strict: true` rules.
 
 'use strict';
 
@@ -191,7 +197,10 @@ const AUDIT_RULES = [
 ];
 
 // Run ALL rules against a page. Returns { score, issues } where score is the
-// severity-weighted sum (high=3, medium=2, low=1).
+// severity-weighted sum (high=3, medium=2, low=1). Each issue may carry
+// {fix?} — a concrete suggested verb invocation (HR-OOB-A) that the agent or
+// human can run verbatim to resolve the finding. Surfaced by callers in
+// bin/wiki (postWriteAudit, auditAll) via `→ fix:` output lines.
 function auditPage(input, deps) {
   const issues = [];
   for (const rule of AUDIT_RULES) {
@@ -199,6 +208,7 @@ function auditPage(input, deps) {
     if (!out) continue;
     const issue = { rule: rule.name, severity: rule.severity, detail: out.detail };
     if (out.examples) issue.examples = out.examples;
+    if (out.fix) issue.fix = out.fix;
     issues.push(issue);
   }
   const score = issues.reduce((acc, i) => acc + severityScore(i.severity), 0);
@@ -206,13 +216,17 @@ function auditPage(input, deps) {
 }
 
 // Run only `strict: true` rules; emit validateBody-shape records.
+// HR-OOB-A: `fix?` propagated alongside message so the strict-rejection
+// printer can emit `→ fix: <command>` lines.
 function strictRuleErrors(input, deps) {
   const errors = [];
   for (const rule of AUDIT_RULES) {
     if (!rule.strict) continue;
     const out = rule.check(input, deps);
     if (!out) continue;
-    errors.push({ rule: rule.name, message: out.message || out.detail });
+    const error = { rule: rule.name, message: out.message || out.detail };
+    if (out.fix) error.fix = out.fix;
+    errors.push(error);
   }
   return errors;
 }

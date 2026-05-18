@@ -363,7 +363,10 @@ function cmdWrite(args) {
     });
     if (bodyErrors.length) {
       console.error('error: strict body validation failed (bypass with --soft):');
-      for (const e of bodyErrors) console.error(`  [${e.rule}] ${e.message}`);
+      for (const e of bodyErrors) {
+        console.error(`  [${e.rule}] ${e.message}`);
+        if (e.fix) console.error(`    → fix: ${e.fix}`);
+      }
       process.exit(3);
     }
   }
@@ -831,7 +834,10 @@ function cmdPatch(args) {
     const bodyErrors = validateBody({ slug, title: fm.title, type, tags, body: newBody, fm });
     if (bodyErrors.length) {
       console.error(`error: validation failed for ${slug}:`);
-      for (const e of bodyErrors) console.error(`  [${e.rule}] ${e.message}`);
+      for (const e of bodyErrors) {
+        console.error(`  [${e.rule}] ${e.message}`);
+        if (e.fix) console.error(`    → fix: ${e.fix}`);
+      }
       console.error('  (bypass with --soft, e.g. wiki patch <slug> --observation "..." --soft)');
       process.exit(3);
     }
@@ -1693,8 +1699,15 @@ function postWriteAudit(slug) {
     if (result.score === 0) return;
     console.error('');
     console.error(`# audit ${slug}: ${result.issues.length} issue(s), score ${result.score}`);
-    for (const i of result.issues) console.error(`  [${i.severity}] ${i.rule}: ${i.detail}`);
-    console.error(`  → fix via 'wiki patch ${slug} ...' before next ingestion`);
+    let anySpecificFix = false;
+    for (const i of result.issues) {
+      console.error(`  [${i.severity}] ${i.rule}: ${i.detail}`);
+      if (i.fix) {
+        console.error(`    → fix: ${i.fix}`);
+        anySpecificFix = true;
+      }
+    }
+    if (!anySpecificFix) console.error(`  → fix via 'wiki patch ${slug} ...' before next ingestion`);
   } catch (e) {
     // Audit hook should never break the write
     console.error(`audit-hook error: ${e.message}`);
@@ -1710,6 +1723,7 @@ function formatAuditPage(slug, result) {
   lines.push(`# audit ${slug}: ${result.issues.length} issue(s), score ${result.score}`);
   for (const i of result.issues) {
     lines.push(`  [${i.severity}] ${i.rule}: ${i.detail}`);
+    if (i.fix) lines.push(`    → fix: ${i.fix}`);
     if (i.examples) for (const ex of i.examples) lines.push(`     · ${ex}`);
   }
   return lines.join('\n');
