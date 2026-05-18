@@ -1,0 +1,14 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "bob-jones": { "fileExists": false },
+    "bob": { "bodyContains": ["canonical"] },
+    "collider": {
+      "bodyContains": ["- mentions [[bob]]"],
+      "bodyMissing": [
+        "[[bob-jones]]",
+        "- mentions [[bob]]\n- mentions [[bob]]"
+      ]
+    }
+  }
+}
