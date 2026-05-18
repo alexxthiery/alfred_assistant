@@ -6,7 +6,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const { AUDIT_RULES, auditPage, auditVault, strictRuleErrors, severityScore } = require(path.resolve(__dirname, '..', '..', 'bin', 'lib', 'audit.js'));
+const { AUDIT_RULES, auditPage, auditVault, strictRuleErrors, strictCrossPageErrors, STRICT_CROSS_PAGE_RULES, severityScore } = require(path.resolve(__dirname, '..', '..', 'bin', 'lib', 'audit.js'));
 
 function makeSchema(overrides = {}) {
   return {
@@ -363,4 +363,44 @@ test('auditVault: empty pages list returns empty perPage + empty hotMentions', (
   const out = auditVault({ pages: [], ...deps() });
   assert.deepEqual(out.perPage, []);
   assert.deepEqual(out.hotMentions, []);
+});
+
+// ─── HR-OOB-B: cross-page strict-rule pipeline ────────────────────────────
+
+test('strictCrossPageErrors: returns [] when allPages absent (deps missing snapshot)', () => {
+  const thisPage = { slug: 'a', title: 'A', type: 'entity', tags: ['person'], body: '', fm: {} };
+  const errors = strictCrossPageErrors(thisPage, { ...deps() });
+  assert.deepEqual(errors, []);
+});
+
+test('strictCrossPageErrors: returns [] when table is empty even with allPages', () => {
+  const thisPage = { slug: 'a', title: 'A', type: 'entity', tags: ['person'], body: '', fm: {} };
+  const allPages = [{ slug: 'b', title: 'B', type: 'entity', tags: ['person'], body: '', fm: {} }];
+  const errors = strictCrossPageErrors(thisPage, { ...deps(), allPages });
+  assert.deepEqual(errors, []);
+});
+
+test('strictCrossPageErrors: fires registered rule and propagates fix?', () => {
+  // Temporarily register a probe rule that always fires, with a fix string.
+  const probe = {
+    name: 'probe-cross-page',
+    severity: 'high',
+    strict: true,
+    check: ({ thisPage, allPages }) => ({
+      detail: `probe saw ${allPages.length} page(s)`,
+      fix: `wiki probe ${thisPage.slug}`,
+    }),
+  };
+  STRICT_CROSS_PAGE_RULES.push(probe);
+  try {
+    const thisPage = { slug: 'x', title: 'X', type: 'entity', tags: ['person'], body: '', fm: {} };
+    const allPages = [{ slug: 'y', title: 'Y', type: 'entity', tags: ['person'], body: '', fm: {} }];
+    const errors = strictCrossPageErrors(thisPage, { ...deps(), allPages });
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].rule, 'probe-cross-page');
+    assert.match(errors[0].message, /probe saw 1 page/);
+    assert.equal(errors[0].fix, 'wiki probe x');
+  } finally {
+    STRICT_CROSS_PAGE_RULES.pop();
+  }
 });

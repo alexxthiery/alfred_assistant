@@ -16,7 +16,7 @@
 'use strict';
 
 const { validSlug, isReserved, KNOWN_TYPES, ENTITY_KIND_TAGS } = require('./schema.js');
-const { strictRuleErrors } = require('./audit.js');
+const { strictRuleErrors, strictCrossPageErrors, STRICT_CROSS_PAGE_RULES } = require('./audit.js');
 
 const FUZZY_DUP_THRESHOLD = 0.7;
 
@@ -201,12 +201,19 @@ function validateIngestSpec(spec, deps) {
 // output shape differs (validateBody emits {rule, message}; auditPage emits
 // {rule, severity, detail}).
 
+// HR-OOB-B: when deps.allPages is provided, also runs the cross-page strict
+// rules (STRICT_CROSS_PAGE_RULES) and concatenates errors. Callers without
+// a snapshot get per-page-only checks, same as before.
 function validateBody(input, deps) {
-  return strictRuleErrors(input, deps);
+  const perPage = strictRuleErrors(input, deps);
+  if (!deps || !deps.allPages) return perPage;
+  const crossPage = strictCrossPageErrors(input, deps);
+  return perPage.concat(crossPage);
 }
 
 module.exports = {
   validateIngestSpec,
   validateBody,
+  STRICT_CROSS_PAGE_RULES,
   FUZZY_DUP_THRESHOLD,
 };

@@ -18,6 +18,14 @@
 //               substitutions already filled in.
 //
 // auditPage runs all rules; strictRuleErrors runs only `strict: true` rules.
+//
+// HR-OOB-B: cross-page strict rules live in a separate table,
+// STRICT_CROSS_PAGE_RULES. They differ from AUDIT_RULES in signature:
+//   check({thisPage, allPages}, deps) -> null | {detail, message?, fix?}
+// and are only invoked when validateBody is called with `allPages` in deps.
+// Surfaced through strictCrossPageErrors() in the same {rule, message, fix?}
+// shape as strictRuleErrors() so the strict-rejection printer can treat them
+// uniformly.
 
 'use strict';
 
@@ -235,6 +243,29 @@ function severityScore(s) {
   return s === 'high' ? 3 : s === 'medium' ? 2 : 1;
 }
 
+// HR-OOB-B: cross-page strict rules. Each entry:
+//   {name, severity, strict: true, check({thisPage, allPages}, deps)}
+//     thisPage: {slug, title, type, tags, body, fm}
+//     allPages: Array<{slug, title, type, tags, fm, body}>  (snapshot from vault)
+//     deps:     {schema, knownVerbs}
+//     check returns null (clean) or {detail, message?, fix?}
+// HR-OOB-C populates this table; the pipeline is wired empty so validateBody
+// can already plumb allPages through harmlessly.
+const STRICT_CROSS_PAGE_RULES = [];
+
+function strictCrossPageErrors(thisPage, deps) {
+  if (!deps || !deps.allPages) return [];
+  const errors = [];
+  for (const rule of STRICT_CROSS_PAGE_RULES) {
+    const out = rule.check({ thisPage, allPages: deps.allPages }, deps);
+    if (!out) continue;
+    const error = { rule: rule.name, message: out.message || out.detail };
+    if (out.fix) error.fix = out.fix;
+    errors.push(error);
+  }
+  return errors;
+}
+
 // HR05: vault-wide audit. Runs per-page (auditPage) plus the two cross-page
 // rules (hot-text-mention, lonely) that need a vault-wide view. Pure: takes
 // a pre-built `pages` snapshot + deps; returns the same shape as before
@@ -309,8 +340,10 @@ function auditVault({ pages, schema, knownVerbs }) {
 
 module.exports = {
   AUDIT_RULES,
+  STRICT_CROSS_PAGE_RULES,
   auditPage,
   auditVault,
   strictRuleErrors,
+  strictCrossPageErrors,
   severityScore,
 };

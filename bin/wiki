@@ -43,14 +43,14 @@ const {
   scoreSlugCandidates,
 } = require('./lib/graph.js');
 const { validateIngestSpec, validateBody: _validateBody } = require('./lib/ingest.js');
-const { auditPage, auditVault } = require('./lib/audit.js');
+const { auditPage, auditVault, STRICT_CROSS_PAGE_RULES, strictCrossPageErrors } = require('./lib/audit.js');
 const { applyFlagAliases } = require('./lib/flag-aliases.js');
 const { flushStaged } = require('./lib/staged-writes.js');
 const { buildTitleEntries, autolinkBody } = require('./lib/autolink.js');
 const { formatIndex, formatLogLine, applyExtraFrontmatter, validateAliasArg, aliasValueError } = require('./lib/maintenance.js');
 const {
   VAULT_ROOT, WIKI_DIR, SCHEMA_PATH, INDEX_PATH, LOG_PATH,
-  nowISO, wikiPath, listWikiPages, readPage, forEachPage,
+  nowISO, wikiPath, listWikiPages, readPage, forEachPage, invalidatePageCache,
 } = require('./lib/vault.js');
 const {
   cmdList, cmdSearch, cmdRecent, cmdPreview, cmdPrint,
@@ -266,13 +266,35 @@ function validateForWrite({ slug, type, tags, derivedFrom }, { isAppend }) {
 }
 
 // Strict body+frontmatter validators (run on full intended page content).
-// Returns array of {rule, message} error objects.
+// Returns array of {rule, message, fix?} error objects.
 // Thin wrapper over ./lib/ingest.js's validateBody — fetches schema +
 // knownVerbs from the live SCHEMA.md and delegates to the pure core.
+// HR-OOB-B: when STRICT_CROSS_PAGE_RULES is non-empty, builds a vault
+// snapshot lazily (cached) and passes it as allPages so cross-page strict
+// rules can fire. Writes invalidate the cache via invalidatePageCache().
 function validateBody(args) {
   const schema = loadSchema();
   const knownVerbs = knownRelationVerbs(schema);
-  return _validateBody(args, { schema, knownVerbs });
+  const deps = { schema, knownVerbs };
+  if (STRICT_CROSS_PAGE_RULES.length > 0) {
+    deps.allPages = buildAllPagesSnapshot();
+  }
+  return _validateBody(args, deps);
+}
+
+function buildAllPagesSnapshot() {
+  const pages = [];
+  forEachPage(({ slug, fm, body }) => {
+    pages.push({
+      slug,
+      fm,
+      body,
+      type: fm.type || 'note',
+      tags: Array.isArray(fm.tags) ? fm.tags : [],
+      title: String(fm.title || slug),
+    });
+  }, { cache: true });
+  return pages;
 }
 
 // ─── read verbs ────────────────────────────────────────────────────────────
@@ -1693,17 +1715,45 @@ function auditAll(opts = {}) {
 }
 
 // Post-write audit: called from cmdWrite/cmdPatch/cmdIngest. Silent if clean.
+// HR-OOB-B: also runs STRICT_CROSS_PAGE_RULES on the touched slug as advisory
+// warnings (prevention is at validateBody-time; this is the safety net for
+// rules added after a page's last write, or for rules surfaced through
+// cmdMerge/cmdMv that don't go through validateBody).
 function postWriteAudit(slug) {
   try {
+    invalidatePageCache();
     const result = auditSlug(slug);
-    if (result.score === 0) return;
+    let crossPageErrors = [];
+    if (STRICT_CROSS_PAGE_RULES.length > 0) {
+      const p = wikiPath(slug);
+      if (fs.existsSync(p)) {
+        const raw = fs.readFileSync(p, 'utf-8');
+        const { fm, body } = parseFrontmatter(raw);
+        const allPages = buildAllPagesSnapshot();
+        const schema = loadSchema();
+        const knownVerbs = knownRelationVerbs(schema);
+        crossPageErrors = strictCrossPageErrors(
+          { slug, title: String(fm.title || slug), type: fm.type || 'note', tags: Array.isArray(fm.tags) ? fm.tags : [], body, fm },
+          { schema, knownVerbs, allPages },
+        );
+      }
+    }
+    if (result.score === 0 && crossPageErrors.length === 0) return;
     console.error('');
-    console.error(`# audit ${slug}: ${result.issues.length} issue(s), score ${result.score}`);
+    const issueCount = result.issues.length + crossPageErrors.length;
+    console.error(`# audit ${slug}: ${issueCount} issue(s), score ${result.score}`);
     let anySpecificFix = false;
     for (const i of result.issues) {
       console.error(`  [${i.severity}] ${i.rule}: ${i.detail}`);
       if (i.fix) {
         console.error(`    → fix: ${i.fix}`);
+        anySpecificFix = true;
+      }
+    }
+    for (const e of crossPageErrors) {
+      console.error(`  [cross-page] ${e.rule}: ${e.message}`);
+      if (e.fix) {
+        console.error(`    → fix: ${e.fix}`);
         anySpecificFix = true;
       }
     }
