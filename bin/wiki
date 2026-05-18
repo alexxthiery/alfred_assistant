@@ -132,17 +132,28 @@ function autoCommit(op, detail) {
   const gitDir = path.join(VAULT_ROOT, '.git');
   if (!fs.existsSync(gitDir)) return;
   try {
-    const { execSync } = require('child_process');
+    const { spawnSync } = require('child_process');
     const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+    // Array-form spawnSync: argv is passed through verbatim, no shell interpolation.
     // See tamperCheck for the race-window discussion: by the time we hit
     // `git add -A`, log.md has already been written and any concurrent
     // out-of-CLI edit gets folded into the same commit indistinguishably.
-    execSync('git add -A', { cwd: VAULT_ROOT, env, stdio: 'pipe' });
+    const git = (args) => {
+      const r = spawnSync('git', args, { cwd: VAULT_ROOT, env, encoding: 'utf-8' });
+      if (r.error) throw r.error;
+      if (r.status !== 0) {
+        throw new Error(`git ${args[0]}: ${(r.stderr || '').split('\n')[0] || `exit ${r.status}`}`);
+      }
+      return r;
+    };
+    git(['add', '-A']);
     // Skip commit if nothing staged (e.g. only ignored files changed).
-    const staged = execSync('git diff --cached --name-only', { cwd: VAULT_ROOT, env, stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
+    const staged = git(['diff', '--cached', '--name-only']).stdout.trim();
     if (!staged) return;
-    const safeMsg = `${op} | ${detail}`.replace(/"/g, "'").slice(0, 200);
-    execSync(`git -c commit.gpgsign=false commit -m "${safeMsg}"`, { cwd: VAULT_ROOT, env, stdio: 'pipe' });
+    // Slice to 200 chars to keep commit subject sane; quotes preserved as-is
+    // (no shell parsing now that we use array form).
+    const safeMsg = `${op} | ${detail}`.slice(0, 200);
+    git(['-c', 'commit.gpgsign=false', 'commit', '-m', safeMsg]);
   } catch (e) {
     // Loud failure: stderr block that any human or scraper-of-stderr will see.
     const msg = e && e.message ? e.message.split('\n')[0] : String(e);
@@ -167,9 +178,11 @@ function tamperCheck() {
   const gitDir = path.join(VAULT_ROOT, '.git');
   if (!fs.existsSync(gitDir)) return;
   try {
-    const { execSync } = require('child_process');
+    const { spawnSync } = require('child_process');
     const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
-    const dirty = execSync('git status --porcelain', { cwd: VAULT_ROOT, env, stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
+    const r = spawnSync('git', ['status', '--porcelain'], { cwd: VAULT_ROOT, env, encoding: 'utf-8' });
+    if (r.error) throw r.error;
+    const dirty = (r.stdout || '').trim();
     if (!dirty) return;
     // Filter to vault content (ignore alfred/scratchpad.md, tamper.log etc which are gitignored)
     const lines = dirty.split('\n').filter((l) => /\s(wiki|inbox|raw|SCHEMA\.md|\.bin)\//.test(l));
@@ -1531,6 +1544,16 @@ function cmdIngest(args) {
     modified.push(p.slug);
   }
 
+  // Dedup created/modified/skipped — a slug can appear twice if e.g. multiple
+  // patches target the same page in one spec (M07). Reporting "2 modified"
+  // for one slug is misleading; we report the set of touched slugs.
+  const dedupedCreated  = [...new Set(created)];
+  const dedupedModified = [...new Set(modified)];
+  const dedupedSkipped  = [...new Set(skipped)];
+  created.length = 0;   created.push(...dedupedCreated);
+  modified.length = 0;  modified.push(...dedupedModified);
+  skipped.length = 0;   skipped.push(...dedupedSkipped);
+
   // Refresh index/log
   regenerateIndex();
   const touched = [...new Set([...created, ...modified])];
@@ -2607,17 +2630,20 @@ function loadVaultDb() {
   if (!needRebuild) return DB_PATH;
 
   const n = buildVaultNdjson();
-  const { execSync } = require('child_process');
+  const { spawnSync } = require('child_process');
   if (fs.existsSync(DB_PATH)) fs.unlinkSync(DB_PATH);
+  // Array-form: DB_PATH and the SQL string are passed as separate argv entries
+  // so duckdb receives them as a database path + a query, no shell interpolation.
+  // SQL still uses bound DB_NDJSON_PATH (single-quote-escaped) since DuckDB's
+  // parameter binding here is in the SQL string itself, not at the shell layer.
   const sql = [
     "CREATE TABLE vault AS SELECT * FROM read_json_auto(?, format='newline_delimited');",
     "CREATE INDEX vault_slug ON vault(slug);",
   ].join(' ').replace('?', `'${DB_NDJSON_PATH.replace(/'/g, "''")}'`);
-  try {
-    execSync(`duckdb "${DB_PATH}" "${sql}"`, { stdio: 'pipe' });
-  } catch (e) {
-    const msg = (e.stderr && e.stderr.toString()) || e.message;
-    console.error(`Failed to build DuckDB at ${DB_PATH}: ${msg.split('\n')[0]}`);
+  const r = spawnSync('duckdb', [DB_PATH, sql], { encoding: 'utf-8' });
+  if (r.error || r.status !== 0) {
+    const msg = (r.stderr || '').split('\n')[0] || (r.error && r.error.message) || `exit ${r.status}`;
+    console.error(`Failed to build DuckDB at ${DB_PATH}: ${msg}`);
     process.exit(2);
   }
   console.error(`(rebuilt vault.duckdb: ${n} pages)`);
@@ -2947,11 +2973,16 @@ function cmdPreflight(args) {
     } else {
       const digestBin = path.join(VAULT_ROOT, '.bin', 'email-digest');
       const bin = fs.existsSync(digestBin) ? digestBin : 'email-digest';
-      try {
-        execSync(`echo dryrun | ${bin} --dry-run --subject "preflight" --to "${process.env.EMAIL_FROM}"`,
-          { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+      // Array-form spawnSync — EMAIL_FROM (env-var-controlled) is passed as a
+      // separate argv entry. stdin set to "dryrun" so email-digest's BODY=$(cat)
+      // doesn't hang.
+      const { spawnSync } = require('child_process');
+      const r = spawnSync(bin,
+        ['--dry-run', '--subject', 'preflight', '--to', process.env.EMAIL_FROM],
+        { encoding: 'utf-8', input: 'dryrun' });
+      if (!r.error && r.status === 0) {
         push('email-digest', 'PASS', 'SMTP+auth reachable');
-      } catch (e) {
+      } else {
         push('email-digest', 'FAIL', 'dry-run failed',
           'Run `bin/email-digest --dry-run --subject t --to ' + process.env.EMAIL_FROM + '` directly to see the error.');
       }
@@ -3451,21 +3482,23 @@ function cmdDiff(args) {
     console.error('not a git repo: run `git init` in vault first');
     process.exit(2);
   }
-  const { execSync } = require('child_process');
+  // Array-form spawnSync — `since` (user input via --since) is passed as a
+  // single argv entry, no shell parsing.
+  const { spawnSync } = require('child_process');
   const since = args.since || '24 hours ago';
   const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
-  try {
-    const log = execSync(`git log --since="${since.replace(/"/g, '\\"')}" --stat --pretty=format:'%h %ad | %s' --date=short`,
-      { cwd: VAULT_ROOT, env }).toString();
-    if (!log.trim()) {
-      console.log(`(no commits since ${since})`);
-      return;
-    }
-    console.log(log);
-  } catch (e) {
-    console.error('git log failed:', e.message.split('\n')[0]);
+  const r = spawnSync('git',
+    ['log', `--since=${since}`, '--stat', '--pretty=format:%h %ad | %s', '--date=short'],
+    { cwd: VAULT_ROOT, env, encoding: 'utf-8' });
+  if (r.error || r.status !== 0) {
+    console.error('git log failed:', ((r.stderr || '').split('\n')[0]) || (r.error && r.error.message) || `exit ${r.status}`);
     process.exit(2);
   }
+  if (!(r.stdout || '').trim()) {
+    console.log(`(no commits since ${since})`);
+    return;
+  }
+  console.log(r.stdout);
 }
 
 function cmdRevert(args) {
@@ -3475,24 +3508,28 @@ function cmdRevert(args) {
     process.exit(2);
   }
   const target = args._ && args._[0] ? args._[0] : 'HEAD';
-  const { execSync } = require('child_process');
+  // Array-form spawnSync — `target` (user-supplied SHA or HEAD) is passed as
+  // a separate argv entry, no shell interpolation.
+  const { spawnSync } = require('child_process');
   const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
-  try {
-    const dirty = execSync('git status --porcelain', { cwd: VAULT_ROOT, env }).toString().trim();
-    if (dirty) {
-      console.error('working tree is dirty — commit or stash first:');
-      console.error(dirty);
-      process.exit(2);
-    }
-    execSync(`git -c commit.gpgsign=false revert --no-edit "${target}"`,
-      { cwd: VAULT_ROOT, env, stdio: 'inherit' });
-    regenerateIndex();
-    console.log(`reverted ${target}`);
-    console.log('(auto-commit batches dirty files into one commit, so revert may undo more than expected)');
-  } catch (e) {
-    console.error('revert failed:', e.message.split('\n')[0]);
+  const status = spawnSync('git', ['status', '--porcelain'], { cwd: VAULT_ROOT, env, encoding: 'utf-8' });
+  if (status.error) { console.error('git status failed:', status.error.message); process.exit(2); }
+  const dirty = (status.stdout || '').trim();
+  if (dirty) {
+    console.error('working tree is dirty — commit or stash first:');
+    console.error(dirty);
     process.exit(2);
   }
+  const r = spawnSync('git',
+    ['-c', 'commit.gpgsign=false', 'revert', '--no-edit', target],
+    { cwd: VAULT_ROOT, env, stdio: 'inherit' });
+  if (r.error || r.status !== 0) {
+    console.error('revert failed:', (r.error && r.error.message) || `exit ${r.status}`);
+    process.exit(2);
+  }
+  regenerateIndex();
+  console.log(`reverted ${target}`);
+  console.log('(auto-commit batches dirty files into one commit, so revert may undo more than expected)');
 }
 
 // ─── argparse + dispatch ───────────────────────────────────────────────────

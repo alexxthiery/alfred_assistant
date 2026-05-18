@@ -1,0 +1,14 @@
+{
+  "exitCode": 0,
+  "modified": ["alice"],
+  "created": [],
+  "stdoutContains": ["1 modified"],
+  "wikiAssertions": {
+    "alice": {
+      "bodyContains": [
+        "- [fact] first patch fact",
+        "- [fact] second patch fact"
+      ]
+    }
+  }
+}
