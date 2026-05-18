@@ -11,6 +11,27 @@
 
 'use strict';
 
+// HR12: normalize fm.aliases to an array. Frontmatter may carry it as an
+// array, a string (single alias), or be missing entirely. Each call site
+// previously rewrote the same three-arm ternary. Callers wanting a mutable
+// copy should spread the result: `[...aliasesOf(fm)]`.
+function aliasesOf(fm) {
+  if (!fm) return [];
+  if (Array.isArray(fm.aliases)) return fm.aliases;
+  if (fm.aliases) return [fm.aliases];
+  return [];
+}
+
+// HR12: build the `[[slug]]` test/replace regex. Escapes regex special chars
+// in slug prophylactically — currently SLUG_RE forbids them, but if it ever
+// loosens, every call site would otherwise need to remember to escape.
+// Pass `'g'` for replace-all use; default (no flags) for .test() (the /g flag
+// on .test is the HR01 stateful-regex bug).
+function backlinkRegex(slug, flags = '') {
+  const escaped = String(slug).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\[\\[${escaped}\\]\\]`, flags);
+}
+
 function firstBodyLine(body) {
   for (const line of body.split('\n')) {
     const t = line.trim();
@@ -155,6 +176,8 @@ function scoreSlugCandidates(query, pages, opts = {}) {
 }
 
 module.exports = {
+  aliasesOf,
+  backlinkRegex,
   firstBodyLine,
   extractWikilinks,
   extractProvenanceMarkers,

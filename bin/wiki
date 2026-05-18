@@ -32,6 +32,8 @@ const {
   knownRelationVerbs,
 } = require('./lib/schema.js');
 const {
+  aliasesOf,
+  backlinkRegex,
   firstBodyLine,
   extractWikilinks,
   extractProvenanceMarkers,
@@ -407,7 +409,7 @@ function cmdWrite(args) {
     const hasOutbound = extractWikilinks(writtenBody).length > 0;
     let hasInbound = false;
     if (!hasOutbound) {
-      const re = new RegExp(`\\[\\[${slug}\\]\\]`);
+      const re = backlinkRegex(slug);
       forEachPage(({ slug: fromSlug, body: b }) => {
         if (fromSlug === slug) return;
         if (re.test(b)) { hasInbound = true; return false; }
@@ -434,7 +436,7 @@ function cmdLink(args) {
   const fromPath = wikiPath(from);
   if (!fs.existsSync(fromPath)) { console.error(`error: page ${from} does not exist`); console.error(`  Hint: \`wiki resolve "${from}"\` to fuzzy-match similar slugs.`); process.exit(2); }
   const { fm, body } = readPageForWrite(fromPath);
-  if (new RegExp(`\\[\\[${to}\\]\\]`).test(body)) { console.log(`already linked: ${from} -> ${to}`); return; }
+  if (backlinkRegex(to).test(body)) { console.log(`already linked: ${from} -> ${to}`); return; }
   let newBody;
   if (/^## Links\b/m.test(body)) {
     newBody = body.replace(/^(## Links[\s\S]*?)(?=\n## |\s*$)/m, (m) => m.trimEnd() + `\n- [[${to}]]`);
@@ -463,7 +465,7 @@ function cmdLinks(args) {
 function cmdBacklinks(args) {
   const slug = args._[0];
   if (!slug) { console.error('Usage: wiki backlinks <slug>'); process.exit(1); }
-  const re = new RegExp(`\\[\\[${slug}\\]\\]`);
+  const re = backlinkRegex(slug);
   const hits = [];
   forEachPage(({ slug: fromSlug, body }) => {
     if (fromSlug === slug) return;
@@ -500,7 +502,7 @@ function cmdMv(args) {
     const { fm, body } = readPageForWrite(oldPath);
     fm.id = newSlug;
     fm.updated = nowISO();
-    const aliases = Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []);
+    const aliases = [...aliasesOf(fm)];
     if (!aliases.includes(oldSlug)) aliases.push(oldSlug);
     fm.aliases = aliases;
     staged.set(newPath, serializeFrontmatter(fm, body));
@@ -508,8 +510,8 @@ function cmdMv(args) {
     // 2. Backlink rewrites. Two regexes: a non-global one for `.test()`
     // (stateless across iterations), a global one for `.replace()`. Using
     // the /g flag for `.test` was a real correctness bug — see HR01.
-    const linkTestRe = new RegExp(`\\[\\[${oldSlug}\\]\\]`);
-    const linkReplaceRe = new RegExp(`\\[\\[${oldSlug}\\]\\]`, 'g');
+    const linkTestRe = backlinkRegex(oldSlug);
+    const linkReplaceRe = backlinkRegex(oldSlug, 'g');
     forEachPage(({ absPath, raw }) => {
       if (absPath === oldPath) return; // skip the source itself; it will be unlinked
       if (!linkTestRe.test(raw)) return;
@@ -541,7 +543,7 @@ function cmdDelete(args) {
   if (isReserved(slug)) { console.error(`error: cannot delete reserved page ${slug}`); process.exit(1); }
   const p = wikiPath(slug);
   if (!fs.existsSync(p)) { console.error(`error: page ${slug} does not exist`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
-  const re = new RegExp(`\\[\\[${slug}\\]\\]`);
+  const re = backlinkRegex(slug);
   const incoming = [];
   forEachPage(({ slug: fromSlug, body }) => {
     if (fromSlug === slug) return;
@@ -591,8 +593,8 @@ function cmdMerge(args) {
   for (const t of srcTags) if (!mergedTags.includes(t)) mergedTags.push(t);
   newFm.tags = mergedTags;
   // Merge aliases: target's existing + source slug + source title + source aliases
-  const tgtAliases = Array.isArray(tgtParsed.fm.aliases) ? tgtParsed.fm.aliases : (tgtParsed.fm.aliases ? [tgtParsed.fm.aliases] : []);
-  const srcAliases = Array.isArray(srcParsed.fm.aliases) ? srcParsed.fm.aliases : (srcParsed.fm.aliases ? [srcParsed.fm.aliases] : []);
+  const tgtAliases = aliasesOf(tgtParsed.fm);
+  const srcAliases = aliasesOf(srcParsed.fm);
   const newAliases = [...tgtAliases];
   for (const a of [source, srcParsed.fm.title, ...srcAliases]) {
     if (!a || newAliases.includes(a)) continue;
@@ -608,8 +610,8 @@ function cmdMerge(args) {
   // 3. Rewrite [[source]] → [[target]] across all wiki pages, dedup if both appear.
   // Two regexes: a non-global one for `.test()` (stateless across iterations),
   // a global one for `.replace()` below. See audit/12 § stateful-regex.
-  const linkTestRe = new RegExp(`\\[\\[${source}\\]\\]`);
-  const linkReplaceRe = new RegExp(`\\[\\[${source}\\]\\]`, 'g');
+  const linkTestRe = backlinkRegex(source);
+  const linkReplaceRe = backlinkRegex(source, 'g');
   const filesToRewrite = [];
   forEachPage(({ slug: fromSlug, absPath, raw }) => {
     if (fromSlug === source) return; // source will be deleted
@@ -772,7 +774,7 @@ function cmdPatch(args) {
     const a = String(args.alias);
     const aliasErr = aliasValueError(a);
     if (aliasErr) { console.error(`error: ${aliasErr}`); process.exit(3); }
-    const aliases = Array.isArray(fm.aliases) ? [...fm.aliases] : (fm.aliases ? [fm.aliases] : []);
+    const aliases = [...aliasesOf(fm)];
     if (!aliases.includes(a)) { aliases.push(a); ops.push(`+alias:${a}`); }
     fm.aliases = aliases;
   }
@@ -803,7 +805,7 @@ function cmdPatch(args) {
       // such titles; this halts before we propagate the hazard.)
       const titleErr = aliasValueError(oldTitle);
       if (titleErr) { console.error(`error: ${titleErr} (would be promoted to alias on title rename)`); process.exit(3); }
-      const aliases = Array.isArray(fm.aliases) ? [...fm.aliases] : (fm.aliases ? [fm.aliases] : []);
+      const aliases = [...aliasesOf(fm)];
       if (!aliases.includes(oldTitle)) aliases.push(oldTitle);
       fm.aliases = aliases;
       ops.push(`title:${oldTitle}->${newTitle}`);
@@ -1119,7 +1121,7 @@ function resolveSlugCandidates(query, opts = {}) {
     pages.push({
       slug,
       title: (fm.title || '').trim(),
-      aliases: Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []),
+      aliases: aliasesOf(fm),
     });
   });
   return scoreSlugCandidates(query, pages, opts);
@@ -1919,7 +1921,7 @@ function cmdPlace(args) {
   const matches = [];
   forEachPage(({ slug, fm }) => {
     const title = (fm.title || '').trim();
-    const aliases = Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []);
+    const aliases = aliasesOf(fm);
     if (slug === query || (title && title.toLowerCase() === qLower)) {
       matches.push({ slug, confidence: 1.0, reason: 'exact match' });
     } else if (aliases.find((a) => a.toLowerCase() === qLower)) {
@@ -3201,7 +3203,7 @@ function cmdReview(args) {
     addKnown(p.slug);
     addKnown(p.slug.replace(/-/g, ' '));
     addKnown(p.fm.title);
-    const aliases = Array.isArray(p.fm.aliases) ? p.fm.aliases : (p.fm.aliases ? [p.fm.aliases] : []);
+    const aliases = aliasesOf(p.fm);
     for (const a of aliases) addKnown(a);
   }
   const schema = loadSchema();

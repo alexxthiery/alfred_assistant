@@ -8,6 +8,8 @@ const path = require('node:path');
 
 const graph = require(path.resolve(__dirname, '..', '..', 'bin', 'lib', 'graph.js'));
 const {
+  aliasesOf,
+  backlinkRegex,
   firstBodyLine,
   extractWikilinks,
   extractProvenanceMarkers,
@@ -16,6 +18,64 @@ const {
   levenshtein,
   scoreSlugCandidates,
 } = graph;
+
+// ─── aliasesOf ─────────────────────────────────────────────────────────────
+
+test('aliasesOf: undefined fm returns []', () => {
+  assert.deepEqual(aliasesOf(undefined), []);
+});
+
+test('aliasesOf: fm with no aliases field returns []', () => {
+  assert.deepEqual(aliasesOf({ title: 'X' }), []);
+});
+
+test('aliasesOf: fm.aliases as array passes through', () => {
+  assert.deepEqual(aliasesOf({ aliases: ['Alice', 'Smith'] }), ['Alice', 'Smith']);
+});
+
+test('aliasesOf: fm.aliases as string wraps to single-element array', () => {
+  // YAML round-trip can deliver `aliases: "Alice"` as a scalar string.
+  assert.deepEqual(aliasesOf({ aliases: 'Alice' }), ['Alice']);
+});
+
+test('aliasesOf: returns the underlying array reference (caller must clone for mutation)', () => {
+  // Document the contract — callers that intend to mutate use [...aliasesOf(fm)].
+  const arr = ['A'];
+  const out = aliasesOf({ aliases: arr });
+  assert.equal(out, arr, 'same reference (not a clone)');
+});
+
+// ─── backlinkRegex ─────────────────────────────────────────────────────────
+
+test('backlinkRegex: matches the canonical [[slug]] form', () => {
+  const re = backlinkRegex('alice');
+  assert.ok(re.test('see [[alice]] for details'));
+  assert.equal(re.flags, '');
+});
+
+test('backlinkRegex: with `g` flag produces a global regex (for replace)', () => {
+  const re = backlinkRegex('alice', 'g');
+  assert.equal(re.flags, 'g');
+  const out = 'see [[alice]] and [[alice]] twice'.replace(re, '[[bob]]');
+  assert.equal(out, 'see [[bob]] and [[bob]] twice');
+});
+
+test('backlinkRegex: escapes regex specials in the slug (prophylactic for SLUG_RE loosening)', () => {
+  // Today SLUG_RE forbids `.` `+` etc, but the escape protects against a
+  // future loosening that would otherwise break every caller silently.
+  const re = backlinkRegex('foo.bar');
+  assert.ok(re.test('see [[foo.bar]]'));
+  // Without escaping, `.` would match any char — the test value below would
+  // false-positive on `foo-bar` etc. Confirm it does NOT match:
+  assert.equal(re.test('see [[foo-bar]]'), false);
+});
+
+test('backlinkRegex: coerces non-string input to string', () => {
+  // Defensive: callers occasionally pass slug-derived strings that may be
+  // String-objects from older codepaths. Don't crash.
+  const re = backlinkRegex('x');
+  assert.ok(re.test('see [[x]]'));
+});
 
 // ─── firstBodyLine ─────────────────────────────────────────────────────────
 
