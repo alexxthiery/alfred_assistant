@@ -33,23 +33,42 @@ alfred_assistant/
     inbox                 # raw-content triage CLI
     wiki-test             # fixture runner
     email-digest          # Gmail SMTP wrapper for the weekly digest
-    lib/
-      config.js           # .alfred.yml loader
+    lib/                  # pure helper modules (require()-able, unit-tested)
+      audit.js            #   AUDIT_RULES table + auditPage + auditVault
+      autolink.js         #   buildTitleEntries + autolinkBody (fence-aware)
+      config.js           #   .alfred.yml loader
+      flag-aliases.js     #   --old/--new flag-rename hook with deprecation warning
+      frontmatter.js      #   parseFrontmatter / serializeFrontmatter / migratePage
+      graph.js            #   firstBodyLine, extractWikilinks, aliasesOf, backlinkRegex, scoreSlugCandidates
+      ingest.js           #   validateIngestSpec + validateBody (closed-set checks)
+      maintenance.js      #   formatIndex / formatLogLine / applyExtraFrontmatter / validateAliasArg
+      schema.js           #   loadSchema (mtime-memoized) + KNOWN_TYPES + ENTITY_KIND_TAGS
+      staged-writes.js    #   flushStaged (atomic-per-file multi-write flush; used by ingest/merge/mv)
+      vault-root.js       #   detectVaultRoot — shared by wiki + inbox
+      vault.js            #   forEachPage, listWikiPages, wikiPath, readPage, vault paths
+    verbs/
+      read.js             # read-only verbs split out of bin/wiki (list, search, recent, preview, print, sources, related, agenda, context)
   schemas/
     wiki-ingest.schema.json   # JSON Schema for the ingest spec
   docs/
     SCHEMA.md             # the vault contract — page types, tags, microsyntax
+    CONVENTIONS.md        # error-format genres, exit codes, error-prefix vocabulary
     PERSONA.template.md   # Alfred's instructions, with {{USER_NAME}} placeholders
     NANOCLAW-PATCHES.md   # the four host-side patches you apply to your nanoclaw fork
     WEEKLY-DIGEST.md      # how the cron + SMTP wrapper fit together
   examples/
     .alfred.yml.example   # config file template, copy to <vault>/.alfred.yml
-    example-vault/        # 5-page demo vault you can experiment against
+    example-vault/        # 13-page demo vault you can experiment against (alice, bob-jones, paper-llm-wiki-2024, …)
   tests/
     vault/                # template vault used by wiki-test (fresh copy per fixture)
     fixtures/             # JSON specs + expected outputs (cmd-shape and ingest-shape; see tests/fixtures/README.md)
+    unit/                 # node:test suites for each bin/lib/ module (see npm run test:unit)
   tools/
     scan-pii.sh           # pre-commit PII scanner (used in development)
+    pre-commit            # symlinked into .git/hooks/; runs scan-pii.sh + npm test on relevant changes
+  CLAUDE.md               # orientation for LLM agents working on this repo
+  CHANGELOG.md            # human-readable history per audit / refactor batch
+  CONTRIBUTING.md         # how to propose changes (single-user project; mostly historical)
   install.sh              # symlinks bin/ into a target vault's .bin/
 ```
 
