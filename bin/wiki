@@ -3776,7 +3776,7 @@ const VERBS = [
   // GLOBAL FLAGS (not real verbs; rendered last)
   { name: '__global', section: 'GLOBAL FLAGS', lines: [
     '  --no-auto-commit                          skip the post-write git commit (or set WIKI_NO_AUTO_COMMIT=1)',
-    '  <verb> --help                             show detailed help for a verb (currently: ingest, write, patch, audit, lint)',
+    '  <verb> --help                             show detailed help for a verb (where available)',
   ] },
 ];
 
