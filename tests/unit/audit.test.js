@@ -380,6 +380,118 @@ test('strictCrossPageErrors: returns [] when table is empty even with allPages',
   assert.deepEqual(errors, []);
 });
 
+// ─── HR-OOB-C: non-functional-alias ───────────────────────────────────────
+
+function mkAllPage(slug, body, fmExtras = {}) {
+  const fm = { type: 'entity', tags: ['person'], title: slug, ...fmExtras };
+  return { slug, title: fm.title, type: fm.type, tags: fm.tags, body, fm };
+}
+
+test('non-functional-alias: fires when alias slug matches another page slug', () => {
+  const thisPage = mkAllPage('alpha', '- [fact] son ^[telegram:2026-05-17]', { aliases: ['beta'], title: 'Alpha' });
+  const allPages = [thisPage, mkAllPage('beta', '- [fact] nickname for alpha')];
+  const errors = strictCrossPageErrors(thisPage, { ...deps(), allPages });
+  const hit = errors.find((e) => e.rule === 'non-functional-alias');
+  assert.ok(hit, 'should fire when beta.md exists and alpha has alias beta');
+  assert.match(hit.fix, /^wiki merge beta alpha --add-aliases "beta"$/);
+});
+
+test('non-functional-alias: silent when alias has no matching slug', () => {
+  const thisPage = mkAllPage('alpha', 'body', { aliases: ['beta'], title: 'Alpha' });
+  const allPages = [thisPage, mkAllPage('gamma', 'body')];
+  const errors = strictCrossPageErrors(thisPage, { ...deps(), allPages });
+  const hit = errors.find((e) => e.rule === 'non-functional-alias');
+  assert.equal(hit, undefined);
+});
+
+test('non-functional-alias: case-insensitive (Beta alias triggers vs beta.md)', () => {
+  const thisPage = mkAllPage('alpha', 'body', { aliases: ['Beta'], title: 'Alpha' });
+  const allPages = [thisPage, mkAllPage('beta', 'body')];
+  const errors = strictCrossPageErrors(thisPage, { ...deps(), allPages });
+  const hit = errors.find((e) => e.rule === 'non-functional-alias');
+  assert.ok(hit);
+  assert.match(hit.fix, /Beta/);
+});
+
+test('non-functional-alias: does NOT fire when alias slug equals thisPage slug', () => {
+  const thisPage = mkAllPage('alpha', 'body', { aliases: ['alpha'] });
+  const allPages = [thisPage];
+  const errors = strictCrossPageErrors(thisPage, { ...deps(), allPages });
+  const hit = errors.find((e) => e.rule === 'non-functional-alias');
+  assert.equal(hit, undefined, 'self-aliases should be ignored');
+});
+
+// ─── HR-OOB-C: alias-collision ────────────────────────────────────────────
+
+test('alias-collision: fires when alias matches another page\'s alias (different slug)', () => {
+  const thisPage = mkAllPage('alpha', 'body', { aliases: ['Big M'], title: 'Alpha' });
+  const allPages = [thisPage, mkAllPage('mom', 'body', { aliases: ['Big M'], title: 'Mom' })];
+  const errors = strictCrossPageErrors(thisPage, { ...deps(), allPages });
+  const hit = errors.find((e) => e.rule === 'alias-collision');
+  assert.ok(hit, 'should fire when "Big M" is also an alias of another page');
+  assert.match(hit.fix, /^wiki merge /);
+});
+
+test('alias-collision: fires when alias matches another page title (case-insensitive)', () => {
+  const thisPage = mkAllPage('foo', 'body', { aliases: ['mom'], title: 'Foo' });
+  const allPages = [thisPage, mkAllPage('mom', 'body', { title: 'Mom' })];
+  // 'mom' slugifies to 'mom' which is the other slug → non-functional-alias fires,
+  // alias-collision SKIPS (slug-match case is owned by non-functional-alias).
+  const errors = strictCrossPageErrors(thisPage, { ...deps(), allPages });
+  assert.ok(errors.find((e) => e.rule === 'non-functional-alias'));
+  assert.equal(errors.find((e) => e.rule === 'alias-collision'), undefined);
+});
+
+test('alias-collision: silent on legitimate non-overlapping aliases', () => {
+  const thisPage = mkAllPage('alpha', 'body', { aliases: ['Big M'], title: 'Alpha' });
+  const allPages = [thisPage, mkAllPage('mom', 'body', { aliases: ['Mama'], title: 'Mom' })];
+  const errors = strictCrossPageErrors(thisPage, { ...deps(), allPages });
+  assert.equal(errors.find((e) => e.rule === 'alias-collision'), undefined);
+});
+
+// ─── HR-OOB-C: duplicate-fact (advisory via auditVault) ───────────────────
+
+test('duplicate-fact: fires when ≥40-char fact appears on two different pages', () => {
+  const longFact = '- [fact] Alpha started kindergarten in autumn 2026 in the local school.';
+  const pages = [
+    mkAllPage('alpha', longFact),
+    mkAllPage('beta',   longFact),
+  ];
+  const out = auditVault({ pages, ...deps() });
+  const r = out.perPage.find((p) => p.slug === 'alpha');
+  const dup = r.issues.find((i) => i.rule === 'duplicate-fact');
+  assert.ok(dup, 'duplicate-fact should fire on long facts shared across pages');
+  assert.match(dup.fix, /wiki/);
+});
+
+test('duplicate-fact: silent on short facts (<40 chars normalized)', () => {
+  const shortFact = '- [fact] son ^[telegram:2026-05-17]';
+  const pages = [
+    mkAllPage('alpha', shortFact),
+    mkAllPage('beta',   shortFact),
+  ];
+  const out = auditVault({ pages, ...deps() });
+  const r = out.perPage.find((p) => p.slug === 'alpha');
+  assert.equal(r.issues.find((i) => i.rule === 'duplicate-fact'), undefined);
+});
+
+test('duplicate-fact: ≥3 shared facts → fix suggests merge instead of supersede', () => {
+  const facts = [
+    '- [fact] Alpha started kindergarten in autumn 2026 in the local school.',
+    '- [fact] Alpha loves dinosaurs and can name a dozen of them already.',
+    '- [fact] Alpha has been learning to ride a bicycle without training wheels.',
+  ].join('\n');
+  const pages = [
+    mkAllPage('alpha', facts),
+    mkAllPage('beta',   facts),
+  ];
+  const out = auditVault({ pages, ...deps() });
+  const r = out.perPage.find((p) => p.slug === 'alpha');
+  const dup = r.issues.find((i) => i.rule === 'duplicate-fact');
+  assert.ok(dup);
+  assert.match(dup.fix, /^wiki merge /);
+});
+
 test('strictCrossPageErrors: fires registered rule and propagates fix?', () => {
   // Temporarily register a probe rule that always fires, with a fix string.
   const probe = {

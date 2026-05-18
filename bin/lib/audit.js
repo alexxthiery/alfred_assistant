@@ -30,7 +30,29 @@
 'use strict';
 
 const { ENTITY_KIND_TAGS } = require('./schema.js');
-const { parseRelations, parseObservations, extractWikilinks } = require('./graph.js');
+const { parseRelations, parseObservations, extractWikilinks, aliasesOf } = require('./graph.js');
+
+// HR-OOB-C: lowercase + hyphenate to produce the slug a string would resolve
+// to (mirrors bin/wiki slug conventions: lowercase, whitespace→hyphen,
+// otherwise unchanged because aliases are already simple).
+function slugifyValue(v) {
+  return String(v).trim().toLowerCase().replace(/\s+/g, '-');
+}
+
+// HR-OOB-C: case-insensitive equality used for alias/title comparisons.
+function ciEq(a, b) {
+  return String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+}
+
+// HR-OOB-C: normalize a fact body for duplicate detection.
+// Strips category prefix, provenance markers, collapses whitespace, lowercases.
+function normalizeFactLine(line) {
+  let s = String(line).trim();
+  s = s.replace(/^- (?:~~)?\[fact\]\s*/i, '');
+  s = s.replace(/\^\[[^\]]+\]/g, '');
+  s = s.toLowerCase().replace(/\s+/g, ' ').trim();
+  return s;
+}
 
 const STRICT_PROV_TYPES = new Set(['entity', 'event', 'concept', 'synthesis']);
 const SUBSTANTIVE_TYPES = new Set(['entity', 'event', 'concept']);
@@ -251,7 +273,71 @@ function severityScore(s) {
 //     check returns null (clean) or {detail, message?, fix?}
 // HR-OOB-C populates this table; the pipeline is wired empty so validateBody
 // can already plumb allPages through harmlessly.
-const STRICT_CROSS_PAGE_RULES = [];
+const STRICT_CROSS_PAGE_RULES = [
+  {
+    name: 'non-functional-alias',
+    severity: 'high',
+    strict: true,
+    // Refuse a write that declares `aliases: [X]` while X.md exists as a
+    // separate page. The alias is functionally inert because [[X]] resolves
+    // to X.md (exact-slug match wins over alias lookup). The nickname-
+    // duplicate class of bug — adding an alias for a value that's already
+    // a standalone page would leave both pages alive in the vault.
+    check: ({ thisPage, allPages }) => {
+      const aliases = aliasesOf(thisPage.fm);
+      if (!aliases.length) return null;
+      const slugSet = new Set(allPages.map((p) => p.slug));
+      for (const v of aliases) {
+        const target = slugifyValue(v);
+        if (target === thisPage.slug) continue;
+        if (!slugSet.has(target)) continue;
+        return {
+          detail: `aliases includes "${v}" but [[${target}]] exists as a separate page; alias is functionally inert.`,
+          message: `aliases on ${thisPage.slug} includes "${v}", but [[${target}]] is a separate page. ` +
+            `The alias is inert: [[${v}]] still resolves to ${target}.md, not ${thisPage.slug}.md. ` +
+            `Merge the two pages instead.`,
+          fix: `wiki merge ${target} ${thisPage.slug} --add-aliases "${v}"`,
+        };
+      }
+      return null;
+    },
+  },
+
+  {
+    name: 'alias-collision',
+    severity: 'high',
+    strict: true,
+    // Refuse if any alias on thisPage matches another page's title or alias
+    // (case-insensitively). Covers conflicts where the colliding page's slug
+    // differs from the alias value (non-functional-alias handles the slug
+    // case; this rule handles the title/alias case).
+    check: ({ thisPage, allPages }) => {
+      const aliases = aliasesOf(thisPage.fm);
+      if (!aliases.length) return null;
+      for (const v of aliases) {
+        const targetSlug = slugifyValue(v);
+        for (const other of allPages) {
+          if (other.slug === thisPage.slug) continue;
+          if (other.slug === targetSlug) continue; // covered by non-functional-alias
+          let kind = null;
+          if (other.title && ciEq(other.title, v)) kind = 'title';
+          else if (aliasesOf(other.fm).some((a) => ciEq(a, v))) kind = 'alias';
+          if (!kind) continue;
+          const [smaller, larger] = (thisPage.body || '').length <= (other.body || '').length
+            ? [thisPage.slug, other.slug]
+            : [other.slug, thisPage.slug];
+          return {
+            detail: `alias "${v}" already lives as ${kind} on [[${other.slug}]]; one of these is the duplicate.`,
+            message: `alias "${v}" on ${thisPage.slug} collides with the ${kind} of [[${other.slug}]]. ` +
+              `Two pages cannot claim the same name; merge them.`,
+            fix: `wiki merge ${smaller} ${larger}`,
+          };
+        }
+      }
+      return null;
+    },
+  },
+];
 
 function strictCrossPageErrors(thisPage, deps) {
   if (!deps || !deps.allPages) return [];
@@ -333,6 +419,87 @@ function auditVault({ pages, schema, knownVerbs }) {
       r.issues.push({ rule: 'lonely', severity: 'low', detail: `${total} graph connection(s); orphan-risk` });
       r.score += 1;
     }
+  }
+
+  // HR-OOB-C: duplicate-fact (advisory). For each non-superseded fact line
+  // on each page, look for a normalized-equal match on a different page.
+  // Threshold ≥ 40 chars (normalized) keeps trivia (years, single words)
+  // out of the report. Fix string depends on overlap density.
+  const factIndex = new Map(); // normalized → [{slug, raw}]
+  for (const p of pages) {
+    if (!p.body) continue;
+    for (const line of p.body.split('\n')) {
+      if (!/^- \[fact\]/i.test(line)) continue; // skip superseded (~~) and non-facts
+      const norm = normalizeFactLine(line);
+      if (norm.length < 40) continue;
+      if (!factIndex.has(norm)) factIndex.set(norm, []);
+      factIndex.get(norm).push({ slug: p.slug, raw: line.trim() });
+    }
+  }
+  const overlapBetween = new Map(); // "a||b" (sorted) → count
+  const dupesByPage = new Map();    // slug → [{otherSlug, snippet}]
+  for (const [norm, hits] of factIndex.entries()) {
+    if (hits.length < 2) continue;
+    const slugs = [...new Set(hits.map((h) => h.slug))];
+    if (slugs.length < 2) continue; // duplicates within same page are unrelated
+    for (let i = 0; i < slugs.length; i++) {
+      for (let j = i + 1; j < slugs.length; j++) {
+        const key = [slugs[i], slugs[j]].sort().join('||');
+        overlapBetween.set(key, (overlapBetween.get(key) || 0) + 1);
+      }
+    }
+    const snippet = norm.slice(0, 60) + (norm.length > 60 ? '…' : '');
+    for (const slug of slugs) {
+      for (const other of slugs) {
+        if (other === slug) continue;
+        if (!dupesByPage.has(slug)) dupesByPage.set(slug, []);
+        dupesByPage.get(slug).push({ otherSlug: other, snippet });
+      }
+    }
+  }
+  for (const r of perPage) {
+    const dupes = dupesByPage.get(r.slug);
+    if (!dupes || !dupes.length) continue;
+    // De-duplicate by (otherSlug, snippet) so the same fact pair isn't
+    // listed twice when more than 2 pages share it.
+    const seen = new Set();
+    const unique = [];
+    for (const d of dupes) {
+      const k = `${d.otherSlug}||${d.snippet}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      unique.push(d);
+    }
+    // Fix: when ≥3 facts shared with one specific other page, suggest merge
+    // (pick smaller-body slug to absorb into larger); else per-fact supersede.
+    const byOther = new Map();
+    for (const d of unique) byOther.set(d.otherSlug, (byOther.get(d.otherSlug) || 0) + 1);
+    let fix;
+    let densest = null;
+    for (const [other, count] of byOther.entries()) {
+      if (!densest || count > densest.count) densest = { other, count };
+    }
+    if (densest && densest.count >= 3) {
+      const a = pageBySlug.get(r.slug);
+      const b = pageBySlug.get(densest.other);
+      const [smaller, larger] = ((a && a.body) || '').length <= ((b && b.body) || '').length
+        ? [r.slug, densest.other]
+        : [densest.other, r.slug];
+      fix = `wiki merge ${smaller} ${larger}`;
+    } else {
+      fix = `wiki patch ${r.slug} --supersede "${unique[0].snippet.replace(/"/g, '\\"')}"`;
+    }
+    const otherList = [...byOther.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([s, c]) => `[[${s}]] (${c})`)
+      .join(', ');
+    r.issues.push({
+      rule: 'duplicate-fact',
+      severity: 'medium',
+      detail: `${unique.length} fact(s) duplicated on: ${otherList}`,
+      fix,
+    });
+    r.score += 2;
   }
 
   return { perPage, hotMentions };
