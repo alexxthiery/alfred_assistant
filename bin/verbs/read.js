@@ -17,7 +17,7 @@ const { spawnSync } = require('node:child_process');
 const { parseFrontmatter } = require('../lib/frontmatter.js');
 const { extractWikilinks, parseObservations, parseRelations } = require('../lib/graph.js');
 const { VAULT_ROOT, WIKI_DIR, wikiPath, listWikiPages, readPage, forEachPage } = require('../lib/vault.js');
-const { loadVaultDb, ensureDuckdbAvailable } = require('../lib/duckdb.js');
+const { loadVaultDb, ensureDuckdbAvailable, resolveDuckdbBin } = require('../lib/duckdb.js');
 const { parseSynonymsFile, expandQuery } = require('../lib/synonyms.js');
 
 function cmdList(args) {
@@ -108,7 +108,7 @@ function cmdSearchBm25(query, opts) {
     ORDER BY score DESC
     LIMIT ${opts.limit};
   `;
-  const r = spawnSync('duckdb', [dbPath, '-jsonlines', '-noheader', '-c', sql], {
+  const r = spawnSync(resolveDuckdbBin(), [dbPath, '-jsonlines', '-noheader', '-c', sql], {
     encoding: 'utf-8',
   });
   if (r.status !== 0) {
@@ -398,7 +398,7 @@ function cmdRender(args) {
   }
   ensureDuckdbAvailable();
   const dbPath = loadVaultDb();
-  const res = spawnSync('duckdb', [dbPath, '-c', sql], { stdio: 'inherit' });
+  const res = spawnSync(resolveDuckdbBin(), [dbPath, '-c', sql], { stdio: 'inherit' });
   process.exit(res.status || 0);
 }
 

@@ -56,7 +56,7 @@ const {
   VAULT_ROOT, WIKI_DIR, SCHEMA_PATH, INDEX_PATH, LOG_PATH,
   nowISO, wikiPath, listWikiPages, readPage, forEachPage, invalidatePageCache,
 } = require('./lib/vault.js');
-const { loadVaultDb, ensureDuckdbAvailable } = require('./lib/duckdb.js');
+const { loadVaultDb, ensureDuckdbAvailable, resolveDuckdbBin } = require('./lib/duckdb.js');
 const {
   cmdList, cmdSearch, cmdRecent, cmdPreview, cmdPrint,
   cmdSources, cmdRelated, cmdAgenda, cmdContext, cmdChallenge, cmdRender,
@@ -2873,7 +2873,7 @@ function cmdSql(args) {
     console.log("Three tables. Columns:");
     for (const t of ['vault', 'observations', 'relations']) {
       console.log(`\n--- ${t} ---`);
-      spawnSync('duckdb', [dbPath, '-c', `DESCRIBE ${t};`], { stdio: 'inherit' });
+      spawnSync(resolveDuckdbBin(), [dbPath, '-c', `DESCRIBE ${t};`], { stdio: 'inherit' });
     }
     console.log('\nNotes:');
     console.log('  - `vault`: one row per page (slug, type, tags, frontmatter fields, n_* counts).');
@@ -2899,7 +2899,7 @@ function cmdSql(args) {
   }
   if (args.explore) {
     console.error(`(opening DuckDB REPL on ${dbPath}; three tables: vault, observations, relations)`);
-    spawnSync('duckdb', [dbPath], { stdio: 'inherit' });
+    spawnSync(resolveDuckdbBin(), [dbPath], { stdio: 'inherit' });
     return;
   }
   const query = args._.length ? args._.join(' ') : '';
@@ -2910,7 +2910,7 @@ function cmdSql(args) {
     console.error('  wiki sql --explore     open the DuckDB REPL on the DB');
     process.exit(1);
   }
-  const res = spawnSync('duckdb', [dbPath, '-c', query], { stdio: 'inherit' });
+  const res = spawnSync(resolveDuckdbBin(), [dbPath, '-c', query], { stdio: 'inherit' });
   process.exit(res.status || 0);
 }
 

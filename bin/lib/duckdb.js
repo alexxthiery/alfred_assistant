@@ -27,6 +27,33 @@ const { parseObservations, parseRelations } = require('./graph.js');
 const VAULT_ROOT = detectVaultRoot();
 const WIKI_DIR = path.join(VAULT_ROOT, 'wiki');
 
+// Resolve the duckdb binary once and reuse across loadVaultDb / probe / etc.
+// Order: $DUCKDB_BIN override → bare `duckdb` on PATH → well-known install
+// locations. Some agent harnesses (and some shells started without a login
+// rc) invoke node with a stripped PATH that omits /opt/homebrew/bin or
+// /usr/local/bin, so a host-installed duckdb is invisible to spawnSync.
+// Falling back to known absolute paths makes the CLI robust to that.
+let _duckdbBinCached = null;
+function resolveDuckdbBin() {
+  if (_duckdbBinCached) return _duckdbBinCached;
+  const candidates = [
+    process.env.DUCKDB_BIN,
+    'duckdb',
+    '/opt/homebrew/bin/duckdb',
+    '/usr/local/bin/duckdb',
+    '/opt/local/bin/duckdb',
+    '/usr/bin/duckdb',
+  ].filter(Boolean);
+  for (const bin of candidates) {
+    const r = spawnSync(bin, ['-version'], { stdio: 'pipe' });
+    if (!r.error && r.status === 0) {
+      _duckdbBinCached = bin;
+      return bin;
+    }
+  }
+  return null;
+}
+
 const CACHE_DIR = path.join(VAULT_ROOT, '.cache');
 const DB_PATH = path.join(CACHE_DIR, 'vault.duckdb');
 const DB_NDJSON_PATH = path.join(CACHE_DIR, 'vault.ndjson');
@@ -162,7 +189,13 @@ function loadVaultDb() {
     "CREATE INDEX relations_target ON relations(target);",
     "PRAGMA create_fts_index('observations', 'obs_uid', 'body', stemmer='english', stopwords='english', overwrite=1);",
   ].join('\n');
-  const r = spawnSync('duckdb', [DB_PATH], { input: sql, encoding: 'utf-8' });
+  const bin = resolveDuckdbBin();
+  if (!bin) {
+    console.error('error: duckdb binary not found. Tried $DUCKDB_BIN, `duckdb` on PATH, and /opt/homebrew/bin, /usr/local/bin, /opt/local/bin, /usr/bin.');
+    console.error('  If installed: set DUCKDB_BIN=/full/path/to/duckdb. Otherwise: `brew install duckdb` (host) or apt-install (container).');
+    process.exit(2);
+  }
+  const r = spawnSync(bin, [DB_PATH], { input: sql, encoding: 'utf-8' });
   if (r.error || r.status !== 0) {
     const msg = (r.stderr || '').split('\n')[0] || (r.error && r.error.message) || `exit ${r.status}`;
     console.error(`error: failed to build DuckDB at ${DB_PATH}: ${msg}`);
@@ -177,14 +210,15 @@ function loadVaultDb() {
 // Shared so `wiki sql`, `wiki search` (BM25 mode), and `wiki render` all
 // surface the same install message.
 function ensureDuckdbAvailable() {
-  // Probe by running duckdb -version. The shell:'<sh>' + 'command -v' form
-  // triggers a Node deprecation warning about argv concatenation; this
-  // direct-exec form is equivalent and warning-free.
-  const r = spawnSync('duckdb', ['-version'], { stdio: 'pipe' });
-  if (r.error || r.status !== 0) {
-    console.error('duckdb binary not on PATH. Install: `brew install duckdb` (host) or apt-install in container.');
-    process.exit(2);
-  }
+  // Resolves via PATH first, then well-known install paths. Caches.
+  // Distinguishes "not on PATH but installed" from "actually missing"
+  // because a subprocess with a stripped PATH (some agent harnesses) is
+  // a common case and the previous message led agents to mis-diagnose
+  // installed-but-invisible as not-installed.
+  if (resolveDuckdbBin()) return;
+  console.error('error: duckdb binary not found. Tried $DUCKDB_BIN, `duckdb` on PATH, and /opt/homebrew/bin, /usr/local/bin, /opt/local/bin, /usr/bin.');
+  console.error('  If installed: set DUCKDB_BIN=/full/path/to/duckdb. Otherwise: `brew install duckdb` (host) or apt-install (container).');
+  process.exit(2);
 }
 
 module.exports = {
@@ -198,4 +232,5 @@ module.exports = {
   buildVaultNdjson,
   loadVaultDb,
   ensureDuckdbAvailable,
+  resolveDuckdbBin,
 };
