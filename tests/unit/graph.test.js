@@ -171,6 +171,33 @@ test('parseObservations: parses prediction category', () => {
   assert.deepEqual(obs[0].provenance, ['telegram:1']);
 });
 
+test('parseObservations: extracts [by YYYY-MM] resolution date', () => {
+  const body = '- [prediction] X happens [by 2027-06] [confidence: 0.7] ^[t:1]';
+  const obs = parseObservations(body);
+  assert.equal(obs.length, 1);
+  assert.equal(obs[0].dates.by, '2027-06');
+  // body strips the [by ...] and [confidence:] tags
+  assert.equal(obs[0].body, 'X happens');
+});
+
+test('parseObservations: [confidence: X.X] populates confidence field when in [0,1]', () => {
+  const body = '- [prediction] something [confidence: 0.85] ^[t:1]';
+  const obs = parseObservations(body);
+  assert.equal(obs[0].confidence, 0.85);
+});
+
+test('parseObservations: confidence outside [0,1] is silently dropped', () => {
+  const body = '- [prediction] something [confidence: 1.5] ^[t:1]';
+  const obs = parseObservations(body);
+  assert.equal(obs[0].confidence, null);
+});
+
+test('parseObservations: no confidence tag → confidence is null', () => {
+  const body = '- [fact] a fact ^[t:1]';
+  const obs = parseObservations(body);
+  assert.equal(obs[0].confidence, null);
+});
+
 test('parseObservations: ignores non-observation list items', () => {
   const body = '- works_at [[example-corp]]\n- regular bullet\n- [fact] real';
   const obs = parseObservations(body);

@@ -64,25 +64,37 @@ function parseObservations(body) {
     const superseded = !!m[1];
     const category = m[2];
     let text = m[3].trim();
-    if (superseded) text = text.replace(/~~\s*(?=(?:\[(?:since|until|on|as-of)\s|\^\[|$))/, '');
+    if (superseded) text = text.replace(/~~\s*(?=(?:\[(?:since|until|on|as-of|by)\s|\^\[|$))/, '');
     const dates = {};
-    const dateRe = /\[(since|until|on|as-of)\s+(\d{4}(?:-\d{2}(?:-\d{2})?)?)\]/g;
+    const dateRe = /\[(since|until|on|as-of|by)\s+(\d{4}(?:-\d{2}(?:-\d{2})?)?)\]/g;
     let dm;
     while ((dm = dateRe.exec(text)) !== null) {
       const key = dm[1] === 'as-of' ? 'asOf' : dm[1];
       dates[key] = dm[2];
+    }
+    // Inline [confidence: X.X] — used by [prediction] for calibration scoring,
+    // but accepted on any observation category. Value must be a number in [0,1];
+    // out-of-range or malformed values are silently dropped (the observation
+    // still parses, just without a confidence reading).
+    let confidence = null;
+    const confRe = /\[confidence:\s*(\d+(?:\.\d+)?)\]/i;
+    const cMatch = text.match(confRe);
+    if (cMatch) {
+      const n = Number(cMatch[1]);
+      if (Number.isFinite(n) && n >= 0 && n <= 1) confidence = n;
     }
     const provenance = [];
     const provRe = /\^\[([^\]]+)\]/g;
     let pm;
     while ((pm = provRe.exec(text)) !== null) provenance.push(pm[1]);
     const cleaned = text
-      .replace(/\[(since|until|on|as-of)\s+\d{4}(?:-\d{2}(?:-\d{2})?)?\]/g, '')
+      .replace(/\[(since|until|on|as-of|by)\s+\d{4}(?:-\d{2}(?:-\d{2})?)?\]/g, '')
+      .replace(/\[confidence:\s*\d+(?:\.\d+)?\]/gi, '')
       .replace(/\^\[[^\]]+\]/g, '')
       .replace(/~~/g, '')
       .replace(/\s+/g, ' ')
       .trim();
-    out.push({ category, body: cleaned, text, dates, provenance, superseded });
+    out.push({ category, body: cleaned, text, dates, provenance, superseded, confidence });
   }
   return out;
 }
