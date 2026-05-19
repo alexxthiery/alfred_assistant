@@ -2706,6 +2706,7 @@ function buildVaultNdjson() {
         as_of: o.dates && o.dates.asOf || null,
         on_date: o.dates && o.dates.on || null,
         by_date: o.dates && o.dates.by || null,
+        confidence: typeof o.confidence === 'number' ? o.confidence : null,
         provenance: arr(o.provenance),
       });
     }

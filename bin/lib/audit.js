@@ -55,7 +55,15 @@ function normalizeFactLine(line) {
 }
 
 const STRICT_PROV_TYPES = new Set(['entity', 'event', 'concept', 'synthesis']);
-const SUBSTANTIVE_TYPES = new Set(['entity', 'event', 'concept']);
+// SUBSTANTIVE_TYPES drives the `empty-page` rule: pages of these types are
+// expected to carry at least one observation or relation.
+// `question` is included because an empty question page is just a title with
+// no thinking — the whole point of the type is to accrete hypotheses /
+// evidence over time. But `question` is intentionally NOT in
+// STRICT_PROV_TYPES: a fresh `[hypothesis]` on a question page may
+// legitimately have no provenance yet (it's a candidate answer awaiting
+// evidence).
+const SUBSTANTIVE_TYPES = new Set(['entity', 'event', 'concept', 'question']);
 
 const AUDIT_RULES = [
   {
