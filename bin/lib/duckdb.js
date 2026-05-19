@@ -177,8 +177,11 @@ function loadVaultDb() {
 // Shared so `wiki sql`, `wiki search` (BM25 mode), and `wiki render` all
 // surface the same install message.
 function ensureDuckdbAvailable() {
-  const r = spawnSync('command', ['-v', 'duckdb'], { stdio: 'pipe', shell: '/bin/bash' });
-  if (r.status !== 0) {
+  // Probe by running duckdb -version. The shell:'<sh>' + 'command -v' form
+  // triggers a Node deprecation warning about argv concatenation; this
+  // direct-exec form is equivalent and warning-free.
+  const r = spawnSync('duckdb', ['-version'], { stdio: 'pipe' });
+  if (r.error || r.status !== 0) {
     console.error('duckdb binary not on PATH. Install: `brew install duckdb` (host) or apt-install in container.');
     process.exit(2);
   }
