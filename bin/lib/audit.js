@@ -143,6 +143,50 @@ const AUDIT_RULES = [
   },
 
   {
+    // `[fact]` lines that read as speculation or future-tense almost certainly
+    // belong in `[hypothesis]` or `[prediction]`. Surfacing them helps the
+    // user (and Alfred during ingest) maintain epistemic discipline: the
+    // schema distinguishes assertion from speculation, but only if writers
+    // route lines to the right category. Advisory-only — false positives
+    // ("Will Smith is an actor") are acceptable at low severity.
+    //
+    // Two heuristic banks:
+    //   future-tense → [prediction]   ("will", "going to", "expects to", ...)
+    //   epistemic-uncertainty → [hypothesis]  ("might", "i think", "likely", ...)
+    // We inspect parseObservations' cleaned body so inline date/confidence/
+    // provenance tags don't trigger false positives.
+    name: 'speculative-shape-fact',
+    severity: 'low',
+    strict: false,
+    check: ({ body }) => {
+      if (!body) return null;
+      const obs = parseObservations(body);
+      const FUTURE = /\b(will|going to|plans to|aims to|expects? to|hopes to|is set to)\b/i;
+      const EPISTEMIC = /\b(might|may|could|i\s+(?:think|believe|guess|suspect|expect)|seems?\s+(?:to|like)|probably|likely|apparently)\b/i;
+      const offenders = [];
+      for (const o of obs) {
+        if (o.category !== 'fact') continue;
+        const fm = o.body.match(FUTURE);
+        const em = o.body.match(EPISTEMIC);
+        if (!fm && !em) continue;
+        const target = fm ? 'prediction' : 'hypothesis';
+        const trigger = (fm || em)[0].toLowerCase();
+        offenders.push({ trigger, target, body: o.body.slice(0, 80) });
+      }
+      if (!offenders.length) return null;
+      const ex = offenders[0];
+      return {
+        detail: `${offenders.length} [fact] line(s) read as speculation; first trigger "${ex.trigger}" → suggest [${ex.target}]`,
+        message: `${offenders.length} [fact] observation(s) carry speculative or future-tense shape ` +
+          `(triggers like "${ex.trigger}"). Consider converting to [hypothesis] or [prediction]. ` +
+          `Fix: \`wiki patch <slug> --supersede "<old-needle>" --observation "..."\` or use the ` +
+          `\`wiki predict\` / \`wiki hypothesize\` verbs.`,
+        examples: offenders.slice(0, 3).map((o) => `[${o.target}?] ${o.body}`),
+      };
+    },
+  },
+
+  {
     // `type: view` pages are saved DuckDB queries: the body's first fenced
     // ```sql block is what `wiki render` executes. A view without a query has
     // no useful behaviour, so flag it. Advisory (not strict): the page is

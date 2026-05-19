@@ -175,6 +175,61 @@ test('exact-duplicate-observation: ignores inline date/provenance/confidence tag
   assert.ok(out);
 });
 
+test('speculative-shape-fact: fires on future-tense [fact] (will) → suggests [prediction]', () => {
+  const r = findRule('speculative-shape-fact');
+  const body = '- [fact] X will happen by 2027 ^[t:1]';
+  const out = r.check({ body }, deps());
+  assert.ok(out);
+  assert.match(out.message, /prediction/i);
+});
+
+test('speculative-shape-fact: fires on epistemic-uncertainty [fact] (might) → suggests [hypothesis]', () => {
+  const r = findRule('speculative-shape-fact');
+  const body = '- [fact] Y might be true ^[t:1]';
+  const out = r.check({ body }, deps());
+  assert.ok(out);
+  assert.match(out.message, /hypothesis/i);
+});
+
+test('speculative-shape-fact: fires on "I think Z is going to work"', () => {
+  // Mixed trigger words: "i think" pulls toward hypothesis, "going to" toward
+  // prediction. Either suggestion is fine; main thing is the rule fires.
+  const r = findRule('speculative-shape-fact');
+  const body = '- [fact] I think Z is going to work ^[t:1]';
+  const out = r.check({ body }, deps());
+  assert.ok(out);
+});
+
+test('speculative-shape-fact: silent on assertion-shaped [fact] ("X is the case")', () => {
+  const r = findRule('speculative-shape-fact');
+  const body = '- [fact] X is the case ^[t:1]';
+  const out = r.check({ body }, deps());
+  assert.equal(out, null);
+});
+
+test('speculative-shape-fact: silent on [hypothesis] (already correctly categorised)', () => {
+  const r = findRule('speculative-shape-fact');
+  const body = '- [hypothesis] X might be true ^[t:1]';
+  const out = r.check({ body }, deps());
+  assert.equal(out, null);
+});
+
+test('speculative-shape-fact: silent on [opinion] containing speculative phrasing', () => {
+  // Opinions ARE stances ("I think"); the category already signals the
+  // epistemic mode, so the rule must not nag.
+  const r = findRule('speculative-shape-fact');
+  const body = '- [opinion] I think X is the best approach ^[t:1]';
+  const out = r.check({ body }, deps());
+  assert.equal(out, null);
+});
+
+test('speculative-shape-fact: detail string identifies the trigger word', () => {
+  const r = findRule('speculative-shape-fact');
+  const body = '- [fact] Y might happen ^[t:1]';
+  const out = r.check({ body }, deps());
+  assert.match(out.detail, /might/i);
+});
+
 test('missing-provenance: fires on entity with obs but no ^[...] marker', () => {
   const r = findRule('missing-provenance');
   const out = r.check({ type: 'entity', body: '- [fact] something', fm: {} }, deps());
