@@ -7,6 +7,18 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added (Phase 8)
+- **`wiki predict <slug> "..." --by YYYY-MM-DD [--confidence N]`** and **`wiki hypothesize <slug> "..." [--confidence N]`** — low-friction verbs that wrap `wiki patch --observation` with auto-constructed lines, default provenance, and confidence-bounded validation. New pure module `bin/lib/epistemic-verbs.js` (unit-testable line builders).
+- **Advisory audit rule `speculative-shape-fact`**: flags `[fact]` lines starting with future-tense ("will", "going to") or epistemic-uncertainty ("might", "I think", "likely") shape words; suggests `[prediction]` or `[hypothesis]` conversion. Surfaced via `wiki audit --all`, not blocking. Run on `_AI_box` after install to triage existing facts.
+
+### Changed (Phase 8)
+- **`wiki search --tag X --limit N`**: tag filter now runs server-side (`list_contains(v.tags, 'X')` in the SQL WHERE), so LIMIT applies after the tag filter. Previously the JS-side post-pass silently undercounted (e.g., `--limit 3 --tag person` could return 1 when 24 matches existed). Correctness bug fix.
+
+### Persona (Phase 8)
+- New **"Retrieval reflexes"** section in `PERSONA.template.md` operationalizes smart-trigger proactive retrieval: query the vault before answering topical questions, surface results only when substantive (BM25 ≥ 1.0 AND contradicts training-data answer OR is non-obvious). Push-back, connection-finding, and obs-id citation patterns documented.
+- New **"Epistemic discipline during ingest"** section with a routing table: when to construct `[hypothesis]` vs `[prediction]` vs `[fact]` based on the shape of user input. Promotes the new verbs.
+- Anti-patterns mini-table; chained-workflow example; realistic Layer-1 example.
+
 ### Added
 - **Stable observation IDs** (`<!--obs:XXXXXX-->` markers). Every categorized observation line gains a 6-char base36 marker minted at write time, idempotent across rewrites. Surfaced in `observations.id`. New module `bin/lib/obsid.js`.
 - **BM25 + synonyms retrieval**. `wiki search <query>` now runs DuckDB FTS over `observations.body`, ranking by BM25 with optional synonym expansion from `<vault-root>/SYNONYMS.md`. New flags: `--literal` (substring fallback), `--regex`, `--limit N`. New module `bin/lib/synonyms.js`. See `docs/SYNONYMS.example.md` for the file format.
