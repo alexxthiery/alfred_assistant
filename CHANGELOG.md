@@ -7,6 +7,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Persona (Phase 11 — mission + reflex 1 verbs)
+- New top-level `## Mission — why this vault exists` section (~170 words) inserted between the atomicity rule and the operating loop. Five commitments make alfred's purpose explicit: (1) push back don't mirror, (2) find connections via `wiki related --unconnected` + `wiki unlinked-mentions`, (3) calibrate predictions via supersede, (4) organize life through one graph, (5) support introspection (sensitive pages, IFS proactive trigger). Sets the WHY before the operating loop sets the HOW.
+- Updated Reflex 1: renamed to "Search before answering, surface connections after". After answering topical questions, alfred runs `wiki related <slug> --unconnected` and `wiki unlinked-mentions <slug>` and surfaces 1-2 non-obvious hits in one line.
+- Deleted now-redundant `### Mission notes — what the vault is for` subsection (its substance is absorbed into the new top-level Mission with cleaner framing).
+- Net persona delta: +120 words (7181 → 7301). Persona-lint clean. The published template uses `{{USER_NAME}}` placeholders; deploy.sh renders into target vaults with per-vault personalisation preserved.
+
 ### Added (Phase 11 — connection-finding)
 - **`wiki related <slug> --unconnected`** — zk-style "shared-neighbor, not yet connected" filter. Without the flag the existing scoring boosts already-linked pages; with it, those are *excluded*, surfacing only candidates worth a new wikilink/relation. Operationalises Reflex 1's connection-finding trigger deterministically (no embeddings).
 - **`wiki unlinked-mentions <slug>`** — find pages whose body mentions `<slug>`'s title or aliases (word-boundary, length ≥4) but lacks a `[[wikilink]]`. Read-only discovery sibling to `wiki autolink --dry-run`. Surfaces graph-density promotion opportunities so Alfred can ask "promote to wikilink?" at conversation time.
