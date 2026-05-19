@@ -32,6 +32,7 @@
 const { ENTITY_KIND_TAGS } = require('./schema.js');
 const { parseRelations, parseObservations, extractWikilinks, aliasesOf } = require('./graph.js');
 const { detectSecrets } = require('./secrets.js');
+const { FUTURE_TENSE_RE, EPISTEMIC_RE } = require('./capture-classifier.js');
 
 // HR-OOB-C: lowercase + hyphenate to produce the slug a string would resolve
 // to (mirrors bin/wiki slug conventions: lowercase, whitespace→hyphen,
@@ -161,8 +162,10 @@ const AUDIT_RULES = [
     check: ({ body }) => {
       if (!body) return null;
       const obs = parseObservations(body);
-      const FUTURE = /\b(will|going to|plans to|aims to|expects? to|hopes to|is set to)\b/i;
-      const EPISTEMIC = /\b(might|may|could|i\s+(?:think|believe|guess|suspect|expect)|seems?\s+(?:to|like)|probably|likely|apparently)\b/i;
+      // Lexicon shared with bin/lib/capture-classifier.js — single source of
+      // truth across detection (this audit rule) and routing (wiki capture).
+      const FUTURE = FUTURE_TENSE_RE;
+      const EPISTEMIC = EPISTEMIC_RE;
       const offenders = [];
       for (const o of obs) {
         if (o.category !== 'fact') continue;

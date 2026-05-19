@@ -74,4 +74,4 @@ function defaultProvenance(today = new Date()) {
   return `conversation:${y}-${m}-${d}`;
 }
 
-module.exports = { buildPredictionLine, buildHypothesisLine, defaultProvenance };
+module.exports = { buildPredictionLine, buildHypothesisLine, defaultProvenance, assertBody };
