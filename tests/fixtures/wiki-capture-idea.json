@@ -1,0 +1,7 @@
+{
+  "_comment": "Speculative-trial language → [idea].",
+  "setup": [
+    ["write", "capture-i", "--title", "Capture i", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed ^[t:1]", "--soft"]
+  ],
+  "cmd": ["capture", "capture-i", "What if we tried a Gaussian posterior"]
+}

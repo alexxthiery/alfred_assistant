@@ -1,0 +1,4 @@
+{
+  "exitCode": 3,
+  "stderrContains": ["corrupt the inline-tag layout"]
+}

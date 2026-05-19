@@ -1,0 +1,7 @@
+{
+  "_comment": "Bracket in body would corrupt inline-tag layout → exit 3.",
+  "setup": [
+    ["write", "capture-rb", "--title", "Capture rb", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed ^[t:1]", "--soft"]
+  ],
+  "cmd": ["capture", "capture-rb", "X [foo] Y"]
+}

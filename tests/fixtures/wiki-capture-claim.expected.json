@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "capture-c": {
+      "bodyContains": ["[claim] someone says the approach is solid"]
+    }
+  }
+}

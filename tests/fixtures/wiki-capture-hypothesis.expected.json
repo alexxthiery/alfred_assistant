@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "capture-h": {
+      "bodyContains": ["[hypothesis] I think the system is the case", "[confidence: 0.6]"]
+    }
+  }
+}

@@ -45,6 +45,7 @@ const {
 const { validateIngestSpec, validateBody: _validateBody } = require('./lib/ingest.js');
 const { mintIdsForBody } = require('./lib/obsid.js');
 const { buildPredictionLine, buildHypothesisLine, defaultProvenance } = require('./lib/epistemic-verbs.js');
+const { classifyUtterance } = require('./lib/capture-classifier.js');
 const { auditPage, auditVault, STRICT_CROSS_PAGE_RULES, strictCrossPageErrors, ironcladRuleErrors } = require('./lib/audit.js');
 const { redactSecrets } = require('./lib/secrets.js');
 const { applyFlagAliases } = require('./lib/flag-aliases.js');
@@ -1040,6 +1041,61 @@ function cmdHypothesize(args) {
     console.error(`error: ${e.message}`);
     process.exit(3);
   }
+  cmdPatch({ ...args, _: [slug], observation: line });
+}
+
+// `wiki capture` — utterance-driven entry point. Classifies user speech by
+// deterministic shape lexicon (regex banks in bin/lib/capture-classifier.js)
+// and routes to the right observation category. Reduces LLM judgment load:
+// Alfred passes faithful user speech (hedges intact); the classifier picks
+// the category. Refuses on ambiguity or prediction-without-date; --as
+// <category> overrides when Alfred genuinely knows better.
+function cmdCapture(args) {
+  const slug = args._[0];
+  const text = args._[1];
+  if (!slug || !text) {
+    console.error('Usage: wiki capture <slug> "<utterance>" [--as CATEGORY] [--by YYYY-MM-DD] [--confidence N] [--provenance LABEL]');
+    process.exit(1);
+  }
+  if (!fs.existsSync(wikiPath(slug))) {
+    console.error(`error: page ${slug} does not exist`);
+    console.error(`  Hint: \`wiki write ${slug} ...\` to create it first.`);
+    process.exit(2);
+  }
+  let r;
+  try { r = classifyUtterance(text); }
+  catch (e) { console.error(`error: ${e.message}`); process.exit(3); }
+
+  const category = args.as || r.category;
+  if (!category) {
+    console.error(`error: ${r.refuseReason || 'ambiguous classification'}; pass --as <category> to override, or rephrase`);
+    if (r.refuseReason === 'prediction-without-date') {
+      console.error('  Hint: add --by YYYY-MM-DD, or rephrase to a [hypothesis] without time bound');
+    }
+    process.exit(3);
+  }
+
+  const provenance = args.provenance || defaultProvenance();
+  const confidence = args.confidence !== undefined ? Number(args.confidence) : r.confidence;
+  const by = args.by || r.by_date;
+
+  let line;
+  try {
+    if (category === 'prediction') {
+      if (!by) {
+        console.error('error: [prediction] requires --by YYYY-MM-DD (no date detected in utterance)');
+        console.error('  Hint: pass --by explicitly, or rephrase as [hypothesis] without time bound');
+        process.exit(3);
+      }
+      line = buildPredictionLine({ body: r.body, by, confidence: confidence != null ? confidence : 0.6, provenance });
+    } else if (category === 'hypothesis') {
+      line = buildHypothesisLine({ body: r.body, confidence: confidence != null ? confidence : 0.5, provenance });
+    } else {
+      const confTag = (confidence !== undefined && confidence !== null) ? ` [confidence: ${confidence}]` : '';
+      line = `[${category}] ${r.body}${confTag} ^[${provenance}]`;
+    }
+  } catch (e) { console.error(`error: ${e.message}`); process.exit(3); }
+
   cmdPatch({ ...args, _: [slug], observation: line });
 }
 
@@ -3943,6 +3999,7 @@ const VERBS = [
   },
   { name: 'predict',     section: 'WRITE', lines: ['  predict <slug> "body" --by YYYY-MM-DD [--confidence 0.0-1.0]   add a [prediction] line; sugar over `patch --observation`'] },
   { name: 'hypothesize', section: 'WRITE', lines: ['  hypothesize <slug> "body" [--confidence 0.0-1.0]              add a [hypothesis] line; --confidence defaults to 0.5'] },
+  { name: 'capture',     section: 'WRITE', lines: ['  capture <slug> "<utterance>" [--as CATEGORY] [--by YYYY-MM-DD]  classify utterance shape → observation category; routes via cmdPatch'] },
   { name: 'link',   section: 'WRITE', lines: ['  link <from> <to>                          append [[to]] under ## Links'] },
   { name: 'mv',     section: 'WRITE', lines: ['  mv <old> <new>                            rename, rewrite backlinks (adds alias)'] },
   { name: 'delete', section: 'WRITE', lines: ['  delete <slug> [--force]                   remove (refuses if backlinks)'] },
@@ -4177,7 +4234,7 @@ const cmds = {
   // write
   write: cmdWrite, link: cmdLink, mv: cmdMv, delete: cmdDelete, patch: cmdPatch, merge: cmdMerge,
   ingest: cmdIngest,
-  predict: cmdPredict, hypothesize: cmdHypothesize,
+  predict: cmdPredict, hypothesize: cmdHypothesize, capture: cmdCapture,
   // graph + navigation
   links: cmdLinks, backlinks: cmdBacklinks,
   relations: cmdRelations, observations: cmdObservations,

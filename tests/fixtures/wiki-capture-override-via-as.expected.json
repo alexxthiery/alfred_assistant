@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "capture-ov": {
+      "bodyContains": ["[opinion] the approach has merit"]
+    }
+  }
+}

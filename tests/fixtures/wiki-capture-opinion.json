@@ -1,0 +1,7 @@
+{
+  "_comment": "Stance language → [opinion].",
+  "setup": [
+    ["write", "capture-o", "--title", "Capture o", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed ^[t:1]", "--soft"]
+  ],
+  "cmd": ["capture", "capture-o", "Approach X is the best one we have"]
+}

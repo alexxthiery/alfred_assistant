@@ -1,0 +1,7 @@
+{
+  "_comment": "Classifier would route to [fact]; --as opinion overrides.",
+  "setup": [
+    ["write", "capture-ov", "--title", "Capture ov", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed ^[t:1]", "--soft"]
+  ],
+  "cmd": ["capture", "capture-ov", "the approach has merit", "--as", "opinion"]
+}

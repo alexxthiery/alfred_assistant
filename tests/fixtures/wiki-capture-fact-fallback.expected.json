@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "capture-f": {
+      "bodyContains": ["[fact] the cohort has twelve members"]
+    }
+  }
+}

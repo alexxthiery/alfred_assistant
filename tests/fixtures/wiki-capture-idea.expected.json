@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "capture-i": {
+      "bodyContains": ["[idea] What if we tried a Gaussian posterior"]
+    }
+  }
+}

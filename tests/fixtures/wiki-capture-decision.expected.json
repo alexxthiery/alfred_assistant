@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "capture-d": {
+      "bodyContains": ["[decision] I've decided to drop Approach Y"]
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "_comment": "Decision verb → [decision].",
+  "setup": [
+    ["write", "capture-d", "--title", "Capture d", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed ^[t:1]", "--soft"]
+  ],
+  "cmd": ["capture", "capture-d", "I've decided to drop Approach Y"]
+}

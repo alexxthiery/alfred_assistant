@@ -1,0 +1,5 @@
+{
+  "_comment": "Missing target page → exit 2.",
+  "setup": [],
+  "cmd": ["capture", "no-such-slug", "some content"]
+}

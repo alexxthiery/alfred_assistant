@@ -1,0 +1,7 @@
+{
+  "_comment": "Plain declarative with no shape signal → [fact] fallback.",
+  "setup": [
+    ["write", "capture-f", "--title", "Capture f", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed ^[t:1]", "--soft"]
+  ],
+  "cmd": ["capture", "capture-f", "the cohort has twelve members"]
+}

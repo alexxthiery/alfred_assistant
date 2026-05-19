@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "capture-target": {
+      "bodyContains": ["[prediction]", "[by 2027-07]", "[confidence: 0.7]", "<!--obs:"]
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "capture-o": {
+      "bodyContains": ["[opinion] Approach X is the best one we have"]
+    }
+  }
+}

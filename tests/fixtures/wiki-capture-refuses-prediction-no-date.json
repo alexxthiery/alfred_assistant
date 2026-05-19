@@ -1,0 +1,7 @@
+{
+  "_comment": "Future-tense without extractable date → refuse with hint to pass --by.",
+  "setup": [
+    ["write", "capture-rp", "--title", "Capture rp", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed ^[t:1]", "--soft"]
+  ],
+  "cmd": ["capture", "capture-rp", "the experiment will eventually finish"]
+}

@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "capture-q": {
+      "bodyContains": ["[question] Why does the loss spike at epoch 50?"]
+    }
+  }
+}

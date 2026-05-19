@@ -1,0 +1,7 @@
+{
+  "_comment": "wiki capture routes a future-tense utterance with extractable date to [prediction] via the deterministic classifier.",
+  "setup": [
+    ["write", "capture-target", "--title", "Capture target", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed observation ^[t:1]", "--soft"]
+  ],
+  "cmd": ["capture", "capture-target", "the system will go through by July 2027 probably"]
+}

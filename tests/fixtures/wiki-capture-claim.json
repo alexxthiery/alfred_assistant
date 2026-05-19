@@ -1,0 +1,7 @@
+{
+  "_comment": "Attribution pattern 'X says Y' → [claim] with source extraction.",
+  "setup": [
+    ["write", "capture-c", "--title", "Capture c", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed ^[t:1]", "--soft"]
+  ],
+  "cmd": ["capture", "capture-c", "someone says the approach is solid"]
+}
