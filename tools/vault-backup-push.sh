@@ -35,11 +35,15 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   exit 0
 fi
 
-# Skip if local is not ahead.
-git fetch origin --quiet 2>/dev/null || true
+# Skip if local is not ahead. Distinguish "fetch failed (offline / DNS /
+# auth)" from "fetch succeeded; we're in sync" — silently swallowing fetch
+# failures could hide a chronic offline machine that never actually backs up.
+if ! git fetch origin --quiet 2>/dev/null; then
+  echo "vault-backup-push: warning — 'git fetch origin' failed (offline or unreachable remote); will attempt push anyway" >&2
+fi
 LOCAL=$(git rev-parse @)
 REMOTE=$(git rev-parse @{u} 2>/dev/null || echo "")
-if [ "$LOCAL" = "$REMOTE" ]; then
+if [ -n "$REMOTE" ] && [ "$LOCAL" = "$REMOTE" ]; then
   exit 0  # silent no-op when already synced
 fi
 
