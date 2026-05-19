@@ -209,6 +209,30 @@ test('parseObservations: empty body → empty array', () => {
   assert.deepEqual(parseObservations(''), []);
 });
 
+test('parseObservations: extracts id field when <!--obs:--> marker present', () => {
+  const body = '- [fact] Alice is a person ^[t:1] <!--obs:a3f7q9-->';
+  const obs = parseObservations(body);
+  assert.equal(obs.length, 1);
+  assert.equal(obs[0].id, 'a3f7q9');
+  // Cleaned body must not contain the marker.
+  assert.equal(obs[0].body, 'Alice is a person');
+});
+
+test('parseObservations: id is null when marker absent', () => {
+  const body = '- [fact] no marker here ^[t:1]';
+  const obs = parseObservations(body);
+  assert.equal(obs[0].id, null);
+});
+
+test('parseObservations: cleaned body strips marker; text field retains it', () => {
+  const body = '- [fact] body <!--obs:abc123--> ^[t:1]';
+  const obs = parseObservations(body);
+  assert.equal(obs[0].id, 'abc123');
+  assert.equal(obs[0].body, 'body');
+  // The raw `text` field preserves the marker so downstream code can see it.
+  assert.ok(obs[0].text.includes('<!--obs:abc123-->'));
+});
+
 // ─── parseRelations ────────────────────────────────────────────────────────
 
 test('parseRelations: parses bare-verb relations', () => {

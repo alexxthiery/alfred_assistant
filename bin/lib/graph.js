@@ -87,14 +87,20 @@ function parseObservations(body) {
     const provRe = /\^\[([^\]]+)\]/g;
     let pm;
     while ((pm = provRe.exec(text)) !== null) provenance.push(pm[1]);
+    // Stable observation id: invisible HTML-comment marker minted at write time.
+    // The marker survives frontmatter round-trip; we strip it from `body` so
+    // downstream consumers see clean prose, but leave `text` untouched.
+    const idMatch = text.match(/<!--obs:([a-z0-9]{6})-->/);
+    const id = idMatch ? idMatch[1] : null;
     const cleaned = text
+      .replace(/<!--obs:[a-z0-9]{6}-->/g, '')
       .replace(/\[(since|until|on|as-of|by)\s+\d{4}(?:-\d{2}(?:-\d{2})?)?\]/g, '')
       .replace(/\[confidence:\s*\d+(?:\.\d+)?\]/gi, '')
       .replace(/\^\[[^\]]+\]/g, '')
       .replace(/~~/g, '')
       .replace(/\s+/g, ' ')
       .trim();
-    out.push({ category, body: cleaned, text, dates, provenance, superseded, confidence });
+    out.push({ category, body: cleaned, text, dates, provenance, superseded, confidence, id });
   }
   return out;
 }
