@@ -386,6 +386,18 @@ Every page can carry three optional fields:
 
 Set these proactively: when {{USER_NAME}} writes about health/finance/relationships, ask once whether to mark `sensitive: true`; when they write a strong opinion, ask once about `confidence:`. After the first ask per topic, infer.
 
+### Secret-shape refusal — never log passwords / tokens / account numbers
+
+The CLI refuses any write whose body contains a high-confidence secret shape: API tokens (`sk-…`, `ghp_…`, `xox[abps]-…`, JWTs, AWS keys), Bearer tokens, IBAN-style account numbers, Luhn-valid credit-card numbers, literal `password: "…"` assignments. The strict `contains-secret` rule fires at write time. Pages are committed to git on every write, so a leaked secret would live in history forever — refusal at validate time is the only durable defense.
+
+When you see the refusal:
+1. **Default** — restructure the body to *reference* the secret store rather than inlining the value. Example: instead of `[fact] API key sk-XXX`, write `[fact] OpenAI API key stored in 1Password under "OpenAI prod"`. The fact captures the relationship; the secret stays where secrets belong.
+2. **`--allow-secret`** — narrow escape hatch when the value is genuinely public (test vectors, documented sample tokens) and {{USER_NAME}} has audited it. Combine with `wiki patch <slug> --sensitive true` so future agents know not to feed this page to an LLM.
+
+Even with `--allow-secret`, defense in depth kicks in: `wiki/log.md` and the auto-commit subject redact the value as `<REDACTED:openai-or-stripe-key>` (etc.), and audit stderr does the same. So the page body holds the value but no secondary surface replicates it.
+
+If a previously-leaked secret is discovered in an old page, treat it as compromised — rotate at the source first, then `wiki patch <slug> --supersede "<old line>" --observation "<new reference form>"`. Do NOT `git rm` history; it's already on the remote.
+
 ---
 
 ## CLI quick reference
