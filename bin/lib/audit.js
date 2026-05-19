@@ -31,6 +31,7 @@
 
 const { ENTITY_KIND_TAGS } = require('./schema.js');
 const { parseRelations, parseObservations, extractWikilinks, aliasesOf } = require('./graph.js');
+const { detectSecrets } = require('./secrets.js');
 
 // HR-OOB-C: lowercase + hyphenate to produce the slug a string would resolve
 // to (mirrors bin/wiki slug conventions: lowercase, whitespace→hyphen,
@@ -229,6 +230,31 @@ const AUDIT_RULES = [
       return {
         detail: `type=event but 'event' tag missing`,
         message: `type=event requires tag "event" in --tags`,
+      };
+    },
+  },
+
+  {
+    name: 'contains-secret',
+    severity: 'high',
+    strict: true,
+    // Detect high-confidence secret shapes in body (passwords, API tokens,
+    // bank accounts, JWTs, etc.). The vault is auto-committed to git on
+    // every write, so a leaked secret here lives in git history forever.
+    // Strict refusal at write time is the only durable defense; the
+    // --allow-secret escape hatch is for the rare legitimate case.
+    check: ({ body }) => {
+      if (!body) return null;
+      const hits = detectSecrets(body);
+      if (!hits.length) return null;
+      const names = [...new Set(hits.map((h) => h.name))];
+      return {
+        detail: `body contains secret-shape value(s): ${names.join(', ')}`,
+        message: `Body contains likely-secret value(s): ${names.join(', ')}. ` +
+          `Pages are committed to git on every write — secrets here are permanent. ` +
+          `Restructure as a reference (e.g. "key stored in 1Password under 'X'") ` +
+          `or pass --allow-secret if you've audited the content and accept the risk.`,
+        fix: `restructure the body to reference a secret store instead of inlining the value`,
       };
     },
   },

@@ -389,6 +389,12 @@ function cmdWrite(args) {
     if (args['force-alias']) {
       bodyErrors = bodyErrors.filter((e) => e.rule !== 'non-functional-alias' && e.rule !== 'alias-collision');
     }
+    // --allow-secret: bypass only the contains-secret strict rule. The user
+    // has audited the body and accepts that this value will live in git
+    // history forever (e.g. dummy/test credentials, a public-domain example).
+    if (args['allow-secret']) {
+      bodyErrors = bodyErrors.filter((e) => e.rule !== 'contains-secret');
+    }
     if (bodyErrors.length) {
       console.error('error: strict body validation failed (bypass with --soft):');
       for (const e of bodyErrors) {
@@ -883,6 +889,9 @@ function cmdPatch(args) {
     // HR-OOB-D: same narrow escape hatch as cmdWrite.
     if (args['force-alias']) {
       bodyErrors = bodyErrors.filter((e) => e.rule !== 'non-functional-alias' && e.rule !== 'alias-collision');
+    }
+    if (args['allow-secret']) {
+      bodyErrors = bodyErrors.filter((e) => e.rule !== 'contains-secret');
     }
     if (bodyErrors.length) {
       console.error(`error: validation failed for ${slug}:`);
@@ -3860,6 +3869,7 @@ const VERBS = [
       '  wiki write <slug> ... --no-anchor   (suppress orphan warning)',
       '  wiki write <slug> ... --soft        (downgrade audit issues to warnings)',
       '  wiki write <slug> ... --force-alias (bypass non-functional-alias and alias-collision strict rules only)',
+      '  wiki write <slug> ... --allow-secret (bypass contains-secret strict rule only — use sparingly)',
       '  wiki write <slug> ... [--born YYYY-MM-DD | MM-DD]',
       '  wiki write <slug> ... [--visibility private|personal|public] [--sensitive true|false] [--confidence 0.0-1.0]',
       '',
