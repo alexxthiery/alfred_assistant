@@ -44,6 +44,7 @@ const {
 } = require('./lib/graph.js');
 const { validateIngestSpec, validateBody: _validateBody } = require('./lib/ingest.js');
 const { auditPage, auditVault, STRICT_CROSS_PAGE_RULES, strictCrossPageErrors } = require('./lib/audit.js');
+const { redactSecrets } = require('./lib/secrets.js');
 const { applyFlagAliases } = require('./lib/flag-aliases.js');
 const { flushStaged } = require('./lib/staged-writes.js');
 const { buildTitleEntries, autolinkBody } = require('./lib/autolink.js');
@@ -113,13 +114,18 @@ function regenerateIndex() {
 function appendLog(op, detail) {
   fs.mkdirSync(WIKI_DIR, { recursive: true });
   const ts = nowISO().replace('T', ' ').slice(0, 19);
-  const line = formatLogLine(ts, op, detail);
+  // Defense in depth: redact known secret shapes from BOTH the log line
+  // (wiki/log.md is auto-committed) AND the commit subject (passed to
+  // autoCommit). Even if the contains-secret strict rule misses a novel
+  // shape, the value never reaches the persisted log/git surfaces.
+  const safeDetail = typeof detail === 'string' ? redactSecrets(detail) : detail;
+  const line = formatLogLine(ts, op, safeDetail);
   if (!fs.existsSync(LOG_PATH)) {
     fs.writeFileSync(LOG_PATH, `# Wiki Log\n\n${line}`);
   } else {
     fs.appendFileSync(LOG_PATH, line);
   }
-  autoCommit(op, detail);
+  autoCommit(op, safeDetail);
 }
 
 // Auto-commit every CLI mutation to the vault's git repo. Best-effort:
@@ -398,8 +404,8 @@ function cmdWrite(args) {
     if (bodyErrors.length) {
       console.error('error: strict body validation failed (bypass with --soft):');
       for (const e of bodyErrors) {
-        console.error(`  [${e.rule}] ${e.message}`);
-        if (e.fix) console.error(`    → fix: ${e.fix}`);
+        console.error(redactSecrets(`  [${e.rule}] ${e.message}`));
+        if (e.fix) console.error(redactSecrets(`    → fix: ${e.fix}`));
       }
       process.exit(3);
     }
@@ -896,8 +902,8 @@ function cmdPatch(args) {
     if (bodyErrors.length) {
       console.error(`error: validation failed for ${slug}:`);
       for (const e of bodyErrors) {
-        console.error(`  [${e.rule}] ${e.message}`);
-        if (e.fix) console.error(`    → fix: ${e.fix}`);
+        console.error(redactSecrets(`  [${e.rule}] ${e.message}`));
+        if (e.fix) console.error(redactSecrets(`    → fix: ${e.fix}`));
       }
       console.error('  (bypass with --soft, e.g. wiki patch <slug> --observation "..." --soft)');
       process.exit(3);
@@ -1783,14 +1789,14 @@ function postWriteAudit(slug) {
     console.error(`# audit ${slug}: ${issueCount} issue(s), score ${result.score}`);
     let anySpecificFix = false;
     for (const i of result.issues) {
-      console.error(`  [${i.severity}] ${i.rule}: ${i.detail}`);
+      console.error(redactSecrets(`  [${i.severity}] ${i.rule}: ${i.detail}`));
       if (i.fix) {
-        console.error(`    → fix: ${i.fix}`);
+        console.error(redactSecrets(`    → fix: ${i.fix}`));
         anySpecificFix = true;
       }
     }
     for (const e of crossPageErrors) {
-      console.error(`  [cross-page] ${e.rule}: ${e.message}`);
+      console.error(redactSecrets(`  [cross-page] ${e.rule}: ${e.message}`));
       if (e.fix) {
         console.error(`    → fix: ${e.fix}`);
         anySpecificFix = true;
@@ -1811,9 +1817,9 @@ function formatAuditPage(slug, result) {
   }
   lines.push(`# audit ${slug}: ${result.issues.length} issue(s), score ${result.score}`);
   for (const i of result.issues) {
-    lines.push(`  [${i.severity}] ${i.rule}: ${i.detail}`);
-    if (i.fix) lines.push(`    → fix: ${i.fix}`);
-    if (i.examples) for (const ex of i.examples) lines.push(`     · ${ex}`);
+    lines.push(redactSecrets(`  [${i.severity}] ${i.rule}: ${i.detail}`));
+    if (i.fix) lines.push(redactSecrets(`    → fix: ${i.fix}`));
+    if (i.examples) for (const ex of i.examples) lines.push(redactSecrets(`     · ${ex}`));
   }
   return lines.join('\n');
 }
