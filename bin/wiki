@@ -2650,6 +2650,14 @@ const DB_PATH = path.join(CACHE_DIR, 'vault.duckdb');
 const DB_NDJSON_PATH = path.join(CACHE_DIR, 'vault.ndjson');
 const OBS_NDJSON_PATH = path.join(CACHE_DIR, 'observations.ndjson');
 const REL_NDJSON_PATH = path.join(CACHE_DIR, 'relations.ndjson');
+const SNAPSHOT_SCHEMA_PATH = path.join(CACHE_DIR, '.snapshot-schema');
+
+// Bump SNAPSHOT_SCHEMA_VERSION whenever the column shape of any NDJSON file
+// changes (new column, removed column, renamed column). loadVaultDb compares
+// it to the value persisted on disk and forces rebuild on mismatch, so a CLI
+// upgrade automatically refreshes stale .duckdb files without manual
+// intervention.
+const SNAPSHOT_SCHEMA_VERSION = 'v2-2026-05-19'; // bumped: observations.confidence added (HR-OOB audit fix)
 
 function buildVaultNdjson() {
   const wikilinkRe = /\[\[([a-z0-9][a-z0-9-]*)\]\]/g;
@@ -2718,15 +2726,32 @@ function buildVaultNdjson() {
   });
   for (const p of pages) p.mention_count = mentions.get(p.slug) || 0;
   fs.mkdirSync(CACHE_DIR, { recursive: true });
-  fs.writeFileSync(DB_NDJSON_PATH, pages.map((p) => JSON.stringify(p)).join('\n') + '\n');
-  fs.writeFileSync(OBS_NDJSON_PATH, obsRows.map((o) => JSON.stringify(o)).join('\n') + (obsRows.length ? '\n' : ''));
-  fs.writeFileSync(REL_NDJSON_PATH, relRows.map((r) => JSON.stringify(r)).join('\n') + (relRows.length ? '\n' : ''));
+  // Atomic write: temp file → fsync-ish (writeFileSync is synchronous) → rename.
+  // Prevents a concurrent reader from seeing an internally-inconsistent
+  // snapshot (e.g. fresh pages but stale observations).
+  const atomicWrite = (finalPath, content) => {
+    const tmp = `${finalPath}.tmp`;
+    fs.writeFileSync(tmp, content);
+    fs.renameSync(tmp, finalPath);
+  };
+  atomicWrite(DB_NDJSON_PATH, pages.map((p) => JSON.stringify(p)).join('\n') + '\n');
+  atomicWrite(OBS_NDJSON_PATH, obsRows.map((o) => JSON.stringify(o)).join('\n') + (obsRows.length ? '\n' : ''));
+  atomicWrite(REL_NDJSON_PATH, relRows.map((r) => JSON.stringify(r)).join('\n') + (relRows.length ? '\n' : ''));
   return { pages: pages.length, observations: obsRows.length, relations: relRows.length };
 }
 
 function loadVaultDb() {
   fs.mkdirSync(CACHE_DIR, { recursive: true });
   let needRebuild = !fs.existsSync(DB_PATH);
+  if (!needRebuild) {
+    // Schema-version sidecar: if the recorded version doesn't match the
+    // current SNAPSHOT_SCHEMA_VERSION, the .duckdb has the old column shape
+    // and a query against a new column would error. Force rebuild.
+    const recorded = fs.existsSync(SNAPSHOT_SCHEMA_PATH)
+      ? fs.readFileSync(SNAPSHOT_SCHEMA_PATH, 'utf-8').trim()
+      : '';
+    if (recorded !== SNAPSHOT_SCHEMA_VERSION) needRebuild = true;
+  }
   if (!needRebuild) {
     const dbMtime = fs.statSync(DB_PATH).mtimeMs;
     for (const f of listWikiPages()) {
@@ -2756,6 +2781,7 @@ function loadVaultDb() {
     console.error(`error: failed to build DuckDB at ${DB_PATH}: ${msg}`);
     process.exit(2);
   }
+  fs.writeFileSync(SNAPSHOT_SCHEMA_PATH, SNAPSHOT_SCHEMA_VERSION + '\n');
   console.error(`(rebuilt vault.duckdb: ${counts.pages} pages, ${counts.observations} observations, ${counts.relations} relations)`);
   return DB_PATH;
 }
