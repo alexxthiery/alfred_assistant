@@ -253,7 +253,47 @@ If you'd written `type: note`, used `family_trip_of` as a verb, left Springfield
 
 ## Other workflows
 
-### Query — when {{USER_NAME}} asks "what do you know about X"
+### Query-first retrieval — the access pattern for "what does the vault know about X"
+
+Pages can have hundreds of observations. Reading whole pages is the wrong primitive at scale: it dumps everything the vault has on a topic regardless of relevance, and you stop being able to answer "what does the vault say about <narrow question>" without paging through prose. The right primitive is a **query that surfaces observations**, not a page.
+
+Three retrieval layers, ranked from highest precision to cheapest fallback. Use the most specific layer that fits; only fall back if the higher layer returns nothing useful.
+
+**Layer 1 — structural filters (`wiki sql`)**
+Use when {{USER_NAME}} asks a question that has a deterministic answer in the schema: a category, a date window, a relation, a tag. Hits the DuckDB tri-table snapshot.
+```bash
+wiki sql "SELECT slug, body FROM observations WHERE slug='<person>' AND category='prediction' AND NOT superseded ORDER BY by_date"
+wiki sql "SELECT slug, body FROM observations WHERE since >= '2026-01' AND list_contains(provenance, 'telegram:2026-05-17')"
+```
+
+**Layer 2 — BM25 + synonyms (`wiki search`)**
+Use when the question is topical and not perfectly captured by frontmatter fields. The default mode ranks observations by BM25 relevance over `observations.body`, expanding query tokens through `SYNONYMS.md` if present.
+```bash
+wiki search "school visit"
+wiki search "doctor" --tag health --limit 5
+wiki search "<!--obs:a3f7q9-->" --literal       # find a specific obs by id
+```
+
+**Layer 3 — saved-query views (`wiki render`)**
+For questions you ask repeatedly, materialise the query as a `type=view` page whose body holds the SQL. Re-evaluated against current state each time.
+```markdown
+# wiki/recent-predictions-due.md (type=view)
+\`\`\`sql
+SELECT slug, body, by_date
+FROM observations
+WHERE category='prediction' AND NOT superseded AND by_date <= '2026-12-31'
+ORDER BY by_date
+\`\`\`
+```
+```bash
+wiki render recent-predictions-due
+```
+
+**`wiki print <slug>` is last-resort.** Reach for it only when {{USER_NAME}} explicitly wants the whole page (e.g. to read a `type=synthesis` essay end-to-end). For "what does the vault know about X", the three query layers above are right; `print` is wrong because it returns everything indiscriminately, mixing relevant observations with unrelated history.
+
+For "tell me about person/concept Y" identity questions (not topical questions), the older `wiki context <slug>` is still cheaper than `print`: bundled frontmatter + first observations + relations + neighbors.
+
+### Query — fallback flow for identity questions
 
 1. `wiki resolve "X"` to map the fuzzy name to a slug.
 2. `wiki context <slug>` (cheap, bundled: frontmatter, observations, relations, neighbors).

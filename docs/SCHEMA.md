@@ -73,6 +73,7 @@ The `type:` frontmatter field must be one of these. The CLI refuses unknown type
 | `note` | catch-all (use sparingly; lint nags) | — | — |
 | `event` | one calendar event (meeting, appointment, deadline, trip) | `when: YYYY-MM-DD` or ISO8601; optional `duration`, `location`, `attendees: [slug, ...]`, `recurrence` | — |
 | `question` | one open question that accretes hypotheses, evidence, dead-ends, and partial answers over time. Never "answered" — relabeled as `concept` if it stabilizes. Title in interrogative form (e.g. "why does X happen"). | — | ≥1 observation (typically `[hypothesis]` or `[fact]`) |
+| `view` | a saved DuckDB query that materialises a topical slice through the vault on demand. The page body holds a fenced ```` ```sql ```` block; `wiki render <slug>` executes it. Replaces hand-maintained aggregator pages with a query you re-evaluate against current state. | a fenced ```` ```sql ```` block in the body (advisory: `view-needs-query` audit warns if absent) | — |
 
 The CLI rejects `type: note` for pages whose `tags` include `person`, `org`, or `tool` — use `entity` instead.
 
@@ -119,6 +120,21 @@ Categories: `fact`, `hypothesis`, `opinion`, `claim`, `quote`, `question`, `deci
 - `opinion` — Alice's stance, not a verifiable fact
 - `claim` — third-party assertion (from a paper, person) without independent verification
 - `prediction` — a forward-looking probabilistic claim with `[confidence: 0..1]`, optionally `[by YYYY-MM-DD]` for the resolution date. Resolved later via `--supersede` with the outcome. The corpus of resolved predictions powers calibration scoring.
+
+### Stable observation IDs (CLI-minted, invisible)
+
+Every categorized observation line carries an invisible HTML-comment marker minted at write time:
+
+```
+- [fact] Joined ExampleCorp [since 2024-08] ^[telegram:1] <!--obs:a3f7q9-->
+```
+
+- **Format**: `<!--obs:XXXXXX-->` where `XXXXXX` is six lowercase base36 chars (`a-z0-9`), ~2.18B id space.
+- **Invisibility**: HTML comments do not render in any markdown viewer; humans reading the raw `.md` see decoration only when looking.
+- **Position**: appended at end-of-line. For `~~[cat] ...~~` superseded lines, the marker lands after the closing `~~` so the strikethrough wrap stays intact.
+- **Minted by**: `cmdWrite` / `cmdPatch` automatically. `wiki sync-ids` is the one-time migration verb that retro-fits markers on legacy pages and is idempotent on re-run.
+- **Surfaced in DuckDB**: `observations.id` (nullable until the page is migrated). The FTS index uses an internal `observations.obs_uid` row counter, not `id`, because the 6-char id is probabilistically unique rather than strict.
+- **Used by**: write-time dedup (`exact-duplicate-observation` rule), and as a stable handle for surgical edits, transclusion (`[[slug#obs:XXXXXX]]`), and Alfred-agent references to specific observations on a page.
 
 ### Temporal tags (CLI-parseable)
 
