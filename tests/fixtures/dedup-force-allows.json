@@ -1,0 +1,7 @@
+{
+  "_comment": "The `--force-duplicate` escape hatch bypasses ONLY the exact-duplicate-observation rule. Confirms the patch lands and the duplicate ends up in the body.",
+  "setup": [
+    ["write", "dedup-force-test", "--title", "Dedup force test", "--type", "concept", "--tags", "meta", "--content", "- [fact] test subject likes prototypes ^[t:1]"]
+  ],
+  "cmd": ["patch", "dedup-force-test", "--observation", "[fact] test subject likes prototypes ^[t:2]", "--force-duplicate"]
+}

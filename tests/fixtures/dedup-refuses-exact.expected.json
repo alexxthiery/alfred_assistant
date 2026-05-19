@@ -1,0 +1,4 @@
+{
+  "exitCode": 3,
+  "stderrContains": ["exact-duplicate-observation", "--force-duplicate"]
+}

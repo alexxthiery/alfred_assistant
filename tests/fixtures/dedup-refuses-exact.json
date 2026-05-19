@@ -1,0 +1,7 @@
+{
+  "_comment": "Write-time dedup: a `wiki patch --observation` that introduces a byte-equal duplicate (same category, same cleaned body) on a page already carrying that observation is refused with exit 3. The strict `exact-duplicate-observation` rule catches it before the fs write.",
+  "setup": [
+    ["write", "dedup-test", "--title", "Dedup test", "--type", "concept", "--tags", "meta", "--content", "- [fact] test subject likes prototypes ^[t:1]"]
+  ],
+  "cmd": ["patch", "dedup-test", "--observation", "[fact] test subject likes prototypes ^[t:2]"]
+}

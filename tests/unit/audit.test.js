@@ -132,6 +132,49 @@ test('view-needs-query: silent on non-view pages even without sql', () => {
   assert.equal(out, null);
 });
 
+test('exact-duplicate-observation: fires when two non-superseded obs have the same canonical body and category', () => {
+  const r = findRule('exact-duplicate-observation');
+  const body = '- [fact] test subject likes prototypes ^[t:1]\n- [fact] test subject likes prototypes ^[t:2]';
+  const out = r.check({ body }, deps());
+  assert.ok(out, 'rule must fire on byte-equal observation duplicates');
+  assert.match(out.message, /duplicate/i);
+});
+
+test('exact-duplicate-observation: silent on near-duplicates with a one-char difference', () => {
+  // The rule is strict: only canonical-equal lines collide. Near-duplicates
+  // are tolerated by design (catching them is the dedup-fuzzy work, not this).
+  const r = findRule('exact-duplicate-observation');
+  const body = '- [fact] test subject likes prototypes ^[t:1]\n- [fact] test subject likes prototype ^[t:2]';
+  const out = r.check({ body }, deps());
+  assert.equal(out, null);
+});
+
+test('exact-duplicate-observation: silent across different categories with same body', () => {
+  // A fact and a hypothesis with identical body capture different epistemic
+  // commitments — not a duplicate.
+  const r = findRule('exact-duplicate-observation');
+  const body = '- [fact] test subject likes prototypes ^[t:1]\n- [hypothesis] test subject likes prototypes ^[t:2]';
+  const out = r.check({ body }, deps());
+  assert.equal(out, null);
+});
+
+test('exact-duplicate-observation: silent when an existing obs is superseded and a fresh one repeats it', () => {
+  // Updating an old fact via ~~strikethrough~~ followed by the replacement
+  // line is exactly the supersession workflow — not a duplicate.
+  const r = findRule('exact-duplicate-observation');
+  const body = '- ~~[fact] test subject likes prototypes~~ [until 2026-05-19] ^[t:1]\n- [fact] test subject likes prototypes ^[t:2]';
+  const out = r.check({ body }, deps());
+  assert.equal(out, null);
+});
+
+test('exact-duplicate-observation: ignores inline date/provenance/confidence tags when comparing canonical form', () => {
+  // Same body content, different provenance + date markers → still duplicate.
+  const r = findRule('exact-duplicate-observation');
+  const body = '- [fact] X happened [since 2024-01] ^[t:1]\n- [fact] X happened [on 2025-06] ^[t:2]';
+  const out = r.check({ body }, deps());
+  assert.ok(out);
+});
+
 test('missing-provenance: fires on entity with obs but no ^[...] marker', () => {
   const r = findRule('missing-provenance');
   const out = r.check({ type: 'entity', body: '- [fact] something', fm: {} }, deps());

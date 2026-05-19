@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "dedup-force-test": {
+      "bodyContains": ["^[t:1]", "^[t:2]"]
+    }
+  }
+}

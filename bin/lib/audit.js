@@ -105,6 +105,44 @@ const AUDIT_RULES = [
   },
 
   {
+    // Two non-superseded observation lines on the same page that share both
+    // category and cleaned-body are byte-equal duplicates. Refuses at write
+    // time; `--force-duplicate` bypasses for the rare legitimate case
+    // (intentional parallel statements with distinct provenance).
+    //
+    // Canonical form = parseObservations(body) cleaned body, lowercased.
+    // Inline date/provenance/confidence tags are already stripped by the
+    // parser so the comparison is robust against trivial decoration drift.
+    // Strikethrough-wrapped obs are skipped: the supersession workflow lands
+    // an old line and a new identical line on the same page on purpose.
+    name: 'exact-duplicate-observation',
+    severity: 'high',
+    strict: true,
+    check: ({ body }) => {
+      if (!body) return null;
+      const obs = parseObservations(body);
+      const seen = new Map();
+      for (const o of obs) {
+        if (o.superseded) continue;
+        const key = `${o.category}|${o.body.toLowerCase()}`;
+        if (seen.has(key)) {
+          const dup = o.body.slice(0, 80);
+          return {
+            detail: `duplicate [${o.category}] observation: "${dup}"`,
+            message: `duplicate observation on this page: [${o.category}] "${dup}". ` +
+              `Two byte-equal observations carry the same epistemic weight as one. ` +
+              `If this is an intentional re-statement (different provenance), bypass with --force-duplicate. ` +
+              `If you meant to revise the earlier one, use \`wiki patch <slug> --supersede "<old needle>" --observation "<new>"\`.`,
+            fix: `wiki patch <slug> --force-duplicate ...   (or --supersede + --observation if updating)`,
+          };
+        }
+        seen.set(key, o);
+      }
+      return null;
+    },
+  },
+
+  {
     // `type: view` pages are saved DuckDB queries: the body's first fenced
     // ```sql block is what `wiki render` executes. A view without a query has
     // no useful behaviour, so flag it. Advisory (not strict): the page is
