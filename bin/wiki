@@ -2779,11 +2779,20 @@ function cmdSql(args) {
     console.log('  - `vault`: one row per page (slug, type, tags, frontmatter fields, n_* counts).');
     console.log('  - `observations`: one row per categorized body bullet ([fact]/[hypothesis]/[prediction]/etc).');
     console.log('  - `relations`: one row per "- verb [[target]]" typed relation.');
-    console.log('  - Joins: observations.slug = vault.slug; relations.slug = vault.slug.');
+    console.log('  - Joins: observations.slug = vault.slug; relations.slug = vault.slug; relations.target = vault.slug.');
+    console.log('');
+    console.log('Column semantics worth knowing:');
+    console.log('  - vault.when_         renamed from `when` frontmatter (SQL reserves `when`).');
+    console.log('  - vault.confidence    page-level "how sure am I this page is right" (0..1).');
+    console.log('  - vault.sensitive     true → Alfred must exclude from any LLM context (CLI does not enforce).');
+    console.log('  - vault.n_*           denormalized counts; derivable from observations table, kept for cheap WHERE.');
+    console.log('  - observations.by_date     [by YYYY-MM-DD] resolution date for predictions (and any other observation).');
+    console.log('  - observations.confidence  [confidence: 0..1] inline tag, primarily for [prediction] rows.');
+    console.log('  - observations.superseded  true when the bullet is wrapped in ~~ strikethrough.');
     return;
   }
   if (args.explore) {
-    console.error(`(opening DuckDB REPL on ${dbPath}; table is "vault")`);
+    console.error(`(opening DuckDB REPL on ${dbPath}; three tables: vault, observations, relations)`);
     spawnSync('duckdb', [dbPath], { stdio: 'inherit' });
     return;
   }
@@ -2791,7 +2800,7 @@ function cmdSql(args) {
   if (!query) {
     console.error('Usage:');
     console.error('  wiki sql "<query>"     run query, print as table');
-    console.error('  wiki sql --schema      describe the `vault` table');
+    console.error('  wiki sql --schema      DESCRIBE all three tables (vault, observations, relations) + column gloss');
     console.error('  wiki sql --explore     open the DuckDB REPL on the DB');
     process.exit(1);
   }
@@ -3754,7 +3763,27 @@ const VERBS = [
   ] },
   { name: 'challenge', section: 'READ', lines: [
     '  challenge <slug>                          print page + red-team prompt (forces dissent, not confirmation)',
-  ] },
+  ], longHelp: [
+    'wiki challenge — surface dissent against a page.',
+    '',
+    'Usage:',
+    '  wiki challenge <slug>',
+    '',
+    'Prints the full page followed by a structured red-team prompt instructing',
+    'the agent to argue *against* the page. Five sections in the prompt:',
+    '  1. Strongest objection — single weakest claim, why it might be wrong.',
+    '  2. Missing alternatives — two competing positions the page does not consider.',
+    '  3. Hidden assumptions — what does the page take for granted?',
+    '  4. Provenance gaps — claims resting on weak/outdated/motivated evidence.',
+    '  5. Falsifiable change-of-mind — concrete new evidence that would flip the view.',
+    '',
+    'The verb itself is dumb-by-design: it just prints. The intelligence lives in',
+    'the agent reading the output and producing the critique. Default LLM behavior',
+    'is confirmation reinforcement; this verb is the forcing function for dissent.',
+    '',
+    'Use proactively when {{USER_NAME}} states a strong opinion on a concept or',
+    'position-* page. Treat the prompt as authoritative — do not soften the critique.',
+  ].join('\n') },
 
   // WRITE
   {
@@ -3966,11 +3995,48 @@ const VERBS = [
 
   // SQL
   { name: 'sql', section: 'SQL', lines: [
-    '  sql "<query>"                             run SQL against the `vault` table (DuckDB)',
-    '  sql --schema                              describe the `vault` table',
+    '  sql "<query>"                             run SQL against the three tables (DuckDB)',
+    '  sql --schema                              DESCRIBE all three tables + column gloss',
     '  sql --explore                             open the DuckDB REPL on the DB',
     '  (DB at .cache/vault.duckdb; rebuilt lazily when any wiki/*.md is newer)',
-  ] },
+  ], longHelp: [
+    'wiki sql — ad-hoc DuckDB queries over the vault.',
+    '',
+    'Three tables, joinable by slug:',
+    '  vault         one row per page. Columns include slug, title, type, tags,',
+    '                aliases, n_facts/n_hypotheses/n_predictions/n_questions/...',
+    '                (denormalized counts, derivable from observations),',
+    '                frontmatter passthroughs (born, visibility, sensitive,',
+    '                confidence, decided_on, status, due, when_), mention_count.',
+    '                NOTE: `when_` is the renamed `when` frontmatter (SQL reserves',
+    '                `when`); use `when_` in queries.',
+    '  observations  one row per body bullet ([fact]/[hypothesis]/[prediction]/etc).',
+    '                Columns: slug, category, body (cleaned, no date/prov tags),',
+    '                superseded, since, until, as_of, on_date, by_date, confidence,',
+    '                provenance (varchar[]).',
+    '  relations     one row per "- verb [[target]]" relation.',
+    '                Columns: slug, verb, target.',
+    '',
+    'Canonical join keys:',
+    '  observations.slug = vault.slug',
+    '  relations.slug    = vault.slug   (and relations.target = vault.slug)',
+    '',
+    'Common patterns:',
+    '  # Predictions past resolution date that haven\'t been superseded',
+    '  SELECT slug, body, by_date, confidence FROM observations',
+    '   WHERE category=\'prediction\' AND by_date < current_date AND NOT superseded;',
+    '',
+    '  # People not touched in 6 months (latent reconnection)',
+    '  SELECT slug FROM vault',
+    '   WHERE type=\'entity\' AND list_contains(tags, \'person\')',
+    '     AND updated < current_date - INTERVAL 180 DAY;',
+    '',
+    '  # Relation histogram (which verbs dominate?)',
+    '  SELECT verb, COUNT(*) n FROM relations GROUP BY verb ORDER BY n DESC;',
+    '',
+    'Prefer this verb over asking for a new verb whenever a query expresses the',
+    'need. New verbs are reserved for actions, not for read-only filters.',
+  ].join('\n') },
 
   // REPLAY
   { name: 'replay', section: 'REPLAY', lines: [
@@ -4021,7 +4087,7 @@ function printGlobalHelp() {
     const verbs = VERBS.filter((v) => v.section === section);
     if (!verbs.length) continue;
     const sectionHeader = {
-      'SQL': 'SQL (DuckDB analytical view — ad-hoc queries over wiki/*.md frontmatter)',
+      'SQL': 'SQL (DuckDB analytical view — ad-hoc queries over three tables: vault, observations, relations)',
       'REPLAY': 'REPLAY (re-run captured Telegram-driven ingests — catch persona/CLI drift)',
       'REVIEW': 'REVIEW (discovery + health digest — run weekly-ish)',
       'MEASUREMENTS': 'MEASUREMENTS (tabular time-series — growth, BP, fitness, labs)',
