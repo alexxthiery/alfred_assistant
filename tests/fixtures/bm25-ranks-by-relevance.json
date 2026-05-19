@@ -1,0 +1,8 @@
+{
+  "_comment": "FTS BM25 index ranks observations by relevance. Setup seeds two pages with distinctive vocabulary; the query searches for a rare term that should appear in exactly one page. The assertion only locks the matching slug appearing in stdout (not exact rank) — BM25 weights can shift slightly across DuckDB versions.",
+  "setup": [
+    ["write", "fts-target", "--title", "FTS target", "--type", "concept", "--tags", "meta", "--content", "- [fact] research about an unusual creature called quokka ^[t:1]", "--soft"],
+    ["write", "fts-decoy", "--title", "FTS decoy", "--type", "concept", "--tags", "meta", "--content", "- [fact] entirely unrelated content about marine biology ^[t:1]", "--soft"]
+  ],
+  "cmd": ["sql", "SELECT slug FROM observations WHERE fts_main_observations.match_bm25(obs_uid, 'quokka') IS NOT NULL ORDER BY fts_main_observations.match_bm25(obs_uid, 'quokka') DESC LIMIT 1;"]
+}

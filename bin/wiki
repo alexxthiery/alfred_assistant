@@ -2672,7 +2672,7 @@ const SNAPSHOT_SCHEMA_PATH = path.join(CACHE_DIR, '.snapshot-schema');
 // it to the value persisted on disk and forces rebuild on mismatch, so a CLI
 // upgrade automatically refreshes stale .duckdb files without manual
 // intervention.
-const SNAPSHOT_SCHEMA_VERSION = 'v2-2026-05-19'; // bumped: observations.confidence added (HR-OOB audit fix)
+const SNAPSHOT_SCHEMA_VERSION = 'v3-2026-05-19-fts'; // bumped: observations.id added + BM25 FTS index on observations.body
 
 function buildVaultNdjson() {
   const wikilinkRe = /\[\[([a-z0-9][a-z0-9-]*)\]\]/g;
@@ -2689,6 +2689,7 @@ function buildVaultNdjson() {
     for (const o of obs) {
       obsRows.push({
         slug,
+        id: o.id || null,
         category: o.category,
         body: o.body,
         superseded: !!o.superseded,
@@ -2778,19 +2779,29 @@ function loadVaultDb() {
   const counts = buildVaultNdjson();
   const { spawnSync } = require('child_process');
   if (fs.existsSync(DB_PATH)) fs.unlinkSync(DB_PATH);
-  // Array-form: DB_PATH and the SQL string are passed as separate argv entries
-  // so duckdb receives them as a database path + a query, no shell interpolation.
+  // observations gets an `obs_uid` row-counter prepended at table-build time.
+  // FTS requires a UNIQUE key column; the user-facing `id` (6-char base36) is
+  // probabilistic and could collide at vault scale, so we synthesise a
+  // monotonic integer for the index. `id` remains the human-stable handle.
+  //
+  // SQL is piped via stdin (one statement per line) rather than passed as a
+  // single argv blob: DuckDB's argv-form batch-parses the whole string before
+  // execution, so a later PRAGMA referencing a CREATE-TABLE-in-the-same-batch
+  // would fail catalog lookup. stdin processes each line as its own batch.
   const esc = (p) => p.replace(/'/g, "''");
   const sql = [
+    "INSTALL fts; LOAD fts;",
     `CREATE TABLE vault AS SELECT * FROM read_json_auto('${esc(DB_NDJSON_PATH)}', format='newline_delimited');`,
-    `CREATE TABLE observations AS SELECT * FROM read_json_auto('${esc(OBS_NDJSON_PATH)}', format='newline_delimited');`,
+    `CREATE TABLE observations AS SELECT row_number() OVER () AS obs_uid, * FROM read_json_auto('${esc(OBS_NDJSON_PATH)}', format='newline_delimited');`,
     `CREATE TABLE relations AS SELECT * FROM read_json_auto('${esc(REL_NDJSON_PATH)}', format='newline_delimited');`,
     "CREATE INDEX vault_slug ON vault(slug);",
     "CREATE INDEX observations_slug ON observations(slug);",
+    "CREATE INDEX observations_id ON observations(id);",
     "CREATE INDEX relations_slug ON relations(slug);",
     "CREATE INDEX relations_target ON relations(target);",
-  ].join(' ');
-  const r = spawnSync('duckdb', [DB_PATH, sql], { encoding: 'utf-8' });
+    "PRAGMA create_fts_index('observations', 'obs_uid', 'body', stemmer='english', stopwords='english', overwrite=1);",
+  ].join('\n');
+  const r = spawnSync('duckdb', [DB_PATH], { input: sql, encoding: 'utf-8' });
   if (r.error || r.status !== 0) {
     const msg = (r.stderr || '').split('\n')[0] || (r.error && r.error.message) || `exit ${r.status}`;
     console.error(`error: failed to build DuckDB at ${DB_PATH}: ${msg}`);
@@ -2827,9 +2838,15 @@ function cmdSql(args) {
     console.log('  - vault.confidence    page-level "how sure am I this page is right" (0..1).');
     console.log('  - vault.sensitive     true → Alfred must exclude from any LLM context (CLI does not enforce).');
     console.log('  - vault.n_*           denormalized counts; derivable from observations table, kept for cheap WHERE.');
+    console.log('  - observations.id          6-char base36 handle minted at write time (<!--obs:XXXXXX--> marker).');
+    console.log('  - observations.obs_uid     monotonic row counter; the FTS index unique key (not user-facing).');
     console.log('  - observations.by_date     [by YYYY-MM-DD] resolution date for predictions (and any other observation).');
     console.log('  - observations.confidence  [confidence: 0..1] inline tag, primarily for [prediction] rows.');
     console.log('  - observations.superseded  true when the bullet is wrapped in ~~ strikethrough.');
+    console.log('');
+    console.log('BM25 full-text search:');
+    console.log('  SELECT slug, fts_main_observations.match_bm25(obs_uid, \'query\') AS score');
+    console.log('  FROM observations WHERE score IS NOT NULL ORDER BY score DESC LIMIT 10;');
     return;
   }
   if (args.explore) {
