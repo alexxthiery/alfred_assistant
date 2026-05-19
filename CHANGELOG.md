@@ -7,6 +7,13 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Persona (Phase 10)
+- New top-level `## Operating loop` section in `PERSONA.template.md`: three reflexes (search before answering, volunteer captures at breakpoints, surface contradictions before proposing) hoisted above the ingestion protocol. Closes a measured ~100% capture-leak rate observed over a 2-day audit window of live conversations (May 18-19, 2026). Pure persona change, no CLI work.
+- Deleted overlapping `### Retrieval reflexes` subsection (absorbed into Reflex 1). The previous "ONLY IF BM25 >= 1.0 AND ..." conjunction gave the LLM permission to skip both search and surfacing; new section separates *always search* from *conditionally surface* with no hedge conjunction. Obs-id citation convention preserved at the bottom of the boundary-rules subsection.
+- Trimmed `### Red-teaming — wiki challenge` to a 2-line cross-reference of Reflex 3 (same goal, broader trigger).
+- Net persona length change: **−53 words** (7234 → 7181). Persona-lint clean.
+- New `tools/audit-conversation-leak.md`: parameterized subagent prompt for re-measuring leak rate after persona changes. Manual rerun only.
+
 ### Added (Phase 9)
 - **`wiki capture <slug> "<utterance>"`** — classify-and-route verb. Deterministic shape lexicon (regex-based, no NLP) maps utterance shape to category + confidence + date, then delegates to `cmdPatch` for the actual write. Reduces LLM judgment load: Alfred passes faithful user speech, the classifier picks the category. Refuses on ambiguity, prediction-without-date, or bracket-in-body. Override via `--as <category>` when classifier and agent disagree.
 - New pure module `bin/lib/capture-classifier.js` covering question, decision, claim (with source extraction), prediction (with date + confidence inference), hypothesis, opinion, idea, and fact-fallback. 27 unit tests cover each shape, confidence inference, date extraction, precedence resolution, refusal modes, and roundtrip through `parseObservations`.
