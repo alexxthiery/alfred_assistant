@@ -133,3 +133,23 @@ test('mintIdsForBody preserves trailing newline behaviour', () => {
   // Input had no trailing newline; output may or may not, but it must end with what we added (no spurious blank lines).
   assert.match(out, /^- \[fact\] A <!--obs:[a-z0-9]{6}-->$/);
 });
+
+test('mintIdsForBody preserves provenance markers, dates, [confidence:], strikethrough when adding ids', () => {
+  // The marker must be appended without disturbing any inline tag.
+  const body = [
+    '- [fact] Joined [since 2024-01] ^[telegram:2026-05-17]',
+    '- [prediction] X happens [by 2027-06] [confidence: 0.7] ^[t:1]',
+    '- ~~[fact] outdated~~ [until 2025-06]',
+  ].join('\n');
+  const out = mintIdsForBody(body);
+  // Every inline tag survives unchanged.
+  assert.ok(out.includes('[since 2024-01]'), 'since date preserved');
+  assert.ok(out.includes('^[telegram:2026-05-17]'), 'provenance preserved');
+  assert.ok(out.includes('[by 2027-06]'), 'by date preserved');
+  assert.ok(out.includes('[confidence: 0.7]'), 'confidence preserved');
+  assert.ok(out.includes('[until 2025-06]'), 'until date preserved');
+  assert.ok(out.includes('~~[fact] outdated~~'), 'strikethrough wrap preserved');
+  // Three observation lines, three markers.
+  const matches = out.match(/<!--obs:[a-z0-9]{6}-->/g);
+  assert.equal(matches.length, 3);
+});

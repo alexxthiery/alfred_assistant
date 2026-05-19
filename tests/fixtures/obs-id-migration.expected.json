@@ -1,0 +1,7 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["obs-ids minted", "alice(+2)"],
+  "wikiAssertions": {
+    "alice": { "bodyContains": ["<!--obs:"] }
+  }
+}

@@ -1,0 +1,4 @@
+{
+  "_comment": "Migration: tests/vault/alice.md ships without <!--obs:--> markers (legacy pre-Phase-4 state). `wiki sync-ids` mints them. Locks the migration path for existing vaults.",
+  "cmd": ["sync-ids"]
+}

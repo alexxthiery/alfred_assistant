@@ -43,6 +43,7 @@ const {
   scoreSlugCandidates,
 } = require('./lib/graph.js');
 const { validateIngestSpec, validateBody: _validateBody } = require('./lib/ingest.js');
+const { mintIdsForBody } = require('./lib/obsid.js');
 const { auditPage, auditVault, STRICT_CROSS_PAGE_RULES, strictCrossPageErrors } = require('./lib/audit.js');
 const { redactSecrets } = require('./lib/secrets.js');
 const { applyFlagAliases } = require('./lib/flag-aliases.js');
@@ -426,7 +427,10 @@ function cmdWrite(args) {
     fm.updated = nowISO();
     tryApplyExtra(fm);
     const newBody = curBody.trimEnd() + (body ? '\n\n' + body : '') + '\n';
-    fs.writeFileSync(filePath, serializeFrontmatter(fm, newBody));
+    // Mint obs-ids on any observation lines that don't yet have one. Idempotent
+    // — existing markers in curBody pass through untouched, only fresh lines
+    // from the append pick up new ids.
+    fs.writeFileSync(filePath, serializeFrontmatter(fm, mintIdsForBody(newBody)));
     op = 'append';
   } else {
     let created = nowISO();
@@ -445,7 +449,8 @@ function cmdWrite(args) {
       tags,
     };
     tryApplyExtra(fm);
-    fs.writeFileSync(filePath, serializeFrontmatter(fm, body.endsWith('\n') ? body : body + '\n'));
+    const finalBody = body.endsWith('\n') ? body : body + '\n';
+    fs.writeFileSync(filePath, serializeFrontmatter(fm, mintIdsForBody(finalBody)));
   }
 
   regenerateIndex();
@@ -912,7 +917,10 @@ function cmdPatch(args) {
   }
 
   fm.updated = nowISO();
-  fs.writeFileSync(p, serializeFrontmatter(fm, newBody));
+  // Mint obs-ids on any newly-added observation lines. Idempotent — pre-existing
+  // markers pass through. Applied here so cmdPatch's --observation / --append
+  // flows always land an id without each call-site needing to remember.
+  fs.writeFileSync(p, serializeFrontmatter(fm, mintIdsForBody(newBody)));
   regenerateIndex();
   appendLog('patch', `${slug} (${ops.join(', ')})`);
   console.log(`patched: ${slug} (${ops.join(', ')})`);
@@ -2085,27 +2093,58 @@ function cmdSize(args) {
   for (const r of rows) console.log(`${r.lines}\t${r.type}\t${r.slug}\t${r.title}`);
 }
 
+// `wiki sync-ids` does two id-sync jobs in one walk:
+//   (1) align frontmatter `id:` with filename (legacy hygiene rule)
+//   (2) mint <!--obs:XXXXXX--> markers on observation lines that lack one
+// Both are idempotent. --dry-run reports what would change without writing.
 function cmdSyncIds(args) {
-  const fixed = [];
+  const fixed = []; // frontmatter id corrections
+  const minted = []; // pages that gained one or more obs-id markers
   forEachPage(({ slug: filenameSlug, absPath, fm, body }) => {
+    let pageChanged = false;
+    let newBody = body;
+    let newFm = fm;
+
     if (fm.id && fm.id !== filenameSlug) {
       if (args['dry-run']) {
         console.log(`${filenameSlug}: id=${fm.id} (would fix to ${filenameSlug})`);
       } else {
-        fm.id = filenameSlug;
-        fm.updated = nowISO();
-        fs.writeFileSync(absPath, serializeFrontmatter(fm, body));
+        newFm = { ...fm, id: filenameSlug, updated: nowISO() };
         fixed.push(filenameSlug);
+        pageChanged = true;
       }
+    }
+
+    const minted_body = mintIdsForBody(body);
+    if (minted_body !== body) {
+      const before = (body.match(/<!--obs:[a-z0-9]{6}-->/g) || []).length;
+      const after = (minted_body.match(/<!--obs:[a-z0-9]{6}-->/g) || []).length;
+      const added = after - before;
+      if (args['dry-run']) {
+        console.log(`${filenameSlug}: would mint ${added} obs-id marker(s)`);
+      } else {
+        newBody = minted_body;
+        // Bump `updated` only if it wasn't already bumped by the id-fix branch.
+        if (newFm === fm) newFm = { ...fm, updated: nowISO() };
+        minted.push(`${filenameSlug}(+${added})`);
+        pageChanged = true;
+      }
+    }
+
+    if (pageChanged) {
+      fs.writeFileSync(absPath, serializeFrontmatter(newFm, newBody));
     }
   });
   if (!args['dry-run']) {
-    if (fixed.length) {
-      regenerateIndex();
-      appendLog('sync-ids', `fixed ${fixed.length}: ${fixed.join(', ')}`);
-      console.log(`fixed ${fixed.length} page(s)`);
+    if (fixed.length || minted.length) regenerateIndex();
+    const parts = [];
+    if (fixed.length) parts.push(`fm id fixed: ${fixed.length} (${fixed.join(', ')})`);
+    if (minted.length) parts.push(`obs-ids minted: ${minted.length} (${minted.join(', ')})`);
+    if (parts.length) {
+      appendLog('sync-ids', parts.join('; '));
+      for (const p of parts) console.log(p);
     } else {
-      console.log('(all ids match filenames)');
+      console.log('(nothing to sync)');
     }
   }
 }
@@ -3858,7 +3897,7 @@ const VERBS = [
       'Exit code: 0 if clean, 2 if any rule fires.',
     ].join('\n'),
   },
-  { name: 'sync-ids', section: 'HYGIENE', lines: ['  sync-ids [--dry-run]                      sync frontmatter id with filename'] },
+  { name: 'sync-ids', section: 'HYGIENE', lines: ['  sync-ids [--dry-run]                      align frontmatter id with filename AND mint <!--obs:XXXXXX--> markers'] },
   { name: 'size',     section: 'HYGIENE', lines: ['  size [--threshold N]                      list pages above N body lines'] },
   { name: 'reindex',  section: 'HYGIENE', lines: ['  reindex                                   regenerate index.md'] },
   { name: 'groom',    section: 'HYGIENE', lines: ['  groom --mechanical [--dry-run]            auto-fix symmetric relations, bidirectional autolink, report stubs'] },

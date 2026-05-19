@@ -1,0 +1,4 @@
+{
+  "_comment": "Write-time obs-id minting: `wiki write` lands a page whose body lines carry <!--obs:XXXXXX--> markers. Locks the cmdWrite → mintIdsForBody → serializeFrontmatter chain.",
+  "cmd": ["write", "obs-id-roundtrip", "--title", "Obs id roundtrip", "--type", "concept", "--tags", "meta", "--content", "- [fact] minted at write time ^[t:1]\n- [hypothesis] also gets an id ^[t:1]", "--soft"]
+}

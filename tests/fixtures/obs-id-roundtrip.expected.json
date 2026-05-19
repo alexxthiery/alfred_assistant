@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "obs-id-roundtrip": {
+      "bodyContains": ["<!--obs:", "minted at write time", "also gets an id"]
+    }
+  }
+}

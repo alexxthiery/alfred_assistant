@@ -1,0 +1,7 @@
+{
+  "_comment": "Idempotency: after one `sync-ids` mint pass, a second run must be a no-op (no fs writes, no log entry). Setup runs the first pass; cmd runs the second and expects `(nothing to sync)`.",
+  "setup": [
+    ["sync-ids"]
+  ],
+  "cmd": ["sync-ids"]
+}
