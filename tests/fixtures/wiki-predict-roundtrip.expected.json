@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "predict-target": {
+      "bodyContains": ["[prediction] x happens", "[by 2027-06]", "[confidence: 0.7]", "^[t:audit]", "<!--obs:"]
+    }
+  }
+}

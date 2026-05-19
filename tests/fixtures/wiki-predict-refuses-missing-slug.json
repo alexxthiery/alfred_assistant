@@ -1,0 +1,4 @@
+{
+  "_comment": "wiki predict refuses to create a page implicitly — the slug must already exist (use `wiki write` first). Keeps the verb narrow.",
+  "cmd": ["predict", "no-such-slug-9999", "x happens", "--by", "2027-06"]
+}

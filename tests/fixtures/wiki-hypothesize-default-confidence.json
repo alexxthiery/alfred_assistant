@@ -1,0 +1,7 @@
+{
+  "_comment": "wiki hypothesize defaults --confidence to 0.5 when the flag is omitted (lean-neutral).",
+  "setup": [
+    ["write", "hypothesize-default-target", "--title", "Hypothesize default target", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed observation ^[t:1]", "--soft"]
+  ],
+  "cmd": ["hypothesize", "hypothesize-default-target", "z is uncertain", "--provenance", "t:audit"]
+}

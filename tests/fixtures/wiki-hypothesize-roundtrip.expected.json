@@ -1,0 +1,9 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "hypothesize-target": {
+      "bodyContains": ["[hypothesis] y might be true", "[confidence: 0.4]", "^[t:audit]", "<!--obs:"],
+      "bodyMissing": ["[by "]
+    }
+  }
+}

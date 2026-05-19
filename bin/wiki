@@ -44,6 +44,7 @@ const {
 } = require('./lib/graph.js');
 const { validateIngestSpec, validateBody: _validateBody } = require('./lib/ingest.js');
 const { mintIdsForBody } = require('./lib/obsid.js');
+const { buildPredictionLine, buildHypothesisLine, defaultProvenance } = require('./lib/epistemic-verbs.js');
 const { auditPage, auditVault, STRICT_CROSS_PAGE_RULES, strictCrossPageErrors } = require('./lib/audit.js');
 const { redactSecrets } = require('./lib/secrets.js');
 const { applyFlagAliases } = require('./lib/flag-aliases.js');
@@ -943,6 +944,66 @@ function cmdPatch(args) {
     console.log('(running reverse-autolink for new title/alias...)');
     autolinkSlug(slug, { direction: 'in', verbose: false });
   }
+}
+
+// ─── epistemic verbs ──────────────────────────────────────────────────────
+// `wiki predict` and `wiki hypothesize` are sugar on top of cmdPatch's
+// --observation path. They auto-build the observation line (saving the user
+// ten arguments of inline-tag boilerplate) then delegate. The pure builders
+// live in bin/lib/epistemic-verbs.js so the shape is unit-testable; this
+// glue just handles fs preconditions + arg coercion + delegation.
+
+function cmdPredict(args) {
+  const slug = args._[0];
+  const body = args._[1];
+  if (!slug || !body || !args.by) {
+    console.error('Usage: wiki predict <slug> "body" --by YYYY-MM-DD [--confidence 0.0-1.0] [--provenance LABEL]');
+    process.exit(1);
+  }
+  if (!fs.existsSync(wikiPath(slug))) {
+    console.error(`error: page ${slug} does not exist`);
+    console.error(`  Hint: \`wiki write ${slug} ...\` to create it first, or \`wiki resolve "${slug}"\` for fuzzy lookup.`);
+    process.exit(2);
+  }
+  let line;
+  try {
+    line = buildPredictionLine({
+      body,
+      by: args.by,
+      confidence: args.confidence !== undefined ? Number(args.confidence) : 0.5,
+      provenance: args.provenance || defaultProvenance(),
+    });
+  } catch (e) {
+    console.error(`error: ${e.message}`);
+    process.exit(3);
+  }
+  cmdPatch({ ...args, _: [slug], observation: line });
+}
+
+function cmdHypothesize(args) {
+  const slug = args._[0];
+  const body = args._[1];
+  if (!slug || !body) {
+    console.error('Usage: wiki hypothesize <slug> "body" [--confidence 0.0-1.0] [--provenance LABEL]');
+    process.exit(1);
+  }
+  if (!fs.existsSync(wikiPath(slug))) {
+    console.error(`error: page ${slug} does not exist`);
+    console.error(`  Hint: \`wiki write ${slug} ...\` to create it first, or \`wiki resolve "${slug}"\` for fuzzy lookup.`);
+    process.exit(2);
+  }
+  let line;
+  try {
+    line = buildHypothesisLine({
+      body,
+      confidence: args.confidence !== undefined ? Number(args.confidence) : undefined,
+      provenance: args.provenance || defaultProvenance(),
+    });
+  } catch (e) {
+    console.error(`error: ${e.message}`);
+    process.exit(3);
+  }
+  cmdPatch({ ...args, _: [slug], observation: line });
 }
 
 // ─── todo verbs ────────────────────────────────────────────────────────────
@@ -3843,6 +3904,8 @@ const VERBS = [
       'Exit codes: 0 clean | 1 bad args | 2 page-not-found / auto-rendered.',
     ].join('\n'),
   },
+  { name: 'predict',     section: 'WRITE', lines: ['  predict <slug> "body" --by YYYY-MM-DD [--confidence 0.0-1.0]   add a [prediction] line; sugar over `patch --observation`'] },
+  { name: 'hypothesize', section: 'WRITE', lines: ['  hypothesize <slug> "body" [--confidence 0.0-1.0]              add a [hypothesis] line; --confidence defaults to 0.5'] },
   { name: 'link',   section: 'WRITE', lines: ['  link <from> <to>                          append [[to]] under ## Links'] },
   { name: 'mv',     section: 'WRITE', lines: ['  mv <old> <new>                            rename, rewrite backlinks (adds alias)'] },
   { name: 'delete', section: 'WRITE', lines: ['  delete <slug> [--force]                   remove (refuses if backlinks)'] },
@@ -4077,6 +4140,7 @@ const cmds = {
   // write
   write: cmdWrite, link: cmdLink, mv: cmdMv, delete: cmdDelete, patch: cmdPatch, merge: cmdMerge,
   ingest: cmdIngest,
+  predict: cmdPredict, hypothesize: cmdHypothesize,
   // graph + navigation
   links: cmdLinks, backlinks: cmdBacklinks,
   relations: cmdRelations, observations: cmdObservations,

@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "hypothesize-default-target": {
+      "bodyContains": ["[hypothesis] z is uncertain", "[confidence: 0.5]"]
+    }
+  }
+}

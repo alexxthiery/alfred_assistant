@@ -1,0 +1,7 @@
+{
+  "_comment": "wiki hypothesize roundtrip with explicit --confidence. No [by] tag in the landed line (hypotheses are open-ended).",
+  "setup": [
+    ["write", "hypothesize-target", "--title", "Hypothesize target", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed observation ^[t:1]", "--soft"]
+  ],
+  "cmd": ["hypothesize", "hypothesize-target", "y might be true", "--confidence", "0.4", "--provenance", "t:audit"]
+}

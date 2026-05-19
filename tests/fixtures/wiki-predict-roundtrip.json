@@ -1,0 +1,7 @@
+{
+  "_comment": "wiki predict roundtrip: setup creates a page; `wiki predict <slug> \"body\" --by ...` builds + lands a [prediction] line with obs-id marker. Locks the auto-construction chain (verb glue → epistemic-verbs builder → cmdPatch → mintIdsForBody → serialize).",
+  "setup": [
+    ["write", "predict-target", "--title", "Predict target", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed observation ^[t:1]", "--soft"]
+  ],
+  "cmd": ["predict", "predict-target", "x happens", "--by", "2027-06", "--confidence", "0.7", "--provenance", "t:audit"]
+}
