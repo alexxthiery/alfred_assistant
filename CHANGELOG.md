@@ -7,6 +7,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added (Phase 9)
+- **`wiki capture <slug> "<utterance>"`** — classify-and-route verb. Deterministic shape lexicon (regex-based, no NLP) maps utterance shape to category + confidence + date, then delegates to `cmdPatch` for the actual write. Reduces LLM judgment load: Alfred passes faithful user speech, the classifier picks the category. Refuses on ambiguity, prediction-without-date, or bracket-in-body. Override via `--as <category>` when classifier and agent disagree.
+- New pure module `bin/lib/capture-classifier.js` covering question, decision, claim (with source extraction), prediction (with date + confidence inference), hypothesis, opinion, idea, and fact-fallback. 27 unit tests cover each shape, confidence inference, date extraction, precedence resolution, refusal modes, and roundtrip through `parseObservations`.
+- Three "boundary rules" subsection in `PERSONA.template.md`: preserve hedges verbatim, decompose multi-clause turns, inject third-party attribution. These are the agent's contract with the classifier.
+- `speculative-shape-fact` audit rule now imports its lexicon (`FUTURE_TENSE_RE`, `EPISTEMIC_RE`) from `capture-classifier.js`. Single source of truth for shape vocabulary across detection and routing.
+
 ### Fixed (Phase 8.1)
 - **`--soft` no longer bypasses ironclad schema-vocabulary rules.** `uncategorized-bullets` (unknown `[category]` prefix) and `invented-verb` (unknown relation verb) now flag with `ironclad: true` and are checked in `cmdWrite` / `cmdPatch` BEFORE the `--soft` short-circuit. Previously, `wiki patch <slug> --observation "[issue] ..." --soft` would silently land an unparseable line (observed in `_AI_box`). New module export `ironcladRuleErrors`; error message stream changed from `error: validation failed for <slug>` to `error: ironclad validation failed for <slug> (... --soft does NOT bypass)`.
 
