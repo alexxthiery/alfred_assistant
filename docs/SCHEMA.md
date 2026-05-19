@@ -136,8 +136,20 @@ Variants:
 - `[until YYYY-MM-DD]` — end of a state (paired with strikethrough on superseded facts)
 - `[on YYYY-MM-DD]` — point in time (event-like)
 - `[as-of YYYY-MM-DD]` — observation date (when this was true / when learned)
+- `[by YYYY-MM-DD]` — forward-looking resolution date, primarily for `[prediction]` lines (when the prediction should be evaluated). Surfaced as `observations.by_date` in the DuckDB layer.
 
 Date precision is flexible: `2024`, `2024-08`, or `2024-08-15` all valid.
+
+### Confidence tag (CLI-parseable)
+
+An optional inline confidence reading on any observation:
+
+```
+- [prediction] X will happen [by 2027-06] [confidence: 0.6] ^[telegram:1]
+- [opinion] Approach A beats B [confidence: 0.8] ^[2026-05-19]
+```
+
+The value must be a number in `[0, 1]`. Out-of-range or malformed values are silently dropped — the observation still parses, just without a reading. Surfaced as `observations.confidence` in the DuckDB layer; `vault.confidence` is the page-level analogue (`wiki patch <slug> --confidence 0.8`).
 
 ### Supersession (retiring an old fact)
 

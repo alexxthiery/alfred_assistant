@@ -134,6 +134,8 @@ Variants:
 - `[until YYYY-MM-DD]` — end of a state (paired with strikethrough on superseded facts)
 - `[on YYYY-MM-DD]` — point in time (event-like)
 - `[as-of YYYY-MM-DD]` — observation date (when this was true / when learned)
+- `[by YYYY-MM-DD]` — forward-looking resolution date (used by `[prediction]`); surfaced as `observations.by_date` in DuckDB
+- `[confidence: 0..1]` — inline numeric confidence reading; surfaced as `observations.confidence` in DuckDB. Out-of-range values silently dropped.
 
 Date precision is flexible: `2024`, `2024-08`, or `2024-08-15` all valid.
 
