@@ -15,7 +15,7 @@ const fs = require('node:fs');
 
 // ─── closed-set constants ──────────────────────────────────────────────────
 
-const KNOWN_TYPES = new Set(['entity', 'concept', 'decision', 'source', 'synthesis', 'todo', 'note', 'event', 'question']);
+const KNOWN_TYPES = new Set(['entity', 'concept', 'decision', 'source', 'synthesis', 'todo', 'note', 'event', 'question', 'view']);
 const ENTITY_KIND_TAGS = new Set(['person', 'org', 'tool', 'paper', 'media']);
 
 const STALE_THRESHOLDS = [

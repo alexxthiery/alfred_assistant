@@ -105,6 +105,25 @@ const AUDIT_RULES = [
   },
 
   {
+    // `type: view` pages are saved DuckDB queries: the body's first fenced
+    // ```sql block is what `wiki render` executes. A view without a query has
+    // no useful behaviour, so flag it. Advisory (not strict): the page is
+    // still allowed to land — the audit surfaces the gap.
+    name: 'view-needs-query',
+    severity: 'medium',
+    strict: false,
+    check: ({ type, body }) => {
+      if (type !== 'view') return null;
+      if (!body) return { detail: 'type=view page has empty body — no SQL to run.', message: 'type=view page has empty body. Add a ```sql fenced block; `wiki render` will execute the first one.' };
+      if (/```\s*sql\b/i.test(body)) return null;
+      return {
+        detail: 'type=view page has no ```sql fenced block.',
+        message: 'type=view page has no ```sql fenced block. Add one; `wiki render <slug>` will execute it.',
+      };
+    },
+  },
+
+  {
     name: 'uncategorized-bullets',
     severity: 'medium',
     strict: true,

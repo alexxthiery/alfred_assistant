@@ -1,0 +1,7 @@
+{
+  "_comment": "wiki render refuses to execute SQL on a non-view page, even if the page contains a fenced ```sql block. Prevents a stray code snippet on an entity page from being exfiltrated as a query.",
+  "setup": [
+    ["write", "non-view-with-sql", "--title", "Has SQL but isn't a view", "--type", "concept", "--tags", "meta", "--content", "```sql\nSELECT 1\n```", "--soft"]
+  ],
+  "cmd": ["render", "non-view-with-sql"]
+}

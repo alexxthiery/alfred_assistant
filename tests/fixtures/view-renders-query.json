@@ -1,0 +1,7 @@
+{
+  "_comment": "type=view + wiki render: setup creates a view page whose body contains a ```sql fence; `wiki render <slug>` executes the query against the DuckDB cache and prints the result. End-to-end test of cmdRender + audit silence on properly-formed views.",
+  "setup": [
+    ["write", "test-view", "--title", "Test view", "--type", "view", "--tags", "meta", "--content", "```sql\nSELECT slug FROM vault WHERE type='entity' ORDER BY slug LIMIT 3\n```", "--soft"]
+  ],
+  "cmd": ["render", "test-view"]
+}

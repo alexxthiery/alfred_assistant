@@ -112,6 +112,26 @@ test('uncategorized-bullets: silent when all bullets are categorized or relation
   assert.equal(out, null);
 });
 
+test('view-needs-query: fires on type=view with no sql fenced block', () => {
+  const r = findRule('view-needs-query');
+  const out = r.check({ type: 'view', body: 'just some prose, no fence' }, deps());
+  assert.ok(out);
+  assert.match(out.message, /sql/);
+});
+
+test('view-needs-query: silent on type=view with a ```sql ... ``` block', () => {
+  const r = findRule('view-needs-query');
+  const body = 'preamble\n```sql\nSELECT slug FROM vault LIMIT 3\n```\nepilogue';
+  const out = r.check({ type: 'view', body }, deps());
+  assert.equal(out, null);
+});
+
+test('view-needs-query: silent on non-view pages even without sql', () => {
+  const r = findRule('view-needs-query');
+  const out = r.check({ type: 'entity', body: 'no sql here' }, deps());
+  assert.equal(out, null);
+});
+
 test('missing-provenance: fires on entity with obs but no ^[...] marker', () => {
   const r = findRule('missing-provenance');
   const out = r.check({ type: 'entity', body: '- [fact] something', fm: {} }, deps());

@@ -57,7 +57,7 @@ const {
 const { loadVaultDb, ensureDuckdbAvailable } = require('./lib/duckdb.js');
 const {
   cmdList, cmdSearch, cmdRecent, cmdPreview, cmdPrint,
-  cmdSources, cmdRelated, cmdAgenda, cmdContext, cmdChallenge,
+  cmdSources, cmdRelated, cmdAgenda, cmdContext, cmdChallenge, cmdRender,
 } = require('./verbs/read.js');
 
 // VAULT_ROOT detection + WIKI_DIR/SCHEMA_PATH/INDEX_PATH/LOG_PATH constants +
@@ -3698,6 +3698,7 @@ const VERBS = [
   { name: 'context',  section: 'READ', lines: ['  context <slug> [--compact]                bundled: FM + obs + relations + 1-hop neighbors (--compact: agent-friendly, ~30% fewer lines)'] },
   { name: 'sources',  section: 'READ', lines: ['  sources                                   list type=source pages'] },
   { name: 'related',  section: 'READ', lines: ['  related <slug>                            pages by tag/link proximity'] },
+  { name: 'render',   section: 'READ', lines: ['  render <slug>                             execute the first ```sql fence on a type=view page'] },
   { name: 'agenda',   section: 'READ', lines: [
     '  agenda [today|week|upcoming|past|all]     list type=event pages by when',
     '  agenda --on YYYY-MM-DD                    on-this-day: events + birthdays sharing MM-DD (any year)',
@@ -4060,7 +4061,7 @@ const args = parseArgs(process.argv.slice(3));
 const cmds = {
   // read
   list: cmdList, search: cmdSearch, recent: cmdRecent, print: cmdPrint,
-  sources: cmdSources, related: cmdRelated,
+  sources: cmdSources, related: cmdRelated, render: cmdRender,
   preview: cmdPreview, context: cmdContext, agenda: cmdAgenda, challenge: cmdChallenge,
   // write
   write: cmdWrite, link: cmdLink, mv: cmdMv, delete: cmdDelete, patch: cmdPatch, merge: cmdMerge,

@@ -358,6 +358,44 @@ function cmdPrint(args) {
 
 function cmdSources() { cmdList({ _: [], type: 'source' }); }
 
+// cmdRender — execute the first ```sql ... ``` fenced block on a type=view
+// page. Saved-query view pages let users (and the agent) name a topical slice
+// through the vault without manufacturing aggregator slugs. Refuses on pages
+// whose frontmatter `type` isn't `view`, so a stray code block on an entity
+// page can't be exfiltrated as a query.
+function cmdRender(args) {
+  const slug = args._[0];
+  if (!slug) {
+    console.error('Usage: wiki render <slug>');
+    console.error('  Executes the first ```sql fenced block on a type=view page.');
+    process.exit(1);
+  }
+  const page = readPage(slug);
+  if (!page) {
+    console.error(`error: page ${slug} does not exist`);
+    console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`);
+    process.exit(2);
+  }
+  if (page.fm.type !== 'view') {
+    console.error(`error: page ${slug} has type=${page.fm.type || 'note'}; \`wiki render\` only runs against type=view pages.`);
+    process.exit(2);
+  }
+  const m = page.body.match(/```\s*sql\b\s*\n([\s\S]*?)\n```/i);
+  if (!m) {
+    console.error(`error: page ${slug} has no \`\`\`sql fenced block to render.`);
+    process.exit(2);
+  }
+  const sql = m[1].trim();
+  if (!sql) {
+    console.error(`error: page ${slug} has an empty \`\`\`sql block.`);
+    process.exit(2);
+  }
+  ensureDuckdbAvailable();
+  const dbPath = loadVaultDb();
+  const res = spawnSync('duckdb', [dbPath, '-c', sql], { stdio: 'inherit' });
+  process.exit(res.status || 0);
+}
+
 // cmdChallenge: persona-driven red-team verb. Prints the page followed by a
 // structured prompt instructing the agent to argue against it. Mechanism is
 // dumb-by-design (a print + a prompt block); the intelligence lives in the
@@ -568,4 +606,5 @@ module.exports = {
   cmdAgenda,
   cmdContext,
   cmdChallenge,
+  cmdRender,
 };

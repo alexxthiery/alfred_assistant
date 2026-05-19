@@ -1,0 +1,4 @@
+{
+  "exitCode": 2,
+  "stderrContains": ["only runs against type=view"]
+}

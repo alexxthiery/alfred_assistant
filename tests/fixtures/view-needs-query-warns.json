@@ -1,0 +1,4 @@
+{
+  "_comment": "Writing a type=view page without a ```sql fenced block: the write succeeds (advisory rule, not strict), but postWriteAudit surfaces `view-needs-query` in stderr so users notice.",
+  "cmd": ["write", "empty-view", "--title", "Empty view", "--type", "view", "--tags", "meta", "--content", "no sql here, just prose", "--soft"]
+}
