@@ -1,0 +1,8 @@
+{
+  "_comment": "wiki patch <slug> --relation: adding a typed relation should auto-close the inverse on the target (same logic ingest uses, applied to single-page patches).",
+  "setup": [
+    ["write", "ic-patch-parent", "--title", "IC Patch Parent", "--type", "entity", "--tags", "person,family", "--content", "- [fact] parent for patch closure test ^[t:1]", "--soft"],
+    ["write", "ic-patch-child", "--title", "IC Patch Child", "--type", "entity", "--tags", "person,family", "--content", "- [fact] child for patch closure test ^[t:1]", "--soft"]
+  ],
+  "cmd": ["patch", "ic-patch-parent", "--relation", "parent_of [[ic-patch-child]]"]
+}

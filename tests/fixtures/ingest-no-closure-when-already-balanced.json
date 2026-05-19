@@ -1,0 +1,22 @@
+{
+  "_comment": "Auto-inverse-closure on ingest: if the spec already includes both sides of the inverse, no duplicate edge is added (idempotency).",
+  "source": "telegram:2026-05-19",
+  "entities": [
+    {
+      "slug": "ic-bal-a",
+      "title": "IC Balanced A",
+      "type": "entity",
+      "tags": ["person", "family"],
+      "facts": [{ "body": "Already-balanced A" }],
+      "relations": [{ "verb": "sibling_of", "target": "ic-bal-b" }]
+    },
+    {
+      "slug": "ic-bal-b",
+      "title": "IC Balanced B",
+      "type": "entity",
+      "tags": ["person", "family"],
+      "facts": [{ "body": "Already-balanced B" }],
+      "relations": [{ "verb": "sibling_of", "target": "ic-bal-a" }]
+    }
+  ]
+}

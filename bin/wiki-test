@@ -146,6 +146,10 @@ function runFixture(name) {
           }
         }
       }
+      // wikiAssertions on ingest-spec fixtures too (post-write body checks
+      // for things like auto-inverse-closure landing on the target page).
+      const wikiCheck = checkWikiAssertions(tmp, expected.wikiAssertions, name);
+      if (wikiCheck) return wikiCheck;
     }
 
     return { name, ok: true };

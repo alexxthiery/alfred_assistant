@@ -51,6 +51,7 @@ const { redactSecrets } = require('./lib/secrets.js');
 const { applyFlagAliases } = require('./lib/flag-aliases.js');
 const { flushStaged } = require('./lib/staged-writes.js');
 const { buildTitleEntries, autolinkBody } = require('./lib/autolink.js');
+const { computeMissingInverses, groupByTarget } = require('./lib/inverse-closure.js');
 const { formatIndex, formatLogLine, applyExtraFrontmatter, validateExtraFieldValue, validateAliasArg, aliasValueError } = require('./lib/maintenance.js');
 const {
   VAULT_ROOT, WIKI_DIR, SCHEMA_PATH, INDEX_PATH, LOG_PATH,
@@ -974,6 +975,39 @@ function cmdPatch(args) {
   appendLog('patch', `${slug} (${ops.join(', ')})`);
   console.log(`patched: ${slug} (${ops.join(', ')})`);
 
+  // Auto-inverse-closure: if this patch added a typed relation, ensure the
+  // symmetric/inverse edge exists on the target page. Scoped to <slug> so
+  // we don't drift into unrelated pages. Same helper that cmdIngest uses.
+  // Skipped unless ops actually contain a relation add (cheap-path guard).
+  if (ops.some((o) => typeof o === 'string' && o.startsWith('rel:'))) {
+    const schema = loadSchema();
+    const pageRelations = new Map();
+    const slugSet = new Set();
+    forEachPage(({ slug: s, body: b }) => {
+      pageRelations.set(s, parseRelations(b));
+      slugSet.add(s);
+    });
+    const missing = computeMissingInverses({
+      pageRelations, slugSet, schema, fromSlugs: [slug],
+    });
+    if (missing.length) {
+      const byTarget = groupByTarget(missing);
+      for (const [target, items] of byTarget.entries()) {
+        const tp = wikiPath(target);
+        const traw = fs.readFileSync(tp, 'utf-8');
+        const { fm: tfm, body: tbody } = parseFrontmatter(traw);
+        let nb = tbody;
+        const additions = items.map((it) => `- ${it.verb} [[${it.fromSlug}]]`);
+        if (nb.length && !nb.endsWith('\n')) nb += '\n';
+        nb += additions.join('\n') + '\n';
+        tfm.updated = nowISO();
+        fs.writeFileSync(tp, serializeFrontmatter(tfm, nb));
+        appendLog('patch-inverse', `${target}: +${items.length}`);
+      }
+      console.log(`  inverse-closure: +${missing.length} on ${byTarget.size} page(s)`);
+    }
+  }
+
   // Post-write audit hook
   postWriteAudit(slug);
 
@@ -1822,6 +1856,47 @@ function cmdIngest(args) {
   fs.mkdirSync(WIKI_DIR, { recursive: true });
   fs.writeFileSync(INDEX_PATH, formatIndex(postFlushPages, { now: nowISO() }));
 
+  // 4c) Auto-inverse-closure on the touched slugs. If this ingest added
+  // `A → parent_of [[B]]`, ensure `B → child_of [[A]]` also exists; same for
+  // symmetric verbs. Scoped to touched so we don't drift into unrelated
+  // pages. Mirrors what `wiki groom --mechanical` does vault-wide; here it
+  // is local to the ingest so the agent never has to remember the step.
+  // Reuses the pageRelations snapshot we just parsed.
+  {
+    const schema = loadSchema();
+    const pageRelations = new Map();
+    const slugSet = new Set();
+    for (const p of postFlushPages) {
+      pageRelations.set(p.slug, parseRelations(p.body));
+      slugSet.add(p.slug);
+    }
+    const missing = computeMissingInverses({
+      pageRelations, slugSet, schema, fromSlugs: touched,
+    });
+    if (missing.length) {
+      const byTarget = groupByTarget(missing);
+      for (const [target, items] of byTarget.entries()) {
+        const p = wikiPath(target);
+        const raw = fs.readFileSync(p, 'utf-8');
+        const { fm: tfm, body: tbody } = parseFrontmatter(raw);
+        let newBody = tbody;
+        const additions = items.map((it) => `- ${it.verb} [[${it.fromSlug}]]`);
+        if (newBody.length && !newBody.endsWith('\n')) newBody += '\n';
+        newBody += additions.join('\n') + '\n';
+        tfm.updated = nowISO();
+        fs.writeFileSync(p, serializeFrontmatter(tfm, newBody));
+        appendLog('ingest-inverse', `${target}: +${items.length}`);
+        // Update snapshot + ensure the target is in `touched` so the audit
+        // and autolink steps see its updated state. `touched` is an Array
+        // built upstream via dedup, so guard against duplicate insertion.
+        const entry = postFlushBySlug.get(target);
+        if (entry) { entry.body = newBody; entry.fm = tfm; }
+        if (!touched.includes(target)) touched.push(target);
+      }
+      console.log(`# inverse-closure: +${missing.length} relation(s) on ${byTarget.size} page(s)`);
+    }
+  }
+
   // 5) Bidirectional autolink on touched slugs. Failures are non-fatal but
   // tracked: a single slug failing is a warning, but if more than half of
   // touched slugs fail we treat it as material breakage and exit 2.
@@ -2073,35 +2148,26 @@ function cmdGroom(args) {
     }
   });
 
-  // Detect missing inverses
-  const missing = []; // {fromSlug, verb, targetSlug, neededVerb}
-  for (const [fromSlug, rels] of pageRelations.entries()) {
-    for (const { verb, target } of rels) {
-      if (!slugSet.has(target)) continue; // target is a stub, skip
-      let neededVerb = null;
-      if (schema.symmetric.has(verb)) neededVerb = verb;
-      else if (schema.inverses.has(verb)) neededVerb = schema.inverses.get(verb);
-      if (!neededVerb) continue;
-      const targetRels = pageRelations.get(target) || [];
-      const exists = targetRels.some((r) => r.verb === neededVerb && r.target === fromSlug);
-      if (!exists) missing.push({ fromSlug, verb, target, neededVerb });
-    }
-  }
+  // Detect missing inverses (uses the shared pure helper; same logic that
+  // cmdIngest's auto-closure step uses).
+  const missing = computeMissingInverses({ pageRelations, slugSet, schema });
 
   console.log(`## symmetric/inverse relations`);
   if (missing.length === 0) {
     console.log('clean — all symmetric and inverse relations balanced');
   } else {
     console.log(`${missing.length} missing inverse relation(s):`);
-    // Group by target page
-    const byTarget = new Map();
-    for (const m of missing) {
-      if (!byTarget.has(m.target)) byTarget.set(m.target, []);
-      byTarget.get(m.target).push(m);
-    }
+    const byTarget = groupByTarget(missing);
+    // groom's per-target preview includes the source-edge context (which the
+    // helper drops to stay reusable). Reconstruct for the display only.
+    const sourceByTargetVerb = new Map();
+    for (const m of missing) sourceByTargetVerb.set(`${m.target}|${m.neededVerb}|${m.fromSlug}`, m.verb);
     for (const [target, items] of byTarget.entries()) {
       console.log(`  ${target}.md needs:`);
-      for (const it of items) console.log(`    - ${it.neededVerb} [[${it.fromSlug}]]  (from ${it.fromSlug}.md: ${it.verb} [[${target}]])`);
+      for (const it of items) {
+        const sourceVerb = sourceByTargetVerb.get(`${target}|${it.verb}|${it.fromSlug}`) || '?';
+        console.log(`    - ${it.verb} [[${it.fromSlug}]]  (from ${it.fromSlug}.md: ${sourceVerb} [[${target}]])`);
+      }
     }
     if (!dryRun) {
       for (const [target, items] of byTarget.entries()) {
@@ -2109,8 +2175,7 @@ function cmdGroom(args) {
         const raw = fs.readFileSync(p, 'utf-8');
         const { fm, body } = parseFrontmatter(raw);
         let newBody = body;
-        // Append under existing relations section or at body end
-        const additions = items.map((it) => `- ${it.neededVerb} [[${it.fromSlug}]]`);
+        const additions = items.map((it) => `- ${it.verb} [[${it.fromSlug}]]`);
         if (newBody.length && !newBody.endsWith('\n')) newBody += '\n';
         newBody += additions.join('\n') + '\n';
         fm.updated = nowISO();

@@ -7,6 +7,14 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added (Phase 12 — auto-inverse-closure on ingest + patch)
+- **`wiki ingest` and `wiki patch --relation` now auto-close inverse/symmetric edges.** If a write adds `A → parent_of [[B]]`, the matching `B → child_of [[A]]` lands automatically on the target. Same logic for symmetric verbs (sibling_of, spouse_of, friend_of, colleague_of). Eliminates the implicit "remember to run wiki groom --mechanical after ingest" step that Alfred had to internalise.
+- New pure module `bin/lib/inverse-closure.js` (`computeMissingInverses`, `groupByTarget`). 10 unit tests cover symmetric, inverse-pair, balanced no-op, missing-target skip, one-way skip, fromSlugs scoping, input validation.
+- `cmdGroom` refactored to use the same helper (no behavior change; single source of truth for closure logic).
+- Scoped to touched slugs in both ingest and patch — no whole-vault scan on every write. `wiki groom --mechanical` retains its vault-wide role for catch-up / drift detection.
+- Test runner `bin/wiki-test`: ingest-spec fixtures now also support `wikiAssertions` for post-write body checks (needed to verify the closure landed on the target page).
+- 4 new integration fixtures: `ingest-auto-closes-inverse-parent-of`, `ingest-auto-closes-symmetric-sibling`, `ingest-no-closure-when-already-balanced`, `patch-auto-closes-inverse`.
+
 ### Persona (Phase 11 — mission + reflex 1 verbs)
 - New top-level `## Mission — why this vault exists` section (~170 words) inserted between the atomicity rule and the operating loop. Five commitments make alfred's purpose explicit: (1) push back don't mirror, (2) find connections via `wiki related --unconnected` + `wiki unlinked-mentions`, (3) calibrate predictions via supersede, (4) organize life through one graph, (5) support introspection (sensitive pages, IFS proactive trigger). Sets the WHY before the operating loop sets the HOW.
 - Updated Reflex 1: renamed to "Search before answering, surface connections after". After answering topical questions, alfred runs `wiki related <slug> --unconnected` and `wiki unlinked-mentions <slug>` and surfaces 1-2 non-obvious hits in one line.

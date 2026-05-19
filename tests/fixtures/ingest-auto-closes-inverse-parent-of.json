@@ -1,0 +1,21 @@
+{
+  "_comment": "Auto-inverse-closure on ingest: writing `parent_of [[child]]` on a parent page should automatically add `child_of [[parent]]` on the child page, scoped to the touched slugs.",
+  "source": "telegram:2026-05-19",
+  "entities": [
+    {
+      "slug": "ic-parent",
+      "title": "IC Parent",
+      "type": "entity",
+      "tags": ["person", "family"],
+      "facts": [{ "body": "Parent figure for inverse-closure test" }],
+      "relations": [{ "verb": "parent_of", "target": "ic-child" }]
+    },
+    {
+      "slug": "ic-child",
+      "title": "IC Child",
+      "type": "entity",
+      "tags": ["person", "family"],
+      "facts": [{ "body": "Child figure for inverse-closure test" }]
+    }
+  ]
+}

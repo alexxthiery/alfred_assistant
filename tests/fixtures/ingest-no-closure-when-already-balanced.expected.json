@@ -1,0 +1,14 @@
+{
+  "exitCode": 0,
+  "created": ["ic-bal-a", "ic-bal-b"],
+  "modified": [],
+  "skipped": [],
+  "wikiAssertions": {
+    "ic-bal-a": {
+      "bodyContains": ["sibling_of [[ic-bal-b]]"]
+    },
+    "ic-bal-b": {
+      "bodyContains": ["sibling_of [[ic-bal-a]]"]
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "ic-patch-parent": {
+      "bodyContains": ["parent_of [[ic-patch-child]]"]
+    },
+    "ic-patch-child": {
+      "bodyContains": ["child_of [[ic-patch-parent]]"]
+    }
+  }
+}

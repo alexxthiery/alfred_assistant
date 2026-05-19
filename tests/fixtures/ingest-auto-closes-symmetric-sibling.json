@@ -1,0 +1,21 @@
+{
+  "_comment": "Auto-inverse-closure on ingest: symmetric verb `sibling_of` writes the inverse with the same verb on the other side.",
+  "source": "telegram:2026-05-19",
+  "entities": [
+    {
+      "slug": "ic-sib-a",
+      "title": "IC Sibling A",
+      "type": "entity",
+      "tags": ["person", "family"],
+      "facts": [{ "body": "Sibling A page" }],
+      "relations": [{ "verb": "sibling_of", "target": "ic-sib-b" }]
+    },
+    {
+      "slug": "ic-sib-b",
+      "title": "IC Sibling B",
+      "type": "entity",
+      "tags": ["person", "family"],
+      "facts": [{ "body": "Sibling B page" }]
+    }
+  ]
+}

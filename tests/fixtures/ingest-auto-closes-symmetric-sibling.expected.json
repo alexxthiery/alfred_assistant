@@ -1,0 +1,11 @@
+{
+  "exitCode": 0,
+  "created": ["ic-sib-a", "ic-sib-b"],
+  "modified": [],
+  "skipped": [],
+  "wikiAssertions": {
+    "ic-sib-b": {
+      "bodyContains": ["sibling_of [[ic-sib-a]]"]
+    }
+  }
+}

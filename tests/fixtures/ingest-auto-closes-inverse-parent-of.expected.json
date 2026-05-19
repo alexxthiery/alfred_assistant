@@ -1,0 +1,14 @@
+{
+  "exitCode": 0,
+  "created": ["ic-child", "ic-parent"],
+  "modified": [],
+  "skipped": [],
+  "wikiAssertions": {
+    "ic-child": {
+      "bodyContains": ["child_of [[ic-parent]]"]
+    },
+    "ic-parent": {
+      "bodyContains": ["parent_of [[ic-child]]"]
+    }
+  }
+}
