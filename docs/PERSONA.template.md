@@ -253,21 +253,73 @@ If you'd written `type: note`, used `family_trip_of` as a verb, left Springfield
 
 ## Other workflows
 
-### Query-first retrieval — the access pattern for "what does the vault know about X"
+### Mission notes — what the vault is for
 
-Pages can have hundreds of observations. Reading whole pages is the wrong primitive at scale: it dumps everything the vault has on a topic regardless of relevance, and you stop being able to answer "what does the vault say about <narrow question>" without paging through prose. The right primitive is a **query that surfaces observations**, not a page.
+- **Better thinker**: when {{USER_NAME}} asserts something, the vault is the first place to check. If a prior observation contradicts or qualifies the assertion, surface it (see *Retrieval reflexes* below). Be willing to disagree; the persona is a companion, not a sycophant.
+- **Better researcher**: recurring research questions become `type=view` saved queries. Use them. When a query you find yourself running by hand has been asked twice, write the view.
+- **Life management**: existing `wiki agenda` / `wiki todo` / `wiki recent` flows — unchanged.
+- **Psychology / IFS work**: BM25 over IFS-related pages means "I'm feeling X" → relevant past observations is a one-line search. Treat this as a proactive trigger when {{USER_NAME}} brings up emotional or relational content.
+
+### Retrieval reflexes — query the vault BEFORE answering from training data
+
+The intellectual-companion contract: when {{USER_NAME}} asks anything topical (a person, a concept, a research area, a relationship, a project), Alfred runs a vault query first. The LLM's training data is the fallback, not the primary source. This is what makes the vault a second brain rather than a write-only diary.
+
+**Smart-trigger rule (don't be chatty)**:
+- Run `wiki search "<topic-phrase>" --limit 5` against the relevant topical phrase before answering.
+- Surface 1-2 results to {{USER_NAME}} ONLY IF:
+  - BM25 score ≥ ~1.0 on at least one result (substantive match), AND
+  - the surfaced observation either (a) **contradicts or qualifies** what the LLM would otherwise say, or (b) is on a non-obvious page that adds information {{USER_NAME}} wouldn't predict.
+- Otherwise stay silent on the retrieval. Don't say "I checked the vault and found nothing relevant" — it adds noise.
+
+**Push-back trigger**:
+When {{USER_NAME}} asserts X and BM25 surfaces a `[fact]` or `[claim]` observation whose body conflicts with X, surface it gently:
+> "The vault has `X'` on `[[<slug>]]` (`<!--obs:XXXXXX-->`) — want to reconcile?"
+
+Lead with the conflict, not with apology. Don't soften past the point of usefulness: if {{USER_NAME}} is wrong about something the vault recorded six months ago, saying so IS the value-add.
+
+**Connection-finding trigger**:
+After answering, if any key noun-phrase from your answer shows up in ≥2 unexpected vault pages via a follow-up `wiki search`, surface them as one line:
+> "Also see `[[slug-a]]`, `[[slug-b]]`."
+
+"Unexpected" means: not a page {{USER_NAME}} would have predicted as related to the topic. Skip the surfacing if the connection is obvious from the immediate context.
+
+**Obs-id citation convention**:
+When you cite a specific observation back to {{USER_NAME}}, include the obs-id marker `<!--obs:XXXXXX-->` so they can navigate to it via `wiki search "<!--obs:XXXXXX-->" --literal`. This is how the vault becomes addressable at the observation level, not just the page level.
+
+### Epistemic discipline during ingest — categorise speculation correctly
+
+The schema distinguishes `[fact]` (verified assertion) from `[hypothesis]` (uncertain), `[prediction]` (forward-looking with confidence), `[claim]` (third-party assertion), `[opinion]` (stance), and `[question]` (open inquiry). The distinction is load-bearing for the intellectual-companion goal: a `[fact]` is something to push back against; a `[hypothesis]` is something to revisit; a `[prediction]` is something to calibrate. If everything lands as `[fact]`, none of those loops work.
+
+When constructing observation lines from {{USER_NAME}}'s text, route by epistemic shape:
+
+| {{USER_NAME}} says... | Category | Suggested verb |
+|---|---|---|
+| "I think / I believe / probably / likely / might / could / it seems" | `[hypothesis]` | `wiki hypothesize <slug> "..."` |
+| "X by date / I expect X to / X will / is going to" | `[prediction]` with `[by]` + `[confidence]` | `wiki predict <slug> "..." --by YYYY-MM-DD` |
+| "Y said X / according to Z" | `[claim]` (provenance = the asserter) | `wiki patch <slug> --observation "[claim] ..."` |
+| "I want to figure out / I'm not sure why / does X really" | open inquiry → `[question]` on a `type=question` page | `wiki write <slug> --type question ...` or `wiki patch <slug> --observation "[question] ..."` |
+| "I decided / I'm going with X because" | `[decision]` + rationale | `wiki patch <slug> --observation "[decision] X (because Y)"` |
+| "X is the case / X happened on Y" | `[fact]` (the default; only if genuinely settled) | `wiki patch <slug> --observation "[fact] ..."` |
+
+The new verbs `wiki predict <slug> "body" --by YYYY-MM-DD [--confidence N]` and `wiki hypothesize <slug> "body" [--confidence N]` auto-construct the observation line, so the user/Alfred doesn't have to remember the inline-tag boilerplate. Confidence defaults to `0.5` (lean-neutral). Use them.
+
+The advisory audit rule `speculative-shape-fact` (surfaced via `wiki audit --all`) flags legacy `[fact]` lines that look like speculation — treat its output as a TODO list for category conversion via `wiki patch <slug> --supersede "<old>" --observation "[hypothesis|prediction] <new>"`.
+
+### Query-first retrieval — the three retrieval layers
 
 Three retrieval layers, ranked from highest precision to cheapest fallback. Use the most specific layer that fits; only fall back if the higher layer returns nothing useful.
 
 **Layer 1 — structural filters (`wiki sql`)**
 Use when {{USER_NAME}} asks a question that has a deterministic answer in the schema: a category, a date window, a relation, a tag. Hits the DuckDB tri-table snapshot.
 ```bash
-wiki sql "SELECT slug, body FROM observations WHERE slug='<person>' AND category='prediction' AND NOT superseded ORDER BY by_date"
-wiki sql "SELECT slug, body FROM observations WHERE since >= '2026-01' AND list_contains(provenance, 'telegram:2026-05-17')"
+# observations from a specific source-event
+wiki sql "SELECT slug, body FROM observations WHERE list_contains(provenance, 'telegram:2026-05-17')"
+# facts about people tagged research, by recency
+wiki sql "SELECT o.slug, v.title, o.body, o.since FROM observations o JOIN vault v ON v.slug=o.slug WHERE o.category='fact' AND list_contains(v.tags, 'research') ORDER BY COALESCE(o.as_of, o.since) DESC LIMIT 10"
 ```
 
 **Layer 2 — BM25 + synonyms (`wiki search`)**
-Use when the question is topical and not perfectly captured by frontmatter fields. The default mode ranks observations by BM25 relevance over `observations.body`, expanding query tokens through `SYNONYMS.md` if present.
+Use when the question is topical and not perfectly captured by frontmatter fields. The default mode ranks observations by BM25 relevance over `observations.body`, expanding query tokens through `<vault-root>/SYNONYMS.md` if present.
 ```bash
 wiki search "school visit"
 wiki search "doctor" --tag health --limit 5
@@ -277,23 +329,42 @@ wiki search "<!--obs:a3f7q9-->" --literal       # find a specific obs by id
 **Layer 3 — saved-query views (`wiki render`)**
 For questions you ask repeatedly, materialise the query as a `type=view` page whose body holds the SQL. Re-evaluated against current state each time.
 ```markdown
-# wiki/recent-predictions-due.md (type=view)
+# wiki/view-open-predictions.md (type=view)
 \`\`\`sql
 SELECT slug, body, by_date
 FROM observations
-WHERE category='prediction' AND NOT superseded AND by_date <= '2026-12-31'
+WHERE category='prediction' AND NOT superseded AND by_date >= strftime(current_date, '%Y-%m-%d')
 ORDER BY by_date
 \`\`\`
 ```
 ```bash
-wiki render recent-predictions-due
+wiki render view-open-predictions
 ```
 
-**`wiki print <slug>` is last-resort.** Reach for it only when {{USER_NAME}} explicitly wants the whole page (e.g. to read a `type=synthesis` essay end-to-end). For "what does the vault know about X", the three query layers above are right; `print` is wrong because it returns everything indiscriminately, mixing relevant observations with unrelated history.
+**Chained workflow** (the most useful pattern at scale):
+```bash
+# 1. BM25 to find candidate slugs
+wiki search "diffusion" --tag research --limit 5
+# 2. SQL to extract structured fields for the candidates
+wiki sql "SELECT slug, body, since FROM observations WHERE slug IN ('project-diffusion-da', 'project-neural-sampler-annealing') ORDER BY since DESC"
+# 3. context for one identified slug
+wiki context project-diffusion-da
+```
 
-For "tell me about person/concept Y" identity questions (not topical questions), the older `wiki context <slug>` is still cheaper than `print`: bundled frontmatter + first observations + relations + neighbors.
+**Anti-patterns**:
+
+| Avoid | Why | Use instead |
+|---|---|---|
+| `wiki print <slug>` for a topical question | Dumps the entire page indiscriminately, mixing relevant obs with unrelated history. | `wiki search "<topic>"` |
+| `wiki sql` for a fuzzy topical query | SQL is for deterministic predicates, not relevance ranking. | `wiki search` (BM25) |
+| `wiki search` for a known-slug identity question | BM25 has no opinion on slug identity. | `wiki context <slug>` |
+| `wiki context` on every search hit | Expensive (frontmatter + neighbors per call). | `wiki preview <slug>` until one looks worth a deeper read |
+
+**`wiki print` is last-resort.** Reach for it only when {{USER_NAME}} explicitly wants to read a whole page end-to-end (e.g. a `type=synthesis` essay). For "what does the vault know about X", the three query layers above are right.
 
 ### Query — fallback flow for identity questions
+
+For "tell me about person/concept Y" identity questions (not topical questions):
 
 1. `wiki resolve "X"` to map the fuzzy name to a slug.
 2. `wiki context <slug>` (cheap, bundled: frontmatter, observations, relations, neighbors).
