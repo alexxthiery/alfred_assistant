@@ -131,42 +131,96 @@ fi
 rm -f "$TMP"
 echo ""
 
-# 3. bin/ deployment
-WIKI_TARGET="$TARGET/.bin/wiki"
-WIKI_SRC="$SRC/bin/wiki"
-if [ ! -e "$WIKI_TARGET" ]; then
-  echo "[bin] WOULD INSTALL via install.sh"
-  $APPLY && "$SRC/install.sh" "$TARGET"
-elif [ -L "$WIKI_TARGET" ]; then
-  LINK_TGT=$(readlink "$WIKI_TARGET")
-  if [ "$LINK_TGT" = "$WIKI_SRC" ]; then
-    echo "[bin] OK (symlinked to $WIKI_SRC)"
-  else
-    echo "[bin] WOULD RELINK ($LINK_TGT → $WIKI_SRC)"
-    $APPLY && "$SRC/install.sh" "$TARGET"
+# 3. bin/ deployment (COPY, not symlink)
+#
+# Symlinks store absolute paths and don't survive Dropbox-mediated sync to a
+# different filesystem (the Mac dev path won't resolve inside a Linux container
+# that has only the vault mounted). The historical working state of this
+# vault was copies. We restore that here.
+#
+# Trade-off: copies don't auto-update when the source changes — you must
+# re-run deploy.sh. For a personal vault with one dev machine and a runtime
+# container, the manual sync step is worth the cross-platform robustness.
+mkdir -p "$TARGET/.bin"
+BIN_ITEMS=(wiki inbox email-digest wiki-test)
+BAK_SUFFIX=".pre-deploy-$(date +%Y%m%d-%H%M%S).bak"
+
+# Snapshot summary: what's there now vs what we'd write.
+NEEDS_COPY=()
+for f in "${BIN_ITEMS[@]}"; do
+  src="$SRC/bin/$f"
+  dst="$TARGET/.bin/$f"
+  if [ ! -f "$src" ]; then
+    echo "[bin] WARN: source $src missing, skipping"
+    continue
   fi
+  if [ ! -e "$dst" ]; then
+    NEEDS_COPY+=("$f" "create")
+    continue
+  fi
+  if [ -L "$dst" ]; then
+    NEEDS_COPY+=("$f" "delink-then-copy")
+    continue
+  fi
+  if cmp -s "$src" "$dst"; then
+    : # identical, no work needed
+  else
+    NEEDS_COPY+=("$f" "refresh")
+  fi
+done
+# Subtree directories under bin/ (lib/, verbs/, etc.) — keep this list in sync
+# with new top-level dirs added under bin/. Each is copy-or-refreshed as a unit.
+BIN_DIRS=(lib verbs)
+DIR_ACTIONS=()
+for d in "${BIN_DIRS[@]}"; do
+  src="$SRC/bin/$d"
+  dst="$TARGET/.bin/$d"
+  if [ ! -e "$src" ]; then continue; fi
+  if [ ! -e "$dst" ]; then
+    DIR_ACTIONS+=("$d" "create")
+  elif [ -L "$dst" ]; then
+    DIR_ACTIONS+=("$d" "delink-then-copy")
+  elif diff -rq "$src" "$dst" > /dev/null 2>&1; then
+    : # identical, skip
+  else
+    DIR_ACTIONS+=("$d" "refresh")
+  fi
+done
+
+if [ ${#NEEDS_COPY[@]} -eq 0 ] && [ ${#DIR_ACTIONS[@]} -eq 0 ]; then
+  echo "[bin] OK (all .bin/ files match source — no copy needed)"
 else
-  CURRENT_DATE=$(stat -f %Sm "$WIKI_TARGET" 2>/dev/null || stat -c %y "$WIKI_TARGET" 2>/dev/null || echo "?")
-  SOURCE_DATE=$(stat -f %Sm "$WIKI_SRC"    2>/dev/null || stat -c %y "$WIKI_SRC"    2>/dev/null || echo "?")
-  echo "[bin] STALE COPY at $WIKI_TARGET"
-  echo "  current copy : $CURRENT_DATE"
-  echo "  source       : $SOURCE_DATE"
-  echo "  WOULD upgrade .bin/{wiki,inbox,email-digest,wiki-test,lib} from copies → symlinks"
+  echo "[bin] WOULD COPY (or refresh) ${#BIN_ITEMS[@]} CLIs + subtree(s) from $SRC/bin → $TARGET/.bin"
+  for ((i = 0; i < ${#NEEDS_COPY[@]}; i += 2)); do
+    echo "    $TARGET/.bin/${NEEDS_COPY[i]}: ${NEEDS_COPY[i+1]}"
+  done
+  for ((i = 0; i < ${#DIR_ACTIONS[@]}; i += 2)); do
+    echo "    $TARGET/.bin/${DIR_ACTIONS[i]}/: ${DIR_ACTIONS[i+1]}"
+  done
   if $APPLY; then
-    # Back up the stale copies before deleting (defensive: in case any have
-    # local edits we can't detect). Suffix is dated so multiple deploys
-    # don't clobber each other.
-    BAK_SUFFIX=".pre-deploy-$(date +%Y%m%d-%H%M%S).bak"
-    for f in wiki inbox email-digest wiki-test; do
-      if [ -f "$TARGET/.bin/$f" ] && [ ! -L "$TARGET/.bin/$f" ]; then
-        mv "$TARGET/.bin/$f" "$TARGET/.bin/${f}${BAK_SUFFIX}"
+    for ((i = 0; i < ${#NEEDS_COPY[@]}; i += 2)); do
+      f="${NEEDS_COPY[i]}"
+      action="${NEEDS_COPY[i+1]}"
+      dst="$TARGET/.bin/$f"
+      if [ -L "$dst" ]; then rm -f "$dst"; fi
+      if [ -f "$dst" ] && [ "$action" = "refresh" ]; then
+        mv "$dst" "${dst}${BAK_SUFFIX}"
       fi
+      cp -p "$SRC/bin/$f" "$dst"
+      chmod +x "$dst"
     done
-    if [ -e "$TARGET/.bin/lib" ] && [ ! -L "$TARGET/.bin/lib" ]; then
-      mv "$TARGET/.bin/lib" "$TARGET/.bin/lib${BAK_SUFFIX}"
-    fi
-    echo "  (pre-deploy copies preserved with suffix ${BAK_SUFFIX})"
-    "$SRC/install.sh" "$TARGET"
+    for ((i = 0; i < ${#DIR_ACTIONS[@]}; i += 2)); do
+      d="${DIR_ACTIONS[i]}"
+      action="${DIR_ACTIONS[i+1]}"
+      src="$SRC/bin/$d"
+      dst="$TARGET/.bin/$d"
+      if [ -L "$dst" ]; then rm -f "$dst"; fi
+      if [ -d "$dst" ] && [ "$action" = "refresh" ]; then
+        mv "$dst" "${dst}${BAK_SUFFIX}"
+      fi
+      cp -R "$src" "$dst"
+    done
+    echo "  (pre-deploy copies of refreshed items preserved with suffix ${BAK_SUFFIX})"
   fi
 fi
 
