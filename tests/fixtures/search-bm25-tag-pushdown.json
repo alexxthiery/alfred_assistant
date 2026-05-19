@@ -1,0 +1,11 @@
+{
+  "_comment": "Regression test for the B1 audit finding: `--tag` was post-filtered in JS after the SQL LIMIT, so `--limit 2 --tag <rare-tag>` could miss tag-matching results that ranked outside the top 2 by BM25. Setup writes 5 pages mentioning a rare token; 3 are tagged `meta` only, 2 are tagged `meta` + `research`. Asking for the rare token with `--tag research --limit 2` must return ONLY the 2 research-tagged slugs.",
+  "setup": [
+    ["write", "fts-tag-target-1", "--title", "FTS tag target 1", "--type", "concept", "--tags", "meta,research", "--content", "- [fact] body about quokkalopagus ^[t:1]", "--soft"],
+    ["write", "fts-tag-target-2", "--title", "FTS tag target 2", "--type", "concept", "--tags", "meta,research", "--content", "- [fact] another body about quokkalopagus ^[t:1]", "--soft"],
+    ["write", "fts-tag-decoy-1", "--title", "FTS tag decoy 1", "--type", "concept", "--tags", "meta", "--content", "- [fact] very short quokkalopagus mention ^[t:1]", "--soft"],
+    ["write", "fts-tag-decoy-2", "--title", "FTS tag decoy 2", "--type", "concept", "--tags", "meta", "--content", "- [fact] quokkalopagus ^[t:1]", "--soft"],
+    ["write", "fts-tag-decoy-3", "--title", "FTS tag decoy 3", "--type", "concept", "--tags", "meta", "--content", "- [fact] quokkalopagus appears here ^[t:1]", "--soft"]
+  ],
+  "cmd": ["search", "quokkalopagus", "--tag", "research", "--limit", "2"]
+}

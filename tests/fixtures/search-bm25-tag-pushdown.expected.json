@@ -1,0 +1,4 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["fts-tag-target-1", "fts-tag-target-2"]
+}

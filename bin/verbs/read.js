@@ -86,12 +86,25 @@ function cmdSearchBm25(query, opts) {
   const expanded = expandQuery(query, syns);
   // DuckDB string literal: escape single quotes by doubling.
   const sqlQ = expanded.replace(/'/g, "''");
+  // B1 fix: push --tag filter into SQL via list_contains so LIMIT applies
+  // AFTER the tag filter. Previously the JS-side post-pass dropped top-N
+  // BM25 hits that didn't match the tag, silently undercounting.
+  // Defensive validation: tags follow SLUG_RE shape; reject anything weird
+  // before splicing into the SQL string.
+  let tagClause = '';
+  if (opts.tag) {
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(opts.tag)) {
+      console.error(`error: --tag must match /^[a-z0-9][a-z0-9-]*$/ (got "${opts.tag}")`);
+      process.exit(1);
+    }
+    tagClause = ` AND list_contains(v.tags, '${opts.tag}')`;
+  }
   const sql = `
     SELECT v.slug AS slug, v.title AS title, o.body AS body,
            fts_main_observations.match_bm25(o.obs_uid, '${sqlQ}') AS score
     FROM observations o
     LEFT JOIN vault v ON v.slug = o.slug
-    WHERE fts_main_observations.match_bm25(o.obs_uid, '${sqlQ}') IS NOT NULL
+    WHERE fts_main_observations.match_bm25(o.obs_uid, '${sqlQ}') IS NOT NULL${tagClause}
     ORDER BY score DESC
     LIMIT ${opts.limit};
   `;
@@ -110,17 +123,10 @@ function cmdSearchBm25(query, opts) {
     .map((line) => { try { return JSON.parse(line); } catch (_) { return null; } })
     .filter(Boolean);
 
+  // Tag filter is now applied in SQL above; the result set is already
+  // tag-correct. Just format and print.
   let printed = 0;
   for (const row of rows) {
-    if (opts.tag) {
-      // We didn't join tags in the SQL (they're a list column, awkward to
-      // filter in pure SQL without UNNEST). Filter in JS: re-read the page's
-      // frontmatter. Cheap because BM25 already capped result count.
-      const page = readPage(row.slug);
-      if (!page) continue;
-      const tags = Array.isArray(page.fm.tags) ? page.fm.tags : [];
-      if (!tags.includes(opts.tag)) continue;
-    }
     const score = typeof row.score === 'number' ? row.score.toFixed(3) : row.score;
     console.log(`${row.slug}\t${score}\t${row.title || ''}`);
     const excerpt = (row.body || '').replace(/\s+/g, ' ').trim().slice(0, 160);
