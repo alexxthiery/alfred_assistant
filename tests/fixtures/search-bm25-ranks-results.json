@@ -1,0 +1,8 @@
+{
+  "_comment": "`wiki search` defaults to BM25 over observations.body. Seed two pages with distinctive vocabulary, search for a rare term, assert the matching slug surfaces in stdout. Locks the end-to-end retrieval path: cmdSearch → loadVaultDb → DuckDB FTS → expanded query.",
+  "setup": [
+    ["write", "search-fts-target", "--title", "Search FTS target", "--type", "concept", "--tags", "meta", "--content", "- [fact] research about an unusual creature called quokka ^[t:1]", "--soft"],
+    ["write", "search-fts-decoy", "--title", "Search FTS decoy", "--type", "concept", "--tags", "meta", "--content", "- [fact] entirely unrelated content about marine biology ^[t:1]", "--soft"]
+  ],
+  "cmd": ["search", "quokka"]
+}

@@ -12,10 +12,13 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 const { parseFrontmatter } = require('../lib/frontmatter.js');
 const { extractWikilinks, parseObservations, parseRelations } = require('../lib/graph.js');
-const { WIKI_DIR, wikiPath, listWikiPages, readPage, forEachPage } = require('../lib/vault.js');
+const { VAULT_ROOT, WIKI_DIR, wikiPath, listWikiPages, readPage, forEachPage } = require('../lib/vault.js');
+const { loadVaultDb, ensureDuckdbAvailable } = require('../lib/duckdb.js');
+const { parseSynonymsFile, expandQuery } = require('../lib/synonyms.js');
 
 function cmdList(args) {
   // HR25: --slugs-only emits one slug per line, no title/tags. Token-economy
@@ -36,23 +39,115 @@ function cmdList(args) {
   });
 }
 
+// cmdSearch — three modes, ranked from preferred to fallback:
+//
+//   default      BM25 over observations.body via DuckDB FTS, with synonym
+//                expansion from <vault-root>/SYNONYMS.md. Returns ranked
+//                slug · score · body excerpt. The retrieval primitive for
+//                Alfred-agent workflows.
+//   --literal    substring match across page bodies (the pre-FTS behaviour).
+//                Use when the query contains DuckDB-tokeniser-hostile chars or
+//                when you want to find raw markdown like "<!--obs:abc123-->".
+//   --regex      regex match (anchored is up to the caller).
+//   --title-only restrict to page titles (substring); always JS-side, no FTS.
 function cmdSearch(args) {
   const query = args._[0];
   if (!query && !args.tag) {
-    console.error('Usage: wiki search <query> [--tag tag] [--title-only]');
+    console.error('Usage: wiki search <query> [--tag T] [--limit N] [--literal] [--regex] [--title-only]');
     process.exit(1);
   }
-  const re = query ? new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') : null;
+  const limit = Math.max(1, parseInt(args.limit, 10) || 20);
+  const useLiteral = !!args.literal;
+  const useRegex = !!args.regex;
+  const useTitleOnly = !!args['title-only'];
+  const useFts = query && !useLiteral && !useRegex && !useTitleOnly;
+  if (useFts) {
+    cmdSearchBm25(query, { limit, tag: args.tag });
+    return;
+  }
+  cmdSearchJs(query, { tag: args.tag, useLiteral, useRegex, useTitleOnly });
+}
+
+// FTS retrieval: spawn duckdb against the cached vault.duckdb, BM25-rank
+// observations, then pretty-print. Output format:
+//   <slug> <TAB> <score> <TAB> <title>
+//       …<excerpt of matching body>…
+function cmdSearchBm25(query, opts) {
+  ensureDuckdbAvailable();
+  const dbPath = loadVaultDb();
+
+  // Synonyms live at <vault-root>/SYNONYMS.md. If absent, expansion is a
+  // pass-through lowercased identity — no warning, since a vault without
+  // synonyms is the normal starting state.
+  const synPath = path.join(VAULT_ROOT, 'SYNONYMS.md');
+  const syns = fs.existsSync(synPath)
+    ? parseSynonymsFile(fs.readFileSync(synPath, 'utf-8'))
+    : new Map();
+  const expanded = expandQuery(query, syns);
+  // DuckDB string literal: escape single quotes by doubling.
+  const sqlQ = expanded.replace(/'/g, "''");
+  const sql = `
+    SELECT v.slug AS slug, v.title AS title, o.body AS body,
+           fts_main_observations.match_bm25(o.obs_uid, '${sqlQ}') AS score
+    FROM observations o
+    LEFT JOIN vault v ON v.slug = o.slug
+    WHERE fts_main_observations.match_bm25(o.obs_uid, '${sqlQ}') IS NOT NULL
+    ORDER BY score DESC
+    LIMIT ${opts.limit};
+  `;
+  const r = spawnSync('duckdb', [dbPath, '-jsonlines', '-noheader', '-c', sql], {
+    encoding: 'utf-8',
+  });
+  if (r.status !== 0) {
+    console.error(`error: BM25 query failed: ${(r.stderr || '').split('\n')[0] || 'exit ' + r.status}`);
+    console.error('  Hint: --literal or --regex use JS-side matching and bypass FTS.');
+    process.exit(2);
+  }
+  // -jsonlines emits one JSON object per result row.
+  const rows = (r.stdout || '')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => { try { return JSON.parse(line); } catch (_) { return null; } })
+    .filter(Boolean);
+
+  let printed = 0;
+  for (const row of rows) {
+    if (opts.tag) {
+      // We didn't join tags in the SQL (they're a list column, awkward to
+      // filter in pure SQL without UNNEST). Filter in JS: re-read the page's
+      // frontmatter. Cheap because BM25 already capped result count.
+      const page = readPage(row.slug);
+      if (!page) continue;
+      const tags = Array.isArray(page.fm.tags) ? page.fm.tags : [];
+      if (!tags.includes(opts.tag)) continue;
+    }
+    const score = typeof row.score === 'number' ? row.score.toFixed(3) : row.score;
+    console.log(`${row.slug}\t${score}\t${row.title || ''}`);
+    const excerpt = (row.body || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+    if (excerpt) console.log(`    …${excerpt}…`);
+    printed++;
+  }
+  if (printed === 0) console.log('(no matches)');
+}
+
+// Legacy JS-side search path: substring (regex-escaped) or regex (raw) match
+// across page titles + bodies. Preserved for --literal / --regex / --title-only.
+function cmdSearchJs(query, opts) {
+  let re = null;
+  if (query) {
+    const pattern = opts.useRegex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    re = new RegExp(pattern, 'i');
+  }
   let count = 0;
   forEachPage(({ slug: fileSlug, fm, body }) => {
-    if (args.tag) {
+    if (opts.tag) {
       const tags = Array.isArray(fm.tags) ? fm.tags : [];
-      if (!tags.includes(args.tag)) return;
+      if (!tags.includes(opts.tag)) return;
     }
     const slug = fm.id || fileSlug;
     const title = fm.title || '';
     if (re) {
-      if (args['title-only']) {
+      if (opts.useTitleOnly) {
         if (!re.test(title)) return;
       } else {
         const titleMatch = re.test(title);
