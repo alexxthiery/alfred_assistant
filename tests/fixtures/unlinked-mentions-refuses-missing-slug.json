@@ -1,0 +1,5 @@
+{
+  "_comment": "wiki unlinked-mentions <slug>: refuse with exit 2 when target slug does not exist.",
+  "setup": [],
+  "cmd": ["unlinked-mentions", "no-such-page"]
+}

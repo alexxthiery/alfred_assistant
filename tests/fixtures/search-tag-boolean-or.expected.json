@@ -1,0 +1,5 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["boolean-tag-a", "boolean-tag-b"],
+  "stdoutNotContains": ["boolean-tag-c"]
+}

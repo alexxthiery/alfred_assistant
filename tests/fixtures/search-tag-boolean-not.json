@@ -1,0 +1,8 @@
+{
+  "_comment": "wiki search --tag 'X, NOT Y': comma-separated clauses are AND-joined; 'NOT' excludes. Result must include X-tagged pages without Y, and exclude X-tagged pages that also have Y.",
+  "setup": [
+    ["write", "tag-not-include", "--title", "Tag NOT include", "--type", "concept", "--tags", "research,meta", "--content", "- [fact] zinkozaurus body ^[t:1]", "--soft"],
+    ["write", "tag-not-exclude", "--title", "Tag NOT exclude", "--type", "concept", "--tags", "research,tool,meta", "--content", "- [fact] zinkozaurus body ^[t:1]", "--soft"]
+  ],
+  "cmd": ["search", "zinkozaurus", "--tag", "research, NOT tool", "--limit", "5"]
+}

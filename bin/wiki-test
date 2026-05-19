@@ -116,6 +116,9 @@ function runFixture(name) {
       for (const needle of (expected.stdoutContains || [])) {
         if (!stdout.includes(needle)) return { name, ok: false, reason: `stdout missing "${needle.slice(0, 60)}"\n  stdout: ${stdout.split('\n').slice(0, 5).join(' | ')}` };
       }
+      for (const needle of (expected.stdoutNotContains || [])) {
+        if (stdout.includes(needle)) return { name, ok: false, reason: `stdout unexpectedly contains "${needle.slice(0, 60)}"\n  stdout: ${stdout.split('\n').slice(0, 5).join(' | ')}` };
+      }
       for (const needle of (expected.stderrContains || [])) {
         if (!stderr.includes(needle)) return { name, ok: false, reason: `stderr missing "${needle.slice(0, 60)}"\n  stderr: ${stderr.split('\n').slice(0, 5).join(' | ')}` };
       }

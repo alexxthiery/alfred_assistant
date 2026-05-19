@@ -59,7 +59,7 @@ const {
 const { loadVaultDb, ensureDuckdbAvailable, resolveDuckdbBin } = require('./lib/duckdb.js');
 const {
   cmdList, cmdSearch, cmdRecent, cmdPreview, cmdPrint,
-  cmdSources, cmdRelated, cmdAgenda, cmdContext, cmdChallenge, cmdRender,
+  cmdSources, cmdRelated, cmdUnlinkedMentions, cmdAgenda, cmdContext, cmdChallenge, cmdRender,
 } = require('./verbs/read.js');
 
 // VAULT_ROOT detection + WIKI_DIR/SCHEMA_PATH/INDEX_PATH/LOG_PATH constants +
@@ -3861,7 +3861,8 @@ const VERBS = [
   { name: 'print',    section: 'READ', lines: ['  print <slug> [--backlinks] [--links]      full page with optional context'] },
   { name: 'context',  section: 'READ', lines: ['  context <slug> [--compact]                bundled: FM + obs + relations + 1-hop neighbors (--compact: agent-friendly, ~30% fewer lines)'] },
   { name: 'sources',  section: 'READ', lines: ['  sources                                   list type=source pages'] },
-  { name: 'related',  section: 'READ', lines: ['  related <slug>                            pages by tag/link proximity'] },
+  { name: 'related',  section: 'READ', lines: ['  related <slug> [--unconnected]            pages by tag/link proximity; --unconnected = zk-style connection candidates (shared neighbor, not yet directly linked)'] },
+  { name: 'unlinked-mentions', section: 'READ', lines: ['  unlinked-mentions <slug> [--limit N]      pages whose body mentions <slug>\'s title/aliases but lacks a [[wikilink]] (wikilink-promotion candidates)'] },
   { name: 'render',   section: 'READ', lines: ['  render <slug>                             execute the first ```sql fence on a type=view page'] },
   { name: 'agenda',   section: 'READ', lines: [
     '  agenda [today|week|upcoming|past|all]     list type=event pages by when',
@@ -4229,7 +4230,7 @@ const args = parseArgs(process.argv.slice(3));
 const cmds = {
   // read
   list: cmdList, search: cmdSearch, recent: cmdRecent, print: cmdPrint,
-  sources: cmdSources, related: cmdRelated, render: cmdRender,
+  sources: cmdSources, related: cmdRelated, 'unlinked-mentions': cmdUnlinkedMentions, render: cmdRender,
   preview: cmdPreview, context: cmdContext, agenda: cmdAgenda, challenge: cmdChallenge,
   // write
   write: cmdWrite, link: cmdLink, mv: cmdMv, delete: cmdDelete, patch: cmdPatch, merge: cmdMerge,

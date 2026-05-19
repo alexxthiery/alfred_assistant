@@ -1,0 +1,9 @@
+{
+  "_comment": "wiki related <slug> --unconnected: A and B both link to C but not to each other → B should surface as a connection candidate for A.",
+  "setup": [
+    ["write", "rel-shared-target", "--title", "Rel shared target", "--type", "concept", "--tags", "meta", "--content", "- [fact] target page ^[t:1]", "--soft"],
+    ["write", "rel-source-a", "--title", "Rel source A", "--type", "concept", "--tags", "meta", "--content", "- [fact] body mentioning [[rel-shared-target]] ^[t:1]", "--soft"],
+    ["write", "rel-source-b", "--title", "Rel source B", "--type", "concept", "--tags", "meta", "--content", "- [fact] also mentioning [[rel-shared-target]] ^[t:1]", "--soft"]
+  ],
+  "cmd": ["related", "rel-source-a", "--unconnected"]
+}

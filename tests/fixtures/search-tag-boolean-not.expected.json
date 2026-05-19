@@ -1,0 +1,5 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["tag-not-include"],
+  "stdoutNotContains": ["tag-not-exclude"]
+}

@@ -7,6 +7,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added (Phase 11 — connection-finding)
+- **`wiki related <slug> --unconnected`** — zk-style "shared-neighbor, not yet connected" filter. Without the flag the existing scoring boosts already-linked pages; with it, those are *excluded*, surfacing only candidates worth a new wikilink/relation. Operationalises Reflex 1's connection-finding trigger deterministically (no embeddings).
+- **`wiki unlinked-mentions <slug>`** — find pages whose body mentions `<slug>`'s title or aliases (word-boundary, length ≥4) but lacks a `[[wikilink]]`. Read-only discovery sibling to `wiki autolink --dry-run`. Surfaces graph-density promotion opportunities so Alfred can ask "promote to wikilink?" at conversation time.
+- **Boolean tag filter on `wiki search`** — `--tag "X OR Y, NOT Z"` syntax. Comma = AND between clauses; `OR` within a clause; `NOT` excludes. Pure parser in new `bin/lib/tag-filter.js` (16 unit tests covering grammar, validation, SQL compilation, custom column). Single-tag back-compat preserved.
+- New `stdoutNotContains` assertion in `bin/wiki-test` runner.
+
 ### Persona (Phase 10)
 - New top-level `## Operating loop` section in `PERSONA.template.md`: three reflexes (search before answering, volunteer captures at breakpoints, surface contradictions before proposing) hoisted above the ingestion protocol. Closes a measured ~100% capture-leak rate observed over a 2-day audit window of live conversations (May 18-19, 2026). Pure persona change, no CLI work.
 - Deleted overlapping `### Retrieval reflexes` subsection (absorbed into Reflex 1). The previous "ONLY IF BM25 >= 1.0 AND ..." conjunction gave the LLM permission to skip both search and surfacing; new section separates *always search* from *conditionally surface* with no hedge conjunction. Obs-id citation convention preserved at the bottom of the boundary-rules subsection.

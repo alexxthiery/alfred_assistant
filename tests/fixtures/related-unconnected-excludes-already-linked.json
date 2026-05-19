@@ -1,0 +1,9 @@
+{
+  "_comment": "wiki related <slug> --unconnected: even with a shared neighbor, if A already links to B (or B to A), B must NOT appear in --unconnected results (the whole point of the flag).",
+  "setup": [
+    ["write", "rel-shared-c", "--title", "Rel shared C", "--type", "concept", "--tags", "meta", "--content", "- [fact] shared neighbor ^[t:1]", "--soft"],
+    ["write", "rel-already-linked-b", "--title", "Rel already linked B", "--type", "concept", "--tags", "meta", "--content", "- [fact] body mentions [[rel-shared-c]] ^[t:1]", "--soft"],
+    ["write", "rel-a-links-b", "--title", "Rel A links B", "--type", "concept", "--tags", "meta", "--content", "- [fact] A mentions both [[rel-shared-c]] and [[rel-already-linked-b]] ^[t:1]", "--soft"]
+  ],
+  "cmd": ["related", "rel-a-links-b", "--unconnected"]
+}

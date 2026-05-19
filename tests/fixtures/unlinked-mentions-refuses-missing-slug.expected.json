@@ -1,0 +1,4 @@
+{
+  "exitCode": 2,
+  "stderrContains": ["does not exist"]
+}

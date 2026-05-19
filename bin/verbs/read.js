@@ -19,6 +19,8 @@ const { extractWikilinks, parseObservations, parseRelations } = require('../lib/
 const { VAULT_ROOT, WIKI_DIR, wikiPath, listWikiPages, readPage, forEachPage } = require('../lib/vault.js');
 const { loadVaultDb, ensureDuckdbAvailable, resolveDuckdbBin } = require('../lib/duckdb.js');
 const { parseSynonymsFile, expandQuery } = require('../lib/synonyms.js');
+const { buildTitleEntries } = require('../lib/autolink.js');
+const { compileTagExpressionToSql } = require('../lib/tag-filter.js');
 
 function cmdList(args) {
   // HR25: --slugs-only emits one slug per line, no title/tags. Token-economy
@@ -89,15 +91,16 @@ function cmdSearchBm25(query, opts) {
   // B1 fix: push --tag filter into SQL via list_contains so LIMIT applies
   // AFTER the tag filter. Previously the JS-side post-pass dropped top-N
   // BM25 hits that didn't match the tag, silently undercounting.
-  // Defensive validation: tags follow SLUG_RE shape; reject anything weird
-  // before splicing into the SQL string.
+  // Tag filter now supports zk-style boolean expressions:
+  //   "X"               single tag (back-compat)
+  //   "X OR Y"          OR within a clause
+  //   "X, NOT Y"        AND between clauses; NOT excludes
+  // Validation lives in the pure parser (lib/tag-filter.js); we just splice
+  // the compiled WHERE fragment.
   let tagClause = '';
   if (opts.tag) {
-    if (!/^[a-z0-9][a-z0-9-]*$/.test(opts.tag)) {
-      console.error(`error: --tag must match /^[a-z0-9][a-z0-9-]*$/ (got "${opts.tag}")`);
-      process.exit(1);
-    }
-    tagClause = ` AND list_contains(v.tags, '${opts.tag}')`;
+    try { tagClause = compileTagExpressionToSql(opts.tag, 'v.tags'); }
+    catch (e) { console.error(`error: --tag: ${e.message}`); process.exit(1); }
   }
   const sql = `
     SELECT v.slug AS slug, v.title AS title, o.body AS body,
@@ -439,9 +442,15 @@ function cmdChallenge(args) {
 
 function cmdRelated(args) {
   const slug = args._[0];
-  if (!slug) { console.error('Usage: wiki related <slug>'); process.exit(1); }
+  if (!slug) { console.error('Usage: wiki related <slug> [--unconnected]'); process.exit(1); }
   const page = readPage(slug);
   if (!page) { console.error(`error: page ${slug} does not exist`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
+  // --unconnected (a.k.a. zk-style "--related"): filter to candidates that
+  // share a neighbor with <slug> but are NOT yet directly connected to it.
+  // Surfaces *new* connection opportunities; otherwise the connect-boost
+  // signals (+3 for me-links-them, +3 for them-links-me) dominate the list
+  // with pages already in the graph.
+  const unconnected = !!args.unconnected;
   const myTags = new Set(Array.isArray(page.fm.tags) ? page.fm.tags : []);
   const myOutbound = new Set(extractWikilinks(page.body));
   const re = new RegExp(`\\[\\[${slug}\\]\\]`);
@@ -457,11 +466,14 @@ function cmdRelated(args) {
 
   const scores = {};
   for (const o of others) {
+    if (unconnected && (myOutbound.has(o.slug) || backlinks.has(o.slug))) continue;
     const otherTags = new Set(Array.isArray(o.fm.tags) ? o.fm.tags : []);
     let score = 0;
     for (const t of myTags) if (otherTags.has(t)) score += 2;
-    if (myOutbound.has(o.slug)) score += 3;
-    if (backlinks.has(o.slug)) score += 3;
+    if (!unconnected) {
+      if (myOutbound.has(o.slug)) score += 3;
+      if (backlinks.has(o.slug)) score += 3;
+    }
     for (const t of myOutbound) if (o.outbound.has(t)) score += 1;
     if (score > 0) scores[o.slug] = { score, title: o.fm.title || '', type: o.fm.type || 'note' };
   }
@@ -469,6 +481,60 @@ function cmdRelated(args) {
   if (ranked.length === 0) { console.log('(no related pages)'); return; }
   for (const [s, info] of ranked.slice(0, 20)) {
     console.log(`${info.score}\t${info.type}\t${s}\t${info.title}`);
+  }
+}
+
+// cmdUnlinkedMentions — find pages whose body mentions <slug>'s title or any
+// of its aliases (word-boundary, case-sensitive per autolink convention) but
+// without a [[wikilink]] to <slug>. Read-only discovery sibling to
+// `wiki autolink --dry-run`: surfaces wikilink-promotion candidates so Alfred
+// (or the user) can decide where to invest in graph density. No writes.
+function cmdUnlinkedMentions(args) {
+  const slug = args._[0];
+  if (!slug) { console.error('Usage: wiki unlinked-mentions <slug> [--limit N]'); process.exit(1); }
+  const page = readPage(slug);
+  if (!page) { console.error(`error: page ${slug} does not exist`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
+  const limit = args.limit !== undefined ? Math.max(1, Number(args.limit)) : 50;
+
+  // Build title patterns for the target slug only (title + aliases, length ≥ 4
+  // per autolink heuristic — same threshold so this verb's "would-promote"
+  // signal matches what autolink would actually act on).
+  const entries = buildTitleEntries([{ slug, fm: page.fm }]);
+  if (entries.length === 0) {
+    console.log(`(no titles/aliases ≥4 chars for ${slug}; nothing to match)`);
+    return;
+  }
+  const wikilinkRe = new RegExp(`\\[\\[${slug}\\]\\]`);
+
+  const hits = []; // { srcSlug, title, snippet }
+  forEachPage(({ slug: srcSlug, fm, body }) => {
+    if (srcSlug === slug) return;
+    // If srcSlug already wikilinks to <slug>, no promotion needed — skip.
+    if (wikilinkRe.test(body)) return;
+    for (const { pattern, title } of entries) {
+      pattern.lastIndex = 0;
+      const m = pattern.exec(body);
+      if (!m) continue;
+      // Skip matches already inside a `[[...]]` (different target, same text)
+      // or inside the target of a markdown link `[text](target)`.
+      const idx = m.index;
+      const before = body.slice(Math.max(0, idx - 2), idx);
+      const after = body.slice(idx + m[0].length, idx + m[0].length + 2);
+      if (before.endsWith('[[') || after.startsWith(']]')) continue;
+      if (/\]\([^)]*$/.test(body.slice(0, idx))) continue;
+      // Build a single-line snippet around the match for visual context.
+      const lineStart = body.lastIndexOf('\n', idx) + 1;
+      const lineEnd = body.indexOf('\n', idx);
+      const line = body.slice(lineStart, lineEnd === -1 ? body.length : lineEnd).trim();
+      hits.push({ srcSlug, title: title, snippet: line.slice(0, 160) });
+      break; // one hit per source page is enough — autolink would inject once.
+    }
+  });
+
+  if (hits.length === 0) { console.log(`(no unlinked mentions of ${slug})`); return; }
+  for (const h of hits.slice(0, limit)) {
+    console.log(`${h.srcSlug}\t${h.title}`);
+    if (h.snippet) console.log(`    …${h.snippet}…`);
   }
 }
 
@@ -609,6 +675,7 @@ module.exports = {
   cmdPrint,
   cmdSources,
   cmdRelated,
+  cmdUnlinkedMentions,
   cmdAgenda,
   cmdContext,
   cmdChallenge,

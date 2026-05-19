@@ -1,0 +1,9 @@
+{
+  "_comment": "wiki search --tag 'X OR Y': must match pages tagged with EITHER tag. Boolean syntax mirrors zk's --tag.",
+  "setup": [
+    ["write", "boolean-tag-a", "--title", "Boolean tag A", "--type", "concept", "--tags", "meta,research", "--content", "- [fact] quokkawango body ^[t:1]", "--soft"],
+    ["write", "boolean-tag-b", "--title", "Boolean tag B", "--type", "concept", "--tags", "meta,health", "--content", "- [fact] quokkawango body ^[t:1]", "--soft"],
+    ["write", "boolean-tag-c", "--title", "Boolean tag C", "--type", "concept", "--tags", "meta", "--content", "- [fact] quokkawango body ^[t:1]", "--soft"]
+  ],
+  "cmd": ["search", "quokkawango", "--tag", "research OR health", "--limit", "5"]
+}

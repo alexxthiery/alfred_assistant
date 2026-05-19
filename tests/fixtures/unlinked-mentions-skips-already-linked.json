@@ -1,0 +1,8 @@
+{
+  "_comment": "wiki unlinked-mentions <slug>: when the only mention is already a [[wikilink]], the source page must NOT appear in results (already linked, no promotion needed).",
+  "setup": [
+    ["write", "linked-target", "--title", "Vitamin D3", "--type", "concept", "--tags", "meta", "--content", "- [fact] a supplement ^[t:1]", "--soft"],
+    ["write", "linked-mention-source", "--title", "Already linked source", "--type", "concept", "--tags", "meta", "--content", "- [fact] I take [[linked-target]] daily ^[t:1]", "--soft"]
+  ],
+  "cmd": ["unlinked-mentions", "linked-target"]
+}
