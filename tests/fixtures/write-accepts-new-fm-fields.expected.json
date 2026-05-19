@@ -1,0 +1,9 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "born: 1990-04-15",
+    "visibility: personal",
+    "sensitive: true",
+    "confidence: 0.8"
+  ]
+}

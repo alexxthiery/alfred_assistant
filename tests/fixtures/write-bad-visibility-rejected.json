@@ -1,0 +1,4 @@
+{
+  "_comment": "Validators in maintenance.js fire on wiki write paths too (not just wiki patch). Bad --visibility value exits 3.",
+  "cmd": ["write", "vis-write-test", "--title", "X", "--type", "entity", "--tags", "person", "--content", "- [fact] seed ^[telegram:2026-05-17]", "--visibility", "secret"]
+}

@@ -28,6 +28,7 @@ const EXTRA_FIELDS = [
   'raw_path', 'sha256', 'aliases', 'source',
   'homepage', 'scholar', 'orcid', 'github', 'linkedin', 'twitter', 'arxiv', 'email',
   'when', 'duration', 'location', 'attendees', 'recurrence',
+  'born', 'visibility', 'sensitive', 'confidence',
 ];
 
 const LIST_FIELDS = new Set(['derived_from', 'supersedes', 'aliases', 'attendees']);
@@ -90,15 +91,57 @@ function formatLogLine(timestamp, op, detail) {
   return `## [${timestamp}] ${op} | ${detail}\n`;
 }
 
+// Validate + normalise a typed frontmatter value (used by `wiki write` via
+// applyExtraFrontmatter AND by `wiki patch` for the same fields, so the two
+// verbs accept identical input contracts). Returns {value, error}: value is
+// the parsed/coerced form (e.g. true/false for booleans, Number for
+// confidence); error is a human-readable string when invalid.
+function validateExtraFieldValue(name, raw) {
+  switch (name) {
+    case 'born': {
+      const v = String(raw).trim();
+      if (!/^(\d{4}-\d{2}-\d{2}|\d{2}-\d{2})$/.test(v)) {
+        return { error: `--born must be YYYY-MM-DD or MM-DD (got "${v}")` };
+      }
+      return { value: v };
+    }
+    case 'visibility': {
+      const v = String(raw).trim();
+      if (!['private', 'personal', 'public'].includes(v)) {
+        return { error: `--visibility must be private|personal|public (got "${v}")` };
+      }
+      return { value: v };
+    }
+    case 'sensitive': {
+      const v = raw === true ? 'true' : String(raw).trim().toLowerCase();
+      if (!['true', 'false'].includes(v)) {
+        return { error: `--sensitive must be true|false (got "${v}")` };
+      }
+      return { value: v === 'true' };
+    }
+    case 'confidence': {
+      const v = String(raw).trim();
+      const num = Number(v);
+      if (!/^\d+(\.\d+)?$/.test(v) || !Number.isFinite(num) || num < 0 || num > 1) {
+        return { error: `--confidence must be a number in [0, 1] (got "${v}")` };
+      }
+      return { value: num };
+    }
+    default:
+      return { value: raw };
+  }
+}
+
 function applyExtraFrontmatter(fm, args) {
   for (const f of EXTRA_FIELDS) {
-    if (args[f] !== undefined && args[f] !== false) {
-      if (LIST_FIELDS.has(f) && typeof args[f] === 'string') {
-        fm[f] = args[f].split(',').map((s) => s.trim()).filter(Boolean);
-      } else {
-        fm[f] = args[f];
-      }
+    if (args[f] === undefined || args[f] === false) continue;
+    if (LIST_FIELDS.has(f) && typeof args[f] === 'string') {
+      fm[f] = args[f].split(',').map((s) => s.trim()).filter(Boolean);
+      continue;
     }
+    const { value, error } = validateExtraFieldValue(f, args[f]);
+    if (error) throw new Error(error);
+    fm[f] = value;
   }
 }
 
@@ -106,6 +149,7 @@ module.exports = {
   formatIndex,
   formatLogLine,
   applyExtraFrontmatter,
+  validateExtraFieldValue,
   validateAliasArg,
   aliasValueError,
   EXTRA_FIELDS,

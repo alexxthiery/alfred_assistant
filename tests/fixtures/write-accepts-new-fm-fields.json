@@ -1,0 +1,7 @@
+{
+  "_comment": "Locks the cmdWrite/cmdPatch parity for the four typed frontmatter fields. wiki write must accept --born, --visibility, --sensitive, --confidence with the same validation contract as wiki patch.",
+  "setup": [
+    ["write", "parity-test", "--title", "Parity test", "--type", "entity", "--tags", "person", "--content", "- [fact] seed ^[telegram:2026-05-17]", "--born", "1990-04-15", "--visibility", "personal", "--sensitive", "true", "--confidence", "0.8"]
+  ],
+  "cmd": ["print", "parity-test"]
+}

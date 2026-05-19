@@ -47,7 +47,7 @@ const { auditPage, auditVault, STRICT_CROSS_PAGE_RULES, strictCrossPageErrors } 
 const { applyFlagAliases } = require('./lib/flag-aliases.js');
 const { flushStaged } = require('./lib/staged-writes.js');
 const { buildTitleEntries, autolinkBody } = require('./lib/autolink.js');
-const { formatIndex, formatLogLine, applyExtraFrontmatter, validateAliasArg, aliasValueError } = require('./lib/maintenance.js');
+const { formatIndex, formatLogLine, applyExtraFrontmatter, validateExtraFieldValue, validateAliasArg, aliasValueError } = require('./lib/maintenance.js');
 const {
   VAULT_ROOT, WIKI_DIR, SCHEMA_PATH, INDEX_PATH, LOG_PATH,
   nowISO, wikiPath, listWikiPages, readPage, forEachPage, invalidatePageCache,
@@ -399,11 +399,19 @@ function cmdWrite(args) {
     }
   }
 
+  // Wrap applyExtraFrontmatter — typed validators in maintenance.js may throw
+  // on bad input (e.g. --visibility=secret). Convert to a clean exit-3 error
+  // matching the strict-validation genre.
+  const tryApplyExtra = (fm) => {
+    try { applyExtraFrontmatter(fm, args); }
+    catch (e) { console.error(`error: ${e.message}`); process.exit(3); }
+  };
+
   let op = 'create';
   if (isAppend) {
     const { fm, body: curBody } = readPageForWrite(filePath);
     fm.updated = nowISO();
-    applyExtraFrontmatter(fm, args);
+    tryApplyExtra(fm);
     const newBody = curBody.trimEnd() + (body ? '\n\n' + body : '') + '\n';
     fs.writeFileSync(filePath, serializeFrontmatter(fm, newBody));
     op = 'append';
@@ -423,7 +431,7 @@ function cmdWrite(args) {
       updated: nowISO(),
       tags,
     };
-    applyExtraFrontmatter(fm, args);
+    tryApplyExtra(fm);
     fs.writeFileSync(filePath, serializeFrontmatter(fm, body.endsWith('\n') ? body : body + '\n'));
   }
 
@@ -817,55 +825,15 @@ function cmdPatch(args) {
     ops.push('summary');
   }
 
-  // Birth date. Accept YYYY-MM-DD (year known) or MM-DD (month/day only, year
-  // unknown). The MM-DD form is what enables `wiki agenda --on` to surface
-  // birthdays without needing the birth year.
-  if (args.born !== undefined && args.born !== false) {
-    const v = String(args.born).trim();
-    if (!/^(\d{4}-\d{2}-\d{2}|\d{2}-\d{2})$/.test(v)) {
-      console.error(`error: --born must be YYYY-MM-DD or MM-DD (got "${v}")`);
-      process.exit(3);
-    }
-    fm.born = v;
-    ops.push(`born:${v}`);
-  }
-
-  // visibility: private (default) | personal | public. Lets a future
-  // `wiki publish` filter by query without migrating data later.
-  if (args.visibility !== undefined && args.visibility !== false) {
-    const v = String(args.visibility).trim();
-    if (!['private', 'personal', 'public'].includes(v)) {
-      console.error(`error: --visibility must be private|personal|public (got "${v}")`);
-      process.exit(3);
-    }
-    fm.visibility = v;
-    ops.push(`visibility:${v}`);
-  }
-
-  // sensitive: true | false. When true, the page should be excluded from any
-  // LLM context (the persona enforces; CLI just stores the flag).
-  if (args.sensitive !== undefined && args.sensitive !== false) {
-    const raw = args.sensitive === true ? 'true' : String(args.sensitive).trim().toLowerCase();
-    if (!['true', 'false'].includes(raw)) {
-      console.error(`error: --sensitive must be true|false (got "${raw}")`);
-      process.exit(3);
-    }
-    fm.sensitive = raw === 'true';
-    ops.push(`sensitive:${raw}`);
-  }
-
-  // confidence: 0.0–1.0 numeric, optional on any page. Used by predictions
-  // for resolution scoring; on other pages it expresses "how sure am I this
-  // is correct."
-  if (args.confidence !== undefined && args.confidence !== false) {
-    const v = String(args.confidence).trim();
-    const num = Number(v);
-    if (!/^\d+(\.\d+)?$/.test(v) || !Number.isFinite(num) || num < 0 || num > 1) {
-      console.error(`error: --confidence must be a number in [0, 1] (got "${v}")`);
-      process.exit(3);
-    }
-    fm.confidence = num;
-    ops.push(`confidence:${num}`);
+  // born / visibility / sensitive / confidence — typed frontmatter fields.
+  // Validation lives in bin/lib/maintenance.js::validateExtraFieldValue so
+  // `wiki write` and `wiki patch` share the contract.
+  for (const f of ['born', 'visibility', 'sensitive', 'confidence']) {
+    if (args[f] === undefined || args[f] === false) continue;
+    const { value, error } = validateExtraFieldValue(f, args[f]);
+    if (error) { console.error(`error: ${error}`); process.exit(3); }
+    fm[f] = value;
+    ops.push(`${f}:${value}`);
   }
 
   // External-link fields (homepage, scholar, orcid, github, etc.)
@@ -3837,6 +3805,8 @@ const VERBS = [
       '  wiki write <slug> ... --no-anchor   (suppress orphan warning)',
       '  wiki write <slug> ... --soft        (downgrade audit issues to warnings)',
       '  wiki write <slug> ... --force-alias (bypass non-functional-alias and alias-collision strict rules only)',
+      '  wiki write <slug> ... [--born YYYY-MM-DD | MM-DD]',
+      '  wiki write <slug> ... [--visibility private|personal|public] [--sensitive true|false] [--confidence 0.0-1.0]',
       '',
       `Types: ${[...KNOWN_TYPES].join(' | ')}`,
       '',
