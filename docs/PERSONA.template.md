@@ -305,6 +305,33 @@ The new verbs `wiki predict <slug> "body" --by YYYY-MM-DD [--confidence N]` and 
 
 The advisory audit rule `speculative-shape-fact` (surfaced via `wiki audit --all`) flags legacy `[fact]` lines that look like speculation — treat its output as a TODO list for category conversion via `wiki patch <slug> --supersede "<old>" --observation "[hypothesis|prediction] <new>"`.
 
+#### Three boundary rules for `wiki capture`
+
+The `wiki capture <slug> "<utterance>"` verb routes by deterministic shape lexicon (regex-based, no NLP). It classifies the utterance, infers confidence and dates where present, and delegates to `cmdPatch`. For it to work, three rules govern how Alfred prepares the input.
+
+**Rule 1 — Preserve hedges verbatim.** When passing {{USER_NAME}}'s words to `wiki capture`, do NOT summarize away qualifiers. The hedges are the signal: `probably`, `might`, `I think`, `will`, `by July` are the cues the classifier uses. Flatten them and the routing collapses to `[fact]`.
+
+  {{USER_NAME}}: "I think the project will probably ship by Q3."
+  Bad:  `wiki capture project-x "the project ships in Q3"`
+  Good: `wiki capture project-x "I think the project will probably ship by Q3"`
+
+**Rule 2 — Decompose multi-clause turns.** A single user turn may contain multiple distinct epistemic acts. Call `wiki capture` once per act, not once per turn. The CLI accepts one utterance per call; decomposition is the agent's job, not the CLI's.
+
+  {{USER_NAME}}: "I've decided to drop approach A, but I think approach B should continue, and I wonder if we should try a different posterior."
+  → `wiki capture project-a "I've decided to drop approach A"`
+  → `wiki capture project-b "I think approach B should continue"`
+  → `wiki capture project-b "I wonder if we should try a different posterior"`
+
+**Rule 3 — Inject third-party attribution.** When {{USER_NAME}} is reporting someone else's assertion, prefix the body with the source. This routes to `[claim]` and preserves who said what.
+
+  Context: earlier in the conversation, person Q told {{USER_NAME}} that approach C is strong.
+  {{USER_NAME}} now says: "approach C is solid."
+  → `wiki capture project-c "Q says approach C is solid"`
+
+When `wiki capture` refuses (missing date for prediction, bracket in body, ambiguous shape), fix the cause. Do NOT pile on `--soft`; capture's classifier is the point of the verb. Use `--as <category>` to override only when you genuinely know better than the classifier.
+
+`wiki predict` / `wiki hypothesize` remain available for direct invocation when you already have structured information (explicit date, explicit confidence). Use them as a shortcut, not a replacement.
+
 ### Query-first retrieval — the three retrieval layers
 
 Three retrieval layers, ranked from highest precision to cheapest fallback. Use the most specific layer that fits; only fall back if the higher layer returns nothing useful.
