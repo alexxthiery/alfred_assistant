@@ -45,7 +45,7 @@ const {
 const { validateIngestSpec, validateBody: _validateBody } = require('./lib/ingest.js');
 const { mintIdsForBody } = require('./lib/obsid.js');
 const { buildPredictionLine, buildHypothesisLine, defaultProvenance } = require('./lib/epistemic-verbs.js');
-const { auditPage, auditVault, STRICT_CROSS_PAGE_RULES, strictCrossPageErrors } = require('./lib/audit.js');
+const { auditPage, auditVault, STRICT_CROSS_PAGE_RULES, strictCrossPageErrors, ironcladRuleErrors } = require('./lib/audit.js');
 const { redactSecrets } = require('./lib/secrets.js');
 const { applyFlagAliases } = require('./lib/flag-aliases.js');
 const { flushStaged } = require('./lib/staged-writes.js');
@@ -366,6 +366,25 @@ function cmdWrite(args) {
   let body = '';
   if (args.stdin) body = fs.readFileSync(0, 'utf-8');
   else if (args.content) body = args.content;
+
+  // Ironclad-rule check: closed-set schema vocabulary violations (unknown
+  // [category] prefixes, unknown relation verbs) cannot be bypassed by --soft.
+  // Compute the prospective full body so append mode is also checked end-to-end.
+  let ironcladBodyText = body;
+  if (isAppend) {
+    const cur = parseFrontmatter(fs.readFileSync(filePath, 'utf-8'));
+    ironcladBodyText = cur.body.trimEnd() + (body ? '\n\n' + body : '') + '\n';
+  }
+  const ironcladDeps = { schema: loadSchema(), knownVerbs: knownRelationVerbs(loadSchema()) };
+  const ironcladErrors = ironcladRuleErrors({ body: ironcladBodyText }, ironcladDeps);
+  if (ironcladErrors.length) {
+    console.error('error: ironclad validation failed (closed-set schema vocab; --soft does NOT bypass):');
+    for (const e of ironcladErrors) {
+      console.error(`  [${e.rule}] ${e.message}`);
+      if (e.fix) console.error(`    → fix: ${e.fix}`);
+    }
+    process.exit(3);
+  }
 
   // Strict body-level validation (rejects unless --soft)
   // For append: validate the FULL resulting body (existing + new).
@@ -894,6 +913,24 @@ function cmdPatch(args) {
   if (ops.length === 0) {
     console.error('error: nothing to patch. Pass at least one of --observation, --relation, --add-tag, --remove-tag, --alias, --summary, --title, --born, --visibility, --sensitive, --confidence.');
     process.exit(1);
+  }
+
+  // Ironclad-rule check FIRST. Closed-set schema vocabulary violations
+  // (uncategorized-bullets, invented-verb) cannot be bypassed by --soft —
+  // they catch syntax errors against the schema, not discretionary nags.
+  // Without this gate, `wiki patch <slug> --observation "[issue] ..." --soft`
+  // would silently land an unparseable line. See audit findings (2026-05-19).
+  {
+    const ironcladDeps = { schema: loadSchema(), knownVerbs: knownRelationVerbs(loadSchema()) };
+    const ironcladErrors = ironcladRuleErrors({ body: newBody }, ironcladDeps);
+    if (ironcladErrors.length) {
+      console.error(`error: ironclad validation failed for ${slug} (closed-set schema vocab; --soft does NOT bypass):`);
+      for (const e of ironcladErrors) {
+        console.error(`  [${e.rule}] ${e.message}`);
+        if (e.fix) console.error(`    → fix: ${e.fix}`);
+      }
+      process.exit(3);
+    }
   }
 
   // HR02: validate the prospective post-patch page against the same strict body

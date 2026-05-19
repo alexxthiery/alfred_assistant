@@ -206,9 +206,15 @@ const AUDIT_RULES = [
   },
 
   {
+    // Ironclad: --soft cannot bypass this. Closed-set category vocabulary is
+    // schema-syntax, not a discretionary quality nag. Without ironclad, a
+    // user writing `wiki patch <slug> --observation "[issue] ..." --soft`
+    // would silently land an unparseable observation line — this happened
+    // in `_AI_box` before this rule was tightened. See audit findings.
     name: 'uncategorized-bullets',
     severity: 'medium',
     strict: true,
+    ironclad: true,
     check: ({ body }) => {
       if (!body) return null;
       const uncat = [];
@@ -251,9 +257,14 @@ const AUDIT_RULES = [
   },
 
   {
+    // Ironclad: --soft cannot bypass this. Relation-verb vocabulary is closed
+    // (schema-defined symmetric / one-way / inverse-pair sets). A `--soft`
+    // bypass would let `- inventedverb [[slug]]` land, which then renders as a
+    // typed edge that isn't actually typed.
     name: 'invented-verb',
     severity: 'high',
     strict: true,
+    ironclad: true,
     check: ({ body }, { knownVerbs }) => {
       if (!body) return null;
       const invented = new Set();
@@ -387,6 +398,24 @@ function strictRuleErrors(input, deps) {
   const errors = [];
   for (const rule of AUDIT_RULES) {
     if (!rule.strict) continue;
+    const out = rule.check(input, deps);
+    if (!out) continue;
+    const error = { rule: rule.name, message: out.message || out.detail };
+    if (out.fix) error.fix = out.fix;
+    errors.push(error);
+  }
+  return errors;
+}
+
+// Run only `ironclad: true` rules. Used by cmdWrite + cmdPatch to enforce
+// schema-syntax violations (unknown categories, unknown verbs) BEFORE the
+// `--soft` short-circuit. `--soft` bypasses everyday strict rules
+// (missing-provenance, mislabeled-event, etc.) but not these — the vocabulary
+// is closed-set and a `--soft` bypass would produce unparseable artefacts.
+function ironcladRuleErrors(input, deps) {
+  const errors = [];
+  for (const rule of AUDIT_RULES) {
+    if (!rule.ironclad) continue;
     const out = rule.check(input, deps);
     if (!out) continue;
     const error = { rule: rule.name, message: out.message || out.detail };
@@ -646,6 +675,7 @@ module.exports = {
   auditPage,
   auditVault,
   strictRuleErrors,
+  ironcladRuleErrors,
   strictCrossPageErrors,
   severityScore,
 };

@@ -1,0 +1,4 @@
+{
+  "_comment": "Regression: --soft must NOT bypass invented-verb. Closed-set relation vocabulary is schema-syntax. Without ironclad, --soft would let `- fakeverb [[other]]` land as an unparseable relation.",
+  "cmd": ["patch", "alice", "--relation", "totally_fake_verb_xyz [[bob-jones]]", "--soft"]
+}

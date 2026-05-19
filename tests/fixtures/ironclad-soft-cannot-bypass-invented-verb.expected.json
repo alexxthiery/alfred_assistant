@@ -1,0 +1,7 @@
+{
+  "exitCode": 3,
+  "stderrContains": ["ironclad validation failed", "invented-verb", "totally_fake_verb_xyz", "--soft does NOT bypass"],
+  "wikiAssertions": {
+    "alice": { "bodyMissing": ["totally_fake_verb_xyz"] }
+  }
+}

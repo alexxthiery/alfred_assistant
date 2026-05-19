@@ -6,7 +6,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const { AUDIT_RULES, auditPage, auditVault, strictRuleErrors, strictCrossPageErrors, STRICT_CROSS_PAGE_RULES, severityScore } = require(path.resolve(__dirname, '..', '..', 'bin', 'lib', 'audit.js'));
+const { AUDIT_RULES, auditPage, auditVault, strictRuleErrors, strictCrossPageErrors, ironcladRuleErrors, STRICT_CROSS_PAGE_RULES, severityScore } = require(path.resolve(__dirname, '..', '..', 'bin', 'lib', 'audit.js'));
 
 function makeSchema(overrides = {}) {
   return {
@@ -228,6 +228,48 @@ test('speculative-shape-fact: detail string identifies the trigger word', () => 
   const body = '- [fact] Y might happen ^[t:1]';
   const out = r.check({ body }, deps());
   assert.match(out.detail, /might/i);
+});
+
+// ─── ironclad rules ────────────────────────────────────────────────────────
+// Ironclad rules protect closed-set schema vocabulary (unknown observation
+// categories, unknown relation verbs). They are NOT bypassable by --soft,
+// because they catch syntax errors against the schema rather than
+// discretionary quality concerns (lonely, long-observation, etc.).
+
+test('AUDIT_RULES: uncategorized-bullets is marked ironclad', () => {
+  const r = findRule('uncategorized-bullets');
+  assert.equal(r.ironclad, true, 'uncategorized-bullets must be ironclad (closed-set categories)');
+});
+
+test('AUDIT_RULES: invented-verb is marked ironclad', () => {
+  const r = findRule('invented-verb');
+  assert.equal(r.ironclad, true, 'invented-verb must be ironclad (closed-set relation verbs)');
+});
+
+test('ironcladRuleErrors: returns the uncategorized-bullets error for an [issue] line', () => {
+  const errors = ironcladRuleErrors({ body: '- [issue] unknown category' }, deps());
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].rule, 'uncategorized-bullets');
+});
+
+test('ironcladRuleErrors: returns the invented-verb error for an unknown relation verb', () => {
+  const errors = ironcladRuleErrors({ body: '- fakeverb [[some-slug]]' }, deps());
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].rule, 'invented-verb');
+});
+
+test('ironcladRuleErrors: empty for clean body', () => {
+  const errors = ironcladRuleErrors({ body: '- [fact] valid line ^[t:1]\n- spouse_of [[bob]]' }, deps());
+  assert.deepEqual(errors, []);
+});
+
+test('ironcladRuleErrors: silent on advisory-only issues (lonely, long-observation, etc.)', () => {
+  // A page with no categories or relations would trip uncategorized-bullets if
+  // it had bullets; here we exercise the "no relevant ironclad violation" path.
+  const errors = ironcladRuleErrors({
+    body: '- [fact] a fact line that is intentionally extremely long, over one hundred and twenty characters, to trigger long-observation advisory ^[t:1]',
+  }, deps());
+  assert.deepEqual(errors, []);
 });
 
 test('missing-provenance: fires on entity with obs but no ^[...] marker', () => {

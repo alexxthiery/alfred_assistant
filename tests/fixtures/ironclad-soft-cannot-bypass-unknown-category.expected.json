@@ -1,0 +1,7 @@
+{
+  "exitCode": 3,
+  "stderrContains": ["ironclad validation failed", "uncategorized-bullets", "--soft does NOT bypass"],
+  "wikiAssertions": {
+    "alice": { "bodyMissing": ["[issue]"] }
+  }
+}

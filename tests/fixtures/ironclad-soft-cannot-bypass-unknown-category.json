@@ -1,0 +1,4 @@
+{
+  "_comment": "Regression: --soft must NOT bypass uncategorized-bullets. Pre-fix, this command landed an unparseable observation line in `_AI_box` (the [issue] incident). Closed-set category vocabulary is schema-syntax, not a discretionary nag.",
+  "cmd": ["patch", "alice", "--observation", "[issue] unknown category should be rejected even with soft", "--soft"]
+}

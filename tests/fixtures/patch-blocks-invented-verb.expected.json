@@ -1,6 +1,6 @@
 {
   "exitCode": 3,
-  "stderrContains": ["error: validation failed for alice", "invented-verb", "totally_fake_verb_xyz", "bypass with --soft"],
+  "stderrContains": ["ironclad validation failed for alice", "invented-verb", "totally_fake_verb_xyz", "--soft does NOT bypass"],
   "wikiAssertions": {
     "alice": { "bodyMissing": ["totally_fake_verb_xyz"] }
   }

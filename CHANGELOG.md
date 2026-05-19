@@ -7,6 +7,9 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Fixed (Phase 8.1)
+- **`--soft` no longer bypasses ironclad schema-vocabulary rules.** `uncategorized-bullets` (unknown `[category]` prefix) and `invented-verb` (unknown relation verb) now flag with `ironclad: true` and are checked in `cmdWrite` / `cmdPatch` BEFORE the `--soft` short-circuit. Previously, `wiki patch <slug> --observation "[issue] ..." --soft` would silently land an unparseable line (observed in `_AI_box`). New module export `ironcladRuleErrors`; error message stream changed from `error: validation failed for <slug>` to `error: ironclad validation failed for <slug> (... --soft does NOT bypass)`.
+
 ### Added (Phase 8)
 - **`wiki predict <slug> "..." --by YYYY-MM-DD [--confidence N]`** and **`wiki hypothesize <slug> "..." [--confidence N]`** — low-friction verbs that wrap `wiki patch --observation` with auto-constructed lines, default provenance, and confidence-bounded validation. New pure module `bin/lib/epistemic-verbs.js` (unit-testable line builders).
 - **Advisory audit rule `speculative-shape-fact`**: flags `[fact]` lines starting with future-tense ("will", "going to") or epistemic-uncertainty ("might", "I think", "likely") shape words; suggests `[prediction]` or `[hypothesis]` conversion. Surfaced via `wiki audit --all`, not blocking. Run on `_AI_box` after install to triage existing facts.
