@@ -28,18 +28,26 @@ function cmdList(args) {
   // for agents that enumerate-then-act on slugs (avg ~70% fewer tokens than
   // the default tab-separated form on a 13-page vault).
   const slugsOnly = !!args['slugs-only'];
+  const limit = args.limit !== undefined ? Math.max(1, parseInt(args.limit, 10) || 1) : Infinity;
+  // Collect filtered rows first so --limit can apply after the tag/type filter
+  // (and so we can report how many were withheld instead of truncating silently).
+  const rows = [];
   forEachPage(({ slug: fileSlug, fm }) => {
     const slug = fm.id || fileSlug;
     const tags = Array.isArray(fm.tags) ? fm.tags : [];
     if (args.tag && !tags.includes(args.tag)) return;
     if (args.type && fm.type !== args.type) return;
-    if (slugsOnly) {
-      console.log(slug);
-      return;
-    }
-    const tagStr = tags.length ? `  [${tags.join(', ')}]` : '';
-    console.log(`${slug}\t${fm.title || ''}${tagStr}`);
+    rows.push({ slug, title: fm.title || '', tags });
   });
+  const shown = rows.slice(0, limit === Infinity ? rows.length : limit);
+  for (const r of shown) {
+    if (slugsOnly) { console.log(r.slug); continue; }
+    const tagStr = r.tags.length ? `  [${r.tags.join(', ')}]` : '';
+    console.log(`${r.slug}\t${r.title}${tagStr}`);
+  }
+  if (rows.length > shown.length) {
+    console.error(`(showing ${shown.length} of ${rows.length}; raise --limit or drop it to see all)`);
+  }
 }
 
 // cmdSearch — three modes, ranked from preferred to fallback:

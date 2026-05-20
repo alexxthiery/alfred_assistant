@@ -7,6 +7,9 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Fixed
+- **`wiki list` now honors `--limit`** (it was silently ignored — a no-op flag that looked like it worked; surfaced when an agent ran `wiki list --limit 3` and got all ~250 pages). `--limit` caps output after the `--tag`/`--type` filter, and a `(showing N of M)` note goes to stderr so truncation is never silent. Help text updated; new fixture `list-respects-limit`.
+
 ### Added (Multi-runtime — runtime-independent scheduling)
 - **`integrations/scheduling/`** — OS cron / launchd recipes that decouple scheduling from any agent runtime. `run-daily-brief.sh` runs the deterministic brief (`daily-brief | email-digest`, no LLM); `run-weekly-review.sh` invokes a headless agent (`claude -p`, swappable for `codex exec`) for the synthesis digest, piped to email. A launchd plist template (`com.alfred.daily-brief.plist`) and a README with the macOS + Linux-cron install steps. Secrets are sourced from an `ENV_FILE`, never in the plist.
 - `docs/DAILY-BRIEF.md` + `docs/WEEKLY-DIGEST.md`: scheduling sections now lead with the OS-cron model and mark nanoclaw `schedule_task` as the legacy/fallback path (it couples a runtime-independent job to one always-on runtime, and its task table can drop on upgrade).

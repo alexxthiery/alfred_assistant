@@ -3975,7 +3975,7 @@ const SECTIONS = [
 
 const VERBS = [
   // READ
-  { name: 'list',     section: 'READ', lines: ['  list [--tag t] [--type t]                 show all pages'] },
+  { name: 'list',     section: 'READ', lines: ['  list [--tag t] [--type t] [--limit N] [--slugs-only]   list pages (alphabetical); --limit caps output'] },
   { name: 'search',   section: 'READ', lines: ['  search <query> [--tag T] [--limit N] [--literal] [--regex] [--title-only]   BM25 + synonyms; fallback flags for substring/regex'] },
   { name: 'recent',   section: 'READ', lines: ['  recent [--days N] [--type T]              pages updated recently'] },
   { name: 'preview',  section: 'READ', lines: ['  preview <slug>                            cheap peek (~10 lines, ~150 tokens)'] },

@@ -1,0 +1,6 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["aaa-lim-1", "aaa-lim-2"],
+  "stdoutNotContains": ["aaa-lim-3"],
+  "stderrContains": ["showing 2 of "]
+}

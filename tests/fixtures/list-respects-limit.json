@@ -1,0 +1,9 @@
+{
+  "_comment": "wiki list --limit caps output (previously silently ignored). Three pages named aaa-lim-* sort alphabetically first in the vault, so `list --limit 2` shows the first two and withholds the third, reporting how many were withheld.",
+  "setup": [
+    ["write", "aaa-lim-1", "--title", "Lim 1", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed ^[t:1]", "--soft"],
+    ["write", "aaa-lim-2", "--title", "Lim 2", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed ^[t:1]", "--soft"],
+    ["write", "aaa-lim-3", "--title", "Lim 3", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed ^[t:1]", "--soft"]
+  ],
+  "cmd": ["list", "--limit", "2"]
+}
