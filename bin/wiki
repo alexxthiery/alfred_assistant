@@ -191,12 +191,22 @@ function autoCommit(op, detail) {
   }
 }
 
-// Tamper detection: check for uncommitted vault changes that weren't logged.
-// Called at startup of write-class verbs so the user sees bypass writes
-// before they get folded silently into the next commit.
-function tamperCheck() {
+// Tamper detection: refuse to run a write-class verb while the vault has
+// uncommitted changes that didn't come through the CLI. Because every CLI
+// mutation auto-commits, a dirty tree means either (a) something edited the
+// vault outside `wiki`, or (b) a prior auto-commit failed. Either way we block
+// rather than silently fold the change into the next commit. This is the
+// runtime-independent write-guard: it works regardless of which agent/runtime
+// made the out-of-band edit, because it operates at the git layer.
+//
+// Escape hatches: `--accept-tamper` (fold it in this once) or `wiki bless`
+// (commit the current state as accepted). No-op when the vault isn't a git repo
+// or when auto-commit is disabled (a dirty tree is then expected).
+function tamperCheck({ accept = false } = {}) {
+  if (autoCommitDisabled()) return;
   const gitDir = path.join(VAULT_ROOT, '.git');
   if (!fs.existsSync(gitDir)) return;
+  let lines = [];
   try {
     const { spawnSync } = require('child_process');
     const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
@@ -205,17 +215,45 @@ function tamperCheck() {
     const dirty = (r.stdout || '').trim();
     if (!dirty) return;
     // Filter to vault content (ignore alfred/scratchpad.md, tamper.log etc which are gitignored)
-    const lines = dirty.split('\n').filter((l) => /\s(wiki|inbox|raw|SCHEMA\.md|\.bin)\//.test(l));
+    lines = dirty.split('\n').filter((l) => /\s(wiki|inbox|raw|SCHEMA\.md|\.bin)\//.test(l));
     if (lines.length === 0) return;
     const tamperLog = path.join(VAULT_ROOT, 'alfred', 'tamper.log');
     fs.mkdirSync(path.dirname(tamperLog), { recursive: true });
     const ts = nowISO();
     for (const l of lines) fs.appendFileSync(tamperLog, `${ts}\ttamper-or-uncommitted\t${l.trim()}\n`);
-    console.error(`(tamper: ${lines.length} uncommitted vault file(s) detected — see alfred/tamper.log)`);
   } catch (e) {
+    // Fail-open on a git hiccup: a transient git error shouldn't brick writes.
     const msg = e && e.message ? e.message.split('\n')[0] : String(e);
-    console.error(`(tamper-check failed: ${msg})`);
+    console.error(`(tamper-check failed, proceeding: ${msg})`);
+    return;
   }
+  if (accept) {
+    console.error(`(tamper: ${lines.length} uncommitted vault file(s) accepted via --accept-tamper — folding into the next commit)`);
+    return;
+  }
+  console.error('');
+  console.error(`!!! tamper-check: ${lines.length} uncommitted vault change(s) not made through wiki !!!`);
+  for (const l of lines.slice(0, 10)) console.error(`    ${l.trim()}`);
+  console.error('');
+  console.error('  The vault was edited outside the CLI (or a prior auto-commit failed).');
+  console.error('  Refusing to proceed so the change is not silently folded into the next commit. Resolve:');
+  console.error(`    git -C ${VAULT_ROOT} restore .     # discard the out-of-band edit, OR`);
+  console.error('    wiki bless                         # accept + commit the current state, OR');
+  console.error('    wiki <verb> --accept-tamper ...    # proceed this once, folding it in');
+  console.error('');
+  process.exit(3);
+}
+
+// `wiki bless` — accept the current (out-of-band) vault state by committing it.
+// The remedy for a tamper-check block when the manual edit was intentional.
+function cmdBless() {
+  const gitDir = path.join(VAULT_ROOT, '.git');
+  if (!fs.existsSync(gitDir)) {
+    console.error('bless: vault is not a git repo — nothing to bless.');
+    return;
+  }
+  appendLog('bless', 'accepted out-of-band vault change(s)');
+  console.log('blessed: current vault state committed as accepted.');
 }
 
 // ─── write validation ──────────────────────────────────────────────────────
@@ -4156,6 +4194,7 @@ const VERBS = [
   { name: 'sync-ids', section: 'HYGIENE', lines: ['  sync-ids [--dry-run]                      align frontmatter id with filename AND mint <!--obs:XXXXXX--> markers'] },
   { name: 'size',     section: 'HYGIENE', lines: ['  size [--threshold N]                      list pages above N body lines'] },
   { name: 'reindex',  section: 'HYGIENE', lines: ['  reindex                                   regenerate index.md'] },
+  { name: 'bless',    section: 'HYGIENE', lines: ['  bless                                     accept + commit out-of-band vault changes (clears a tamper-check block)'] },
   { name: 'groom',    section: 'HYGIENE', lines: ['  groom --mechanical [--dry-run]            auto-fix symmetric relations, bidirectional autolink, report stubs'] },
   {
     name: 'audit', section: 'HYGIENE',
@@ -4332,7 +4371,7 @@ const cmds = {
   todo: cmdTodo,
   // hygiene
   lint: cmdLint, reindex: cmdReindex, 'sync-ids': cmdSyncIds, size: cmdSize, groom: cmdGroom, audit: cmdAudit,
-  'persona-lint': cmdPersonaLint, migrate: cmdMigrate, preflight: cmdPreflight,
+  'persona-lint': cmdPersonaLint, migrate: cmdMigrate, preflight: cmdPreflight, bless: cmdBless,
   // measurements (tabular time-series)
   measure: cmdMeasure,
   // review (discovery + health digest)
@@ -4384,6 +4423,6 @@ if (args['no-auto-commit']) {
 // Tamper check: run BEFORE write-class verbs so users see bypass writes
 // before they're folded into the next auto-commit.
 const WRITE_VERBS = new Set(['write', 'patch', 'ingest', 'mv', 'delete', 'merge', 'link', 'autolink', 'groom', 'todo']);
-if (WRITE_VERBS.has(verb)) tamperCheck();
+if (WRITE_VERBS.has(verb)) tamperCheck({ accept: !!args['accept-tamper'] });
 
 cmds[verb](args);

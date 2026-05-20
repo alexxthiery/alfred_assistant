@@ -7,6 +7,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added (Multi-runtime — integrity core)
+- **Tamper-check escalated from warn to a hard block.** `wiki` now refuses any write-class verb while the vault has uncommitted out-of-band changes (the vault was edited outside the CLI, or a prior auto-commit failed) instead of silently folding them into the next commit. This is the runtime-independent write-guard: it works at the git layer, so it catches an out-of-band edit regardless of which runtime (nanoclaw / Claude Code / Codex / a human) made it. No-op when the vault isn't a git repo or auto-commit is disabled (a dirty tree is then expected).
+- **Escape hatches**: `--accept-tamper` (fold the edit into this write once) and the new `wiki bless` verb (accept + commit the current vault state — the remedy when a manual edit was intentional).
+- New integration test `tests/unit/tamper.test.js` drives a real git-backed temp vault: write→clean, raw-edit→blocked (exit 3), `--accept-tamper`/`bless`→cleared, plus a no-git no-op case.
+- The advisory lock from the architecture plan was dropped: git's own `index.lock` already serializes concurrent commits and the tamper-check catches a second process's mid-write state, so a custom lock was redundant given serial single-runtime use.
+
 ### Added (Phase 13 — activity-log primitives)
 - **`wiki capture --today` (and `--on YYYY-MM-DD`)** — stamps `[on <date>]` into the captured observation so DuckDB's `observations.on_date` column lands. Activity captures become queryable by day without manual date injection.
 - **`wiki day [YYYY-MM-DD]`** — date-scoped observation listing; defaults to today. Wraps the SQL one-liner so "what did I do today" is a single verb. Prints `slug \t body` per row, `(no observations on <date>)` when empty.
