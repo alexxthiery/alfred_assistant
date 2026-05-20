@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# alfred-codex — launch Codex as Alfred against your vault.
+#
+# cd's into the vault (Codex reads <vault>/AGENTS.md natively) and runs `codex`.
+# Set ALFRED_VAULT to your vault path, or edit the default below. Extra args
+# pass through (e.g. `alfred-codex exec "..."`).
+set -euo pipefail
+VAULT="${ALFRED_VAULT:-$HOME/Library/CloudStorage/Dropbox/_AI_box}"
+[ -f "$VAULT/AGENTS.md" ] || { echo "alfred-codex: no AGENTS.md in $VAULT (set ALFRED_VAULT)" >&2; exit 1; }
+cd "$VAULT"
+exec codex "$@"

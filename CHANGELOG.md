@@ -7,6 +7,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added (Multi-runtime — integrations/ adapters)
+- New `integrations/` directory: thin per-runtime config, **no persona variants** (the persona is the shared `AGENTS.md`). `integrations/README.md` documents the adapter contract + "pick your runtime."
+- **`integrations/claude-code/`** — `wiki-write-guard.js` (a PreToolUse hook that blocks raw `Write`/`Edit`/`MultiEdit` and Bash redirects into `wiki/*.md`, with a helpful message; 9 unit tests in `tests/unit/write-guard.test.js`), a `settings.json` snippet to wire it project-scoped in `<vault>/.claude/settings.json`, an `alfred-cc` launch wrapper, and a README. Verified end-to-end: a fresh `claude -p` from the vault loads as Alfred via `CLAUDE.md → @AGENTS.md`.
+- **`integrations/codex/`** — `alfred-codex` launch wrapper + README noting the `wiki` tamper-check is Codex's write-guard backstop (Codex deny-hook TBD). Verified: `codex exec` from the vault loads as Alfred via native `AGENTS.md`.
+- **`integrations/nanoclaw/`** — pointer to `docs/NANOCLAW-PATCHES.md` + the one-line `CLAUDE.local.md` change to read `AGENTS.md`.
+
 ### Added (Multi-runtime — single canonical persona)
 - **`tools/render-persona.sh`** — the single persona-render engine. Strips the template's instruction comment and substitutes `{{USER_*}}` from `.alfred.yml` (via the existing `config.js` parser, so there is one identity source and one substitution code path). It renders the *template* to `AGENTS.local.md` (a merge-comparison artifact) — never the canonical persona — so a re-render can't clobber hand-personalization.
 - **`tools/deploy.sh`** now delegates its persona render to `render-persona.sh` (eliminating the duplicate inline substitution) and compares the render against the canonical `AGENTS.md`. Single render path; no divergence.

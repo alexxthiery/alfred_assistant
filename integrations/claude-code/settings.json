@@ -1,0 +1,16 @@
+{
+  "_comment": "Copy this into <vault>/.claude/settings.json (project-scoped: the hook fires only when Claude Code runs in the vault). Adjust the absolute path to wiki-write-guard.js for your checkout. The hook blocks raw writes to wiki/*.md; the wiki tamper-check is the universal backstop.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /ABSOLUTE/PATH/TO/alfred_assistant/integrations/claude-code/wiki-write-guard.js"
+          }
+        ]
+      }
+    ]
+  }
+}
