@@ -7,6 +7,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added (Multi-runtime — runtime-independent scheduling)
+- **`integrations/scheduling/`** — OS cron / launchd recipes that decouple scheduling from any agent runtime. `run-daily-brief.sh` runs the deterministic brief (`daily-brief | email-digest`, no LLM); `run-weekly-review.sh` invokes a headless agent (`claude -p`, swappable for `codex exec`) for the synthesis digest, piped to email. A launchd plist template (`com.alfred.daily-brief.plist`) and a README with the macOS + Linux-cron install steps. Secrets are sourced from an `ENV_FILE`, never in the plist.
+- `docs/DAILY-BRIEF.md` + `docs/WEEKLY-DIGEST.md`: scheduling sections now lead with the OS-cron model and mark nanoclaw `schedule_task` as the legacy/fallback path (it couples a runtime-independent job to one always-on runtime, and its task table can drop on upgrade).
+- Deferred (flagged): cleaning the remaining runtime-isms (vault paths, channel framing) out of `PERSONA.template.md` — they are verified harmless (the CLI locates the vault; Claude Code + Codex load the persona cleanly), and the cleanup is delicate template surgery best done as a focused pass.
+
 ### Added (Multi-runtime — integrations/ adapters)
 - New `integrations/` directory: thin per-runtime config, **no persona variants** (the persona is the shared `AGENTS.md`). `integrations/README.md` documents the adapter contract + "pick your runtime."
 - **`integrations/claude-code/`** — `wiki-write-guard.js` (a PreToolUse hook that blocks raw `Write`/`Edit`/`MultiEdit` and Bash redirects into `wiki/*.md`, with a helpful message; 9 unit tests in `tests/unit/write-guard.test.js`), a `settings.json` snippet to wire it project-scoped in `<vault>/.claude/settings.json`, an `alfred-cc` launch wrapper, and a README. Verified end-to-end: a fresh `claude -p` from the vault loads as Alfred via `CLAUDE.md → @AGENTS.md`.

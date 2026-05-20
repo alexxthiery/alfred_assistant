@@ -63,9 +63,9 @@ Same `EMAIL_FROM` + `GMAIL_APP_PASSWORD` as the [weekly digest](WEEKLY-DIGEST.md
 
 ### 2. Schedule
 
-Bootstrap once via Telegram: ask Alfred to set up the daily morning brief. He'll invoke nanoclaw's `schedule_task` with `recurrence: "0 7 * * *"` (every day at 07:00 in the configured timezone), pointing at the "Daily routine" prompt in his persona. He confirms the next-fire timestamp.
+**Recommended: OS cron / launchd (runtime-independent).** The daily brief is deterministic (no agent), so run it straight from the OS scheduler. Ready-made wrapper + launchd plist are in [`../integrations/scheduling/`](../integrations/scheduling/) (`run-daily-brief.sh` + `com.alfred.daily-brief.plist`). Survives nanoclaw upgrades; doesn't depend on any agent being up.
 
-Re-bootstrap if the schedule ever drops.
+**Legacy: nanoclaw `schedule_task`.** Alternatively, ask Alfred via Telegram to bootstrap it (`recurrence: "0 7 * * *"`, the "Daily routine" prompt). Works, but the task table can drop on a nanoclaw upgrade (then re-bootstrap). Prefer the OS-cron path.
 
 ### 3. Verify
 

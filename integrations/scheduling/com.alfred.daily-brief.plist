@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd job for the deterministic daily brief (07:00 local).
+  Install:
+    1. Edit ALFRED_VAULT / ENV_FILE below and the path to run-daily-brief.sh.
+    2. cp to ~/Library/LaunchAgents/com.alfred.daily-brief.plist
+    3. launchctl load ~/Library/LaunchAgents/com.alfred.daily-brief.plist
+  Secrets are NOT in this file — run-daily-brief.sh sources them from ENV_FILE.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.alfred.daily-brief</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/ABSOLUTE/PATH/TO/alfred_assistant/integrations/scheduling/run-daily-brief.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ALFRED_VAULT</key><string>/Users/YOU/Library/CloudStorage/Dropbox/_AI_box</string>
+    <key>ENV_FILE</key><string>/Users/YOU/nanoclaw/.env</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key><string>/tmp/alfred-daily-brief.out</string>
+  <key>StandardErrorPath</key><string>/tmp/alfred-daily-brief.err</string>
+</dict>
+</plist>

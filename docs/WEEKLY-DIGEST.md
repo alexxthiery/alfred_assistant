@@ -51,9 +51,9 @@ This is what the persona references as `{{USER_EMAIL}}`. The sender (`EMAIL_FROM
 
 ### 4. Schedule
 
-Bootstrap once via Telegram: ask Alfred to set up the weekly routine. He'll invoke nanoclaw's `schedule_task` with `recurrence: "0 9 * * 1"` (every Monday at 09:00 in the configured timezone), pointed at the "Weekly routine" prompt in his persona. He confirms the next-fire timestamp.
+**Recommended: OS cron / launchd (runtime-independent).** The weekly review needs synthesis (an agent), so the recipe runs a *headless* agent on demand — `claude -p "...weekly routine..."` (or `codex exec`) piped to `email-digest` — from the OS scheduler. Ready-made wrapper in [`../integrations/scheduling/`](../integrations/scheduling/) (`run-weekly-review.sh`). This does not depend on nanoclaw being up or its task table surviving upgrades.
 
-Re-bootstrap if the schedule ever drops (e.g. after a nanoclaw upgrade that clears the task table).
+**Legacy: nanoclaw `schedule_task`.** Alternatively, ask Alfred via Telegram to bootstrap it (`recurrence: "0 9 * * 1"`, the "Weekly routine" prompt). Re-bootstrap if the task table drops on a nanoclaw upgrade. Prefer the OS-cron path.
 
 ## What Alfred does when it fires
 
