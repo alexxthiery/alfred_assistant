@@ -44,6 +44,12 @@ fi
 HITS=0
 HIT_OUT=""
 while IFS= read -r f; do
+  # Attribution files exempt from the PII scan: the maintainer's real name
+  # belongs in the copyright/credits by design, so scanning them for "names"
+  # would block the one place a name is supposed to appear.
+  case "$f" in
+    LICENSE|CONTRIBUTORS.md) continue ;;
+  esac
   out=$("$SCAN" "$REPO/$f" 2>&1 || true)
   if echo "$out" | grep -q "HIT"; then
     HITS=1
