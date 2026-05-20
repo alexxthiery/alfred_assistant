@@ -4,8 +4,10 @@
 #
 # What it does (in order):
 #   1. Seed .alfred.yml from examples/.alfred.yml.example if missing.
-#   2. Render docs/PERSONA.template.md → <target>/alfred/_persona.md by
-#      substituting the four template placeholders.
+#   2. Render docs/PERSONA.template.md → <target>/AGENTS.local.md (via
+#      render-persona.sh) and diff it against the canonical <target>/AGENTS.md
+#      so the user can merge new template content. The canonical AGENTS.md is
+#      never overwritten.
 #   3. Refresh <target>/.bin/ via install.sh (handles copy → symlink upgrade
 #      when the current .bin/ entries are stale copies, e.g. from a previous
 #      manual deploy that bypassed install.sh).
@@ -76,11 +78,10 @@ else
 fi
 echo ""
 
-# 2. Render persona to _persona.local.md (per template's own instruction).
-# We do NOT overwrite _persona.md — that file may be hand-personalized (e.g.
-# the worked-example cast Alice/Maya/Ada substituted for the user's actual
-# relations). Rendering to a side-by-side file lets the user manually merge
-# new template content (e.g. new persona sections) without losing edits.
+# 2. Render the template to AGENTS.local.md (a comparison artifact). We do NOT
+# overwrite the canonical AGENTS.md — it is hand-personalized (the worked-example
+# cast and tuning replaced with the user's actual content). The side-by-side
+# render lets the user merge new template sections without losing edits.
 TMP=$(mktemp)
 
 # Render via the single shared renderer (tools/render-persona.sh) so the

@@ -3396,6 +3396,8 @@ function cmdPersonaLint(args) {
   const candidates = [
     'CLAUDE.md',
     'SCHEMA.md',
+    'AGENTS.md',
+    'AGENTS.local.md',
     'alfred/_persona.md',
     'alfred/_persona.local.md',
     'docs/PERSONA.template.md',
