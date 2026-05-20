@@ -23,3 +23,10 @@ tests/.scratch/
 node_modules/
 dist/
 .cache/
+
+# Python bytecode (bin/lib/gmail.py is imported by tests)
+__pycache__/
+*.pyc
+
+# Audit notes — gitignored, not part of the published repo
+audit/

@@ -1,0 +1,7 @@
+{
+  "_comment": "wiki capture --on: bad date shape is refused with exit 3 and a YYYY-MM-DD hint.",
+  "setup": [
+    ["write", "capture-bad-on-host", "--title", "Capture bad on host", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed ^[t:1]", "--soft"]
+  ],
+  "cmd": ["capture", "capture-bad-on-host", "anything", "--on", "tomorrow"]
+}

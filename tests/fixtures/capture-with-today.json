@@ -1,0 +1,7 @@
+{
+  "_comment": "wiki capture --today: sugar for --on <today-ISO>; stamps [on <today>] so wiki day finds the activity. We assert only the [on ] tag shape (not the exact date value) because the fixture runs on whatever wall-clock today is.",
+  "setup": [
+    ["write", "capture-today-host", "--title", "Capture today host", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed ^[t:1]", "--soft"]
+  ],
+  "cmd": ["capture", "capture-today-host", "morning workout 3km", "--today"]
+}

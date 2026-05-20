@@ -1,0 +1,4 @@
+{
+  "_comment": "wiki day with no matching observations prints a placeholder line and exits 0 (not 1 — empty is a normal state).",
+  "cmd": ["day", "2026-01-01"]
+}

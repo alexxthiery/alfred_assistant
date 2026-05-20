@@ -1,0 +1,7 @@
+{
+  "_comment": "wiki capture --on YYYY-MM-DD: explicit date stamps [on <date>] into the observation body so observations.on_date is populated for queries like wiki day.",
+  "setup": [
+    ["write", "capture-on-host", "--title", "Capture on host", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed ^[t:1]", "--soft"]
+  ],
+  "cmd": ["capture", "capture-on-host", "did 3km gym run", "--on", "2026-05-19"]
+}

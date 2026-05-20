@@ -1,0 +1,4 @@
+{
+  "exitCode": 3,
+  "stderrContains": ["--on must be YYYY-MM-DD"]
+}

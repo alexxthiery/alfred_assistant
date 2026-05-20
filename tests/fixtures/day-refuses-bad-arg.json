@@ -1,0 +1,4 @@
+{
+  "_comment": "wiki day rejects non-ISO date arguments with exit 1 and a YYYY-MM-DD hint.",
+  "cmd": ["day", "not-a-date"]
+}

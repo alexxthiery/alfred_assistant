@@ -1,0 +1,16 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "Daily brief — 2026-05-20",
+    "Overdue (",
+    "Overdue task one",
+    "due 2026-05-18",
+    "Due today (",
+    "Due today task one",
+    "[high]",
+    "Today's events (",
+    "ev-brief-today",
+    "Birthdays today (",
+    "bday-brief-person"
+  ]
+}

@@ -48,18 +48,21 @@ const provider = createProvider(providerName, {
 
 Container restart picks it up (no rebuild needed if source is bind-mounted).
 
-## Patch 3 — Pass through `EMAIL_FROM` and `GMAIL_APP_PASSWORD` to the container
+## Patch 3 — Pass through `EMAIL_FROM`, `GMAIL_APP_PASSWORD`, and `GMAIL_IMAP_APP_PASSWORD` to the container
 
-**Why.** Alfred's weekly digest reads these env vars to send mail via Gmail SMTP.
+**Why.** Alfred uses these env vars for two distinct mail flows:
+- `EMAIL_FROM` + `GMAIL_APP_PASSWORD` — `bin/email-digest` SMTP-send (weekly digest + daily morning brief).
+- `EMAIL_FROM` + `GMAIL_IMAP_APP_PASSWORD` — `bin/gmail` IMAP-read (Reflex 4 fallback for email-shaped recall questions).
+
 nanoclaw doesn't pass arbitrary env vars by default — only ones explicit providers contribute.
 
 **Where.** `src/providers/claude.ts` (host side, not container side).
 
-**Patch.** Extend the provider container-config function to read the two keys from `.env` and inject them:
+**Patch.** Extend the provider container-config function to read the three keys from `.env` and inject them:
 
 ```ts
 registerProviderContainerConfig('claude', () => {
-  const dotenv = readEnvFile(['ANTHROPIC_BASE_URL', 'EMAIL_FROM', 'GMAIL_APP_PASSWORD']);
+  const dotenv = readEnvFile(['ANTHROPIC_BASE_URL', 'EMAIL_FROM', 'GMAIL_APP_PASSWORD', 'GMAIL_IMAP_APP_PASSWORD']);
   const env: Record<string, string> = {};
   if (dotenv.ANTHROPIC_BASE_URL) {
     env.ANTHROPIC_BASE_URL = dotenv.ANTHROPIC_BASE_URL;
@@ -67,9 +70,12 @@ registerProviderContainerConfig('claude', () => {
   }
   if (dotenv.EMAIL_FROM) env.EMAIL_FROM = dotenv.EMAIL_FROM;
   if (dotenv.GMAIL_APP_PASSWORD) env.GMAIL_APP_PASSWORD = dotenv.GMAIL_APP_PASSWORD;
+  if (dotenv.GMAIL_IMAP_APP_PASSWORD) env.GMAIL_IMAP_APP_PASSWORD = dotenv.GMAIL_IMAP_APP_PASSWORD;
   return { env };
 });
 ```
+
+If you add more `GMAIL_*` env vars in the future (e.g. for a separate label-management password), extend the allowlist and the pass-through block in lockstep.
 
 ## Patch 4 — Register the claude provider in `providers/index.ts`
 

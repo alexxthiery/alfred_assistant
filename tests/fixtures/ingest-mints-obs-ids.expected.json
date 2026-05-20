@@ -1,0 +1,14 @@
+{
+  "exitCode": 0,
+  "created": ["obs-id-entity", "obs-id-event"],
+  "modified": ["obs-id-entity"],
+  "skipped": [],
+  "wikiAssertions": {
+    "obs-id-entity": {
+      "bodyContains": ["Newly born entity carries an obs id marker", "Patched fact must also carry an obs id marker", "<!--obs:"]
+    },
+    "obs-id-event": {
+      "bodyContains": ["Newly born event carries an obs id marker", "<!--obs:"]
+    }
+  }
+}

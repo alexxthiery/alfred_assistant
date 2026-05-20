@@ -44,7 +44,8 @@ const {
 } = require('./lib/graph.js');
 const { validateIngestSpec, validateBody: _validateBody } = require('./lib/ingest.js');
 const { mintIdsForBody } = require('./lib/obsid.js');
-const { buildPredictionLine, buildHypothesisLine, defaultProvenance } = require('./lib/epistemic-verbs.js');
+const { isISODate } = require('./lib/date.js');
+const { buildPredictionLine, buildHypothesisLine, defaultProvenance, stampOnDate } = require('./lib/epistemic-verbs.js');
 const { classifyUtterance } = require('./lib/capture-classifier.js');
 const { auditPage, auditVault, STRICT_CROSS_PAGE_RULES, strictCrossPageErrors, ironcladRuleErrors } = require('./lib/audit.js');
 const { redactSecrets } = require('./lib/secrets.js');
@@ -60,7 +61,7 @@ const {
 const { loadVaultDb, ensureDuckdbAvailable, resolveDuckdbBin } = require('./lib/duckdb.js');
 const {
   cmdList, cmdSearch, cmdRecent, cmdPreview, cmdPrint,
-  cmdSources, cmdRelated, cmdUnlinkedMentions, cmdAgenda, cmdContext, cmdChallenge, cmdRender,
+  cmdSources, cmdRelated, cmdUnlinkedMentions, cmdAgenda, cmdDay, cmdContext, cmdChallenge, cmdRender,
 } = require('./verbs/read.js');
 
 // VAULT_ROOT detection + WIKI_DIR/SCHEMA_PATH/INDEX_PATH/LOG_PATH constants +
@@ -1130,6 +1131,24 @@ function cmdCapture(args) {
     }
   } catch (e) { console.error(`error: ${e.message}`); process.exit(3); }
 
+  // --today / --on YYYY-MM-DD: stamp [on <date>] into the line so the
+  // observation's `on_date` column is populated and `wiki day` can find it.
+  // --today is sugar for --on <today-ISO>; explicit --on wins if both passed.
+  let onDate = null;
+  if (args.today) onDate = new Date().toISOString().slice(0, 10);
+  if (args.on !== undefined) {
+    const v = String(args.on);
+    if (!isISODate(v)) {
+      console.error(`error: --on must be YYYY-MM-DD (got "${v}")`);
+      process.exit(3);
+    }
+    onDate = v;
+  }
+  if (onDate) {
+    try { line = stampOnDate(line, onDate); }
+    catch (e) { console.error(`error: ${e.message}`); process.exit(3); }
+  }
+
   cmdPatch({ ...args, _: [slug], observation: line });
 }
 
@@ -1696,7 +1715,7 @@ function cmdIngest(args) {
       tags: s.tags || [],
     };
     const body = `Stub. ^[${source}]\n`;
-    stagePage(wikiPath(s.slug), serializeFrontmatter(fm, body));
+    stagePage(wikiPath(s.slug), serializeFrontmatter(fm, mintIdsForBody(body)));
     created.push(s.slug);
   }
 
@@ -1721,7 +1740,7 @@ function cmdIngest(args) {
       if (e[k]) fm[k] = e[k];
     }
     const body = buildBodyFromSpec(e, source);
-    stagePage(wikiPath(e.slug), serializeFrontmatter(fm, body));
+    stagePage(wikiPath(e.slug), serializeFrontmatter(fm, mintIdsForBody(body)));
     (exists ? modified : created).push(e.slug);
   }
 
@@ -1745,7 +1764,7 @@ function cmdIngest(args) {
     if (e.recurrence) fm.recurrence = e.recurrence;
     if (e.summary) fm.summary = e.summary;
     const body = buildBodyFromSpec(e, source);
-    stagePage(wikiPath(e.slug), serializeFrontmatter(fm, body));
+    stagePage(wikiPath(e.slug), serializeFrontmatter(fm, mintIdsForBody(body)));
     (exists ? modified : created).push(e.slug);
   }
 
@@ -1803,7 +1822,7 @@ function cmdIngest(args) {
       newBody = newBody.trimEnd() + '\n' + additions.join('\n') + '\n';
     }
     fm.updated = nowISO();
-    stagePage(wikiPath(p.slug), serializeFrontmatter(fm, newBody));
+    stagePage(wikiPath(p.slug), serializeFrontmatter(fm, mintIdsForBody(newBody)));
     modified.push(p.slug);
   }
   } catch (e) {
@@ -3066,8 +3085,7 @@ function cmdMeasure(args) {
     process.exit(2);
   }
   if (!args.date) { console.error('--date YYYY-MM-DD required'); process.exit(1); }
-  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
-  if (!dateRe.test(String(args.date))) { console.error(`--date must be YYYY-MM-DD, got "${args.date}"`); process.exit(1); }
+  if (!isISODate(String(args.date))) { console.error(`--date must be YYYY-MM-DD, got "${args.date}"`); process.exit(1); }
 
   const { header, rows } = readTsv(tsvPath);
   if (rows.find((r) => r.date === args.date)) {
@@ -3934,6 +3952,9 @@ const VERBS = [
     '  agenda --on YYYY-MM-DD                    on-this-day: events + birthdays sharing MM-DD (any year)',
     '  agenda --month-day MM-DD                  same as --on but year-agnostic',
   ] },
+  { name: 'day',      section: 'READ', lines: [
+    '  day [YYYY-MM-DD]                          list observations stamped [on <date>]; defaults to today',
+  ] },
   { name: 'challenge', section: 'READ', lines: [
     '  challenge <slug>                          print page + red-team prompt (forces dissent, not confirmation)',
   ], longHelp: [
@@ -4296,7 +4317,7 @@ const cmds = {
   // read
   list: cmdList, search: cmdSearch, recent: cmdRecent, print: cmdPrint,
   sources: cmdSources, related: cmdRelated, 'unlinked-mentions': cmdUnlinkedMentions, render: cmdRender,
-  preview: cmdPreview, context: cmdContext, agenda: cmdAgenda, challenge: cmdChallenge,
+  preview: cmdPreview, context: cmdContext, agenda: cmdAgenda, day: cmdDay, challenge: cmdChallenge,
   // write
   write: cmdWrite, link: cmdLink, mv: cmdMv, delete: cmdDelete, patch: cmdPatch, merge: cmdMerge,
   ingest: cmdIngest,

@@ -21,6 +21,7 @@ const { loadVaultDb, ensureDuckdbAvailable, resolveDuckdbBin } = require('../lib
 const { parseSynonymsFile, expandQuery } = require('../lib/synonyms.js');
 const { buildTitleEntries } = require('../lib/autolink.js');
 const { compileTagExpressionToSql } = require('../lib/tag-filter.js');
+const { isISODate } = require('../lib/date.js');
 
 function cmdList(args) {
   // HR25: --slugs-only emits one slug per line, no title/tags. Token-economy
@@ -201,7 +202,7 @@ function cmdAgenda(args) {
     onMD = v;
   } else if (args.on) {
     const v = String(args.on);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+    if (!isISODate(v)) {
       console.error(`error: --on must be YYYY-MM-DD (got "${v}")`);
       process.exit(1);
     }
@@ -667,6 +668,48 @@ function cmdContext(args) {
   }
 }
 
+// wiki day [YYYY-MM-DD] — date-scoped observation listing. Defaults to today.
+// Wraps the SQL one-liner for `observations.on_date` so "what did I do
+// today" is a single verb, not a SQL composition exercise.
+function cmdDay(args) {
+  let date = args._[0];
+  if (!date) date = new Date().toISOString().slice(0, 10);
+  if (!isISODate(date)) {
+    console.error(`error: wiki day [YYYY-MM-DD]; got "${date}"`);
+    process.exit(1);
+  }
+  ensureDuckdbAvailable();
+  const dbPath = loadVaultDb();
+  // on_date is pinned to VARCHAR at table creation (see duckdb.js), so a plain
+  // equality is safe even on an all-null vault. No per-query CAST needed.
+  const sql = `
+    SELECT slug, body
+    FROM observations
+    WHERE on_date = '${date}' AND NOT superseded
+    ORDER BY slug
+  `;
+  const r = spawnSync(resolveDuckdbBin(), [dbPath, '-jsonlines', '-noheader', '-c', sql], {
+    encoding: 'utf-8',
+  });
+  if (r.status !== 0) {
+    console.error(`error: query failed: ${(r.stderr || '').split('\n')[0] || 'exit ' + r.status}`);
+    process.exit(2);
+  }
+  const rows = (r.stdout || '')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => { try { return JSON.parse(line); } catch (_) { return null; } })
+    .filter(Boolean);
+  if (rows.length === 0) {
+    console.log(`(no observations on ${date})`);
+    return;
+  }
+  for (const row of rows) {
+    const body = (row.body || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+    console.log(`${row.slug}\t${body}`);
+  }
+}
+
 module.exports = {
   cmdList,
   cmdSearch,
@@ -677,6 +720,7 @@ module.exports = {
   cmdRelated,
   cmdUnlinkedMentions,
   cmdAgenda,
+  cmdDay,
   cmdContext,
   cmdChallenge,
   cmdRender,

@@ -7,6 +7,42 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added (Phase 13 — activity-log primitives)
+- **`wiki capture --today` (and `--on YYYY-MM-DD`)** — stamps `[on <date>]` into the captured observation so DuckDB's `observations.on_date` column lands. Activity captures become queryable by day without manual date injection.
+- **`wiki day [YYYY-MM-DD]`** — date-scoped observation listing; defaults to today. Wraps the SQL one-liner so "what did I do today" is a single verb. Prints `slug \t body` per row, `(no observations on <date>)` when empty.
+- Pure helper `stampOnDate(line, date)` in `bin/lib/epistemic-verbs.js`. Idempotent on already-stamped lines; inserts before provenance `^[...]` markers; rejects bad date shapes. 6 unit tests.
+- 6 integration fixtures: `capture-with-today`, `capture-with-on-date`, `capture-refuses-bad-on-date`, `day-lists-by-date`, `day-no-matches`, `day-refuses-bad-arg`.
+- Persona Reflex 2 gains a short **Activity-log routing** paragraph: decompose narrated activities, route each clause to its home page, pass `--today`. Mission commitment #4 adds `wiki day` to the one-graph verb list.
+
+### Fixed
+- **`wiki ingest` now mints `<!--obs:XXXXXX-->` markers on every observation it writes.** Previously, the four `stagePage` sites in `cmdIngest` (stubs, entities, events, patches) skipped the mint step that `cmdWrite` and `cmdPatch` already applied — so every observation born through ingest (the canonical Telegram → Alfred → vault path) shipped without a stable id. Wrapped each `stagePage` body in `mintIdsForBody()`. New integration fixture `ingest-mints-obs-ids` covers all three write shapes. Live vault backfilled via `wiki sync-ids` (55 markers across 17 pages, restoring 100% coverage).
+
+### Added (Phase 15 — Gmail IMAP read via `bin/gmail`)
+- **New peer binary `bin/gmail`** (~190 lines Python, stdlib only). Stateless IMAP read CLI with three subverbs: `search`, `show`, `count`. Convenience flags (`--from`, `--to`, `--subject`, `--body`, `--since`, `--before`, `--has-attachment`, `--label`) plus `--query` raw Gmail-syntax escape hatch (via the `X-GM-RAW` IMAP extension). Newest-first, capped at `--limit` (default 50). `--full` adds body excerpt; `--ids-only` for piping. Tab-separated parsable output: `uid\tdate\tfrom\tsubject`.
+- **Pure helpers in `bin/lib/gmail.py`** (~190 lines): `build_search_criteria`, `decode_mime_header`, `parse_header_block`, `extract_text_body`, `format_search_row`. Named exceptions (`GmailFlagError`, `GmailParseError`) map cleanly to exit codes (1 bad args, 2 missing env, 3 auth, 4 network, 5 IMAP). 22 unit tests in `tests/unit/gmail.test.py` (stdlib `unittest`) cover IMAP-criteria construction, RFC 2047 header decoding, multipart MIME body walking with text/plain preference and HTML tag-strip fallback, date normalisation, tab-safe row formatting.
+- **No dependencies added** — `package.json` zero-dep invariant preserved. Python stdlib (`imaplib`, `email.parser`) handles all IMAP + MIME work. Bash precedent (`bin/email-digest`) means multi-language is not a new pattern. The repo now has Node (`wiki`, `inbox`, `daily-brief`), Bash (`email-digest`), and Python (`gmail`) — each chosen by best-fit, none with package-manager weight.
+- **Auth: env vars `EMAIL_FROM` + `GMAIL_IMAP_APP_PASSWORD`** (distinct from the SMTP-send `GMAIL_APP_PASSWORD` so revocations are surgical). Fails fast and loud with friendly hint pointing at <https://myaccount.google.com/apppasswords>.
+- **`docs/GMAIL.md`** — full user-facing doc: setup, subverb reference, sample commands, why-stateless rationale, troubleshooting matrix, security notes (app-password scope, rotation, audit), limitations.
+- **`tools/deploy.sh`** picks up `gmail` in `BIN_ITEMS` so deploys copy it.
+- **`package.json`**: new `test:gmail` script runs the Python tests; `npm test` now chains Node unit + integration + Python unit.
+- **Persona Reflex 4 — Gmail fallback**: when the user asks a recall-shaped question that sounds email-shaped AND Reflex 1 found nothing in the vault, run `bin/gmail search` before guessing. Quote exact date strings from the body; surface the source UID for verification. The vault stays canonical for what was captured; Gmail is for what wasn't. Live `_persona.md` mirrored.
+
+### Hardened (Phase 14.1 — defensive sync-ids step in daily brief)
+- **`bin/daily-brief` now runs `wiki sync-ids` as step 0** before the three read verbs. Idempotent, ~1s no-op when coverage is 100%, cheap insurance against deployment-sync timing between the dev machine and the nanoclaw container that runs ingests. Failure of step 0 is non-fatal (warning to stderr; brief still ships). `--no-sync` flag skips it for tests.
+- **Rationale documented** in `docs/DAILY-BRIEF.md` under **§ Why we mint defensively** — explains the deployment-sync class of bug (observed on 2026-05-19: 60 unstamped observations across 9 pages from container ingests running pre-fix wiki during a deploy window), why we chose the daily heartbeat over alternatives (round-trip verify in deploy.sh, root-cause the container sync, run sync-ids on every ingest), and how to measure the gap if it ever grows.
+- The CLI's mint guarantee in `cmdIngest` is unchanged — this is a belt-and-suspenders defence at the daily-brief layer.
+
+### Added (Phase 14 — deterministic daily morning brief)
+- **New executable `bin/daily-brief`** (~110 lines). Composes a fixed-format email body by spawning three subprocesses (`wiki todo list --overdue`, `wiki todo list --due-today`, `wiki agenda --on $(today)`), parsing their output, and emitting four sections (overdue / due today / today's events / birthdays). Year-agnostic MM-DD matching for events + birthdays means recurring annual events and partial-date birthdays (`born: 07-14`) fire correctly.
+- **Pure module `bin/lib/daily-brief.js`** — parsers + `formatBrief()`. 12 unit tests cover wire-format parsing, section capping at 5, empty-section omission, clean-slate fallback, oldest-first overdue sort, and bad-date rejection. The exact body format is locked by tests so future refactors can't silently drift.
+- **Cache log** at `<vault>/cache/daily-brief/YYYY-MM-DD.txt` (opt-out via `--no-log`) — every emitted body persisted so "did the cron fire?" is answerable by `ls`.
+- **`docs/DAILY-BRIEF.md`** — user-facing guidelines: setup, sample output, vault-population recipes (`wiki patch <slug> --born MM-DD` etc.), and troubleshooting matrix.
+- **Persona shrink**: the Daily routine section in `PERSONA.template.md` collapsed from ~30 lines of "compose this body" instructions to ~10 lines of "pipe `daily-brief` into `email-digest`". Alfred is now out of the formatting loop — composition is deterministic.
+- **`tools/deploy.sh`** picks up `daily-brief` in `BIN_ITEMS` so deploys copy it alongside `wiki`/`inbox`/`email-digest`.
+
+### Persona (Phase 13.5 — daily morning brief, superseded by Phase 14)
+- Initial Daily routine section landed as composition-by-Alfred. Phase 14 replaces it with a deterministic CLI; this stanza preserved for changelog continuity.
+
 ### Added (Phase 12 — auto-inverse-closure on ingest + patch)
 - **`wiki ingest` and `wiki patch --relation` now auto-close inverse/symmetric edges.** If a write adds `A → parent_of [[B]]`, the matching `B → child_of [[A]]` lands automatically on the target. Same logic for symmetric verbs (sibling_of, spouse_of, friend_of, colleague_of). Eliminates the implicit "remember to run wiki groom --mechanical after ingest" step that Alfred had to internalise.
 - New pure module `bin/lib/inverse-closure.js` (`computeMissingInverses`, `groupByTarget`). 10 unit tests cover symmetric, inverse-pair, balanced no-op, missing-target skip, one-way skip, fromSlugs scoping, input validation.

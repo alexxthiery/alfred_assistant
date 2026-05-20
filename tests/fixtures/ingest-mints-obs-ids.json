@@ -1,0 +1,28 @@
+{
+  "_comment": "wiki ingest must mint <!--obs:XXXXXX--> markers on every observation it writes, same invariant as cmdWrite/cmdPatch. Exercises three ingest write sites: new entity body, new event body, and patch add_facts onto an existing page.",
+  "source": "telegram:2026-05-19",
+  "entities": [
+    {
+      "slug": "obs-id-entity",
+      "title": "Obs ID entity",
+      "type": "entity",
+      "tags": ["person"],
+      "facts": [{ "body": "Newly born entity carries an obs id marker on its fact" }]
+    }
+  ],
+  "events": [
+    {
+      "slug": "obs-id-event",
+      "title": "Obs ID event",
+      "when": "2026-06-01",
+      "tags": ["event"],
+      "facts": [{ "body": "Newly born event carries an obs id marker on its fact" }]
+    }
+  ],
+  "patches": [
+    {
+      "slug": "obs-id-entity",
+      "add_facts": [{ "body": "Patched fact must also carry an obs id marker" }]
+    }
+  ]
+}

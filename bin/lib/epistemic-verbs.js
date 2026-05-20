@@ -9,6 +9,8 @@
 
 'use strict';
 
+const { isISODate } = require('./date.js');
+
 const DATE_RE = /^\d{4}(?:-\d{2}(?:-\d{2})?)?$/;
 
 function assertConfidence(confidence) {
@@ -74,4 +76,21 @@ function defaultProvenance(today = new Date()) {
   return `conversation:${y}-${m}-${d}`;
 }
 
-module.exports = { buildPredictionLine, buildHypothesisLine, defaultProvenance, assertBody };
+// Inject `[on YYYY-MM-DD]` into an already-built observation line.
+// Placement: just before the first `^[provenance]` marker so that downstream
+// parsers (parseObservations in lib/graph.js) see consistent ordering with
+// other inline date tags ([since], [until], [by], [as-of]). If the line has
+// no provenance marker, append to the end. Idempotent: if `[on X]` is
+// already present, the line is returned unchanged (so a re-run of
+// `wiki capture --today` on the same input never accumulates).
+function stampOnDate(line, date) {
+  if (!isISODate(date)) {
+    throw new Error('date must be YYYY-MM-DD');
+  }
+  if (/\[on\s+\d{4}(?:-\d{2}(?:-\d{2})?)?\]/.test(line)) return line;
+  const provIdx = line.search(/\^\[/);
+  if (provIdx === -1) return `${line.trimEnd()} [on ${date}]`;
+  return `${line.slice(0, provIdx).trimEnd()} [on ${date}] ${line.slice(provIdx)}`;
+}
+
+module.exports = { buildPredictionLine, buildHypothesisLine, defaultProvenance, assertBody, stampOnDate };

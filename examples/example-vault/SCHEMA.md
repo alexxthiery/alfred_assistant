@@ -451,7 +451,7 @@ For ad-hoc questions that don't fit any CLI verb, `wiki sql "<query>"` exposes t
 | `tags`, `aliases`, `supersedes`, `derived_from` | VARCHAR[] | frontmatter arrays |
 | `n_facts`, `n_hypotheses`, `n_opinions`, `n_claims`, `n_relations` | BIGINT | body observation/relation counts |
 | `raw_path`, `decided_on`, `source_file`, `status`, `due`, `when_` | VARCHAR | type-specific frontmatter |
-| `mention_count` | BIGINT | inbound `[[slug]]` wikilinks across the vault |
+| `mention_count` | BIGINT | distinct inbound `[[slug]]` wikilinks (deduped per source page, self-links excluded) |
 
 Setup (one-time): `brew install duckdb` (host) or `apt install duckdb` inside the container. The CLI prints a friendly error if the binary isn't on PATH.
 

@@ -21,17 +21,19 @@
 set -euo pipefail
 
 APPLY=false
+PRUNE_BACKUPS=false
 TARGET=""
 USER_NAME=""; USER_SLUG=""; USER_EMAIL=""; USER_TZ_CITY=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --apply)        APPLY=true; shift ;;
-    --target)       TARGET="$2"; shift 2 ;;
-    --user-name)    USER_NAME="$2"; shift 2 ;;
-    --user-slug)    USER_SLUG="$2"; shift 2 ;;
-    --user-email)   USER_EMAIL="$2"; shift 2 ;;
-    --user-tz-city) USER_TZ_CITY="$2"; shift 2 ;;
+    --apply)         APPLY=true; shift ;;
+    --prune-backups) PRUNE_BACKUPS=true; shift ;;
+    --target)        TARGET="$2"; shift 2 ;;
+    --user-name)     USER_NAME="$2"; shift 2 ;;
+    --user-slug)     USER_SLUG="$2"; shift 2 ;;
+    --user-email)    USER_EMAIL="$2"; shift 2 ;;
+    --user-tz-city)  USER_TZ_CITY="$2"; shift 2 ;;
     -h|--help)
       sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "deploy.sh: unknown arg: $1" >&2; exit 2 ;;
@@ -142,8 +144,27 @@ echo ""
 # re-run deploy.sh. For a personal vault with one dev machine and a runtime
 # container, the manual sync step is worth the cross-platform robustness.
 mkdir -p "$TARGET/.bin"
-BIN_ITEMS=(wiki inbox email-digest wiki-test)
-BAK_SUFFIX=".pre-deploy-$(date +%Y%m%d-%H%M%S).bak"
+BIN_ITEMS=(wiki inbox email-digest daily-brief gmail wiki-test)
+
+# --prune-backups: remove the legacy .pre-deploy-*.bak files that earlier
+# versions of this script accreted on every refresh. The source repo is
+# git-versioned, so backups of deployed build artifacts have no recovery value;
+# they only clutter .bin/ and create stale grep hits during debugging.
+if $PRUNE_BACKUPS; then
+  BAK_COUNT=$(find "$TARGET/.bin" -maxdepth 2 -name '*.pre-deploy-*.bak' 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$BAK_COUNT" -eq 0 ]; then
+    echo "[prune] no .pre-deploy-*.bak files under $TARGET/.bin"
+  else
+    echo "[prune] $BAK_COUNT .pre-deploy-*.bak file(s) under $TARGET/.bin"
+    if $APPLY; then
+      find "$TARGET/.bin" -maxdepth 2 -name '*.pre-deploy-*.bak' -exec rm -rf {} +
+      echo "[prune] removed $BAK_COUNT backup(s)"
+    else
+      echo "[prune] DRY-RUN — re-run with --apply to delete"
+    fi
+  fi
+  echo ""
+fi
 
 # Snapshot summary: what's there now vs what we'd write.
 NEEDS_COPY=()
@@ -198,29 +219,26 @@ else
     echo "    $TARGET/.bin/${DIR_ACTIONS[i]}/: ${DIR_ACTIONS[i+1]}"
   done
   if $APPLY; then
+    # No per-file backups: the source is git-versioned, so the recovery path
+    # for a bad deploy is `git checkout` in the repo, not a .bak in .bin/.
+    # Overwrite directly. (Old .pre-deploy-*.bak files: clean up with
+    # `--prune-backups --apply`.)
     for ((i = 0; i < ${#NEEDS_COPY[@]}; i += 2)); do
       f="${NEEDS_COPY[i]}"
-      action="${NEEDS_COPY[i+1]}"
       dst="$TARGET/.bin/$f"
       if [ -L "$dst" ]; then rm -f "$dst"; fi
-      if [ -f "$dst" ] && [ "$action" = "refresh" ]; then
-        mv "$dst" "${dst}${BAK_SUFFIX}"
-      fi
       cp -p "$SRC/bin/$f" "$dst"
       chmod +x "$dst"
     done
     for ((i = 0; i < ${#DIR_ACTIONS[@]}; i += 2)); do
       d="${DIR_ACTIONS[i]}"
-      action="${DIR_ACTIONS[i+1]}"
       src="$SRC/bin/$d"
       dst="$TARGET/.bin/$d"
       if [ -L "$dst" ]; then rm -f "$dst"; fi
-      if [ -d "$dst" ] && [ "$action" = "refresh" ]; then
-        mv "$dst" "${dst}${BAK_SUFFIX}"
-      fi
+      if [ -d "$dst" ]; then rm -rf "$dst"; fi
       cp -R "$src" "$dst"
     done
-    echo "  (pre-deploy copies of refreshed items preserved with suffix ${BAK_SUFFIX})"
+    echo "  (overwrote in place; recovery via git in the source repo)"
   fi
 fi
 

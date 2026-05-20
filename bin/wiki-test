@@ -101,7 +101,14 @@ function runFixture(name) {
     }
 
     const args = isCli ? spec.cmd : ['ingest', '--file', specPath];
-    const res = runWikiInTemp(tmp, args);
+    // `bin` field: run a different Node binary (e.g. daily-brief) for the main
+    // cmd; setup steps above still run `wiki`. Lets a fixture exercise the seam
+    // between wiki's output and a downstream consumer that parses it.
+    const res = (isCli && spec.bin)
+      ? spawnSync('node', [path.join(REPO, 'bin', spec.bin), ...args], {
+          cwd: tmp, env: { ...process.env, WIKI_ROOT: tmp }, encoding: 'utf-8',
+        })
+      : runWikiInTemp(tmp, args);
 
     const exit = res.status;
     const stdout = res.stdout || '';

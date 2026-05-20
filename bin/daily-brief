@@ -1,0 +1,131 @@
+#!/usr/bin/env node
+// daily-brief — emit a deterministic plain-text daily brief to stdout.
+//
+// Composes the bodies of three upstream wiki verbs (overdue todos, due-today
+// todos, today's events + birthdays via `wiki agenda --on`) into a single
+// short email body. The persona's daily routine pipes this into
+// `bin/email-digest`; nothing else.
+//
+// All composition logic lives in lib/daily-brief.js (pure). This file is
+// just orchestration: spawn the three subprocesses, parse, format, log.
+//
+// Usage:
+//   bin/daily-brief                        emit body for today (system clock)
+//   bin/daily-brief --date 2026-05-19      emit body for a specific date
+//   bin/daily-brief --no-log               skip cache log write
+//   bin/daily-brief --no-sync              skip the defensive sync-ids step
+//
+// Step 0 — defensive `wiki sync-ids`: closes any gap in obs-id markers
+// caused by deployment-sync timing between the dev machine and the
+// container that runs `wiki ingest`. The mint guarantee in cmdIngest is
+// correct, but if the container ran the pre-fix wiki for any window, new
+// observations land unstamped. sync-ids is idempotent (~1s) and restores
+// the 100% coverage invariant before downstream verbs read the vault.
+// Skipped if --no-sync is passed (useful for tests).
+//
+// Logs to <VAULT_ROOT>/cache/daily-brief/YYYY-MM-DD.txt unless --no-log.
+// Exits 0 on success, 2 on subprocess failure, 1 on bad args.
+
+'use strict';
+
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+const {
+  parseTodoOutput,
+  parseAgendaOnThisDayOutput,
+  formatBrief,
+} = require('./lib/daily-brief.js');
+
+// Parse minimal --flag / --flag=value / --flag value form. Mirrors the
+// rest of the CLI's lightweight handling.
+function parseArgv(argv) {
+  const out = { _: [] };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (!a.startsWith('--')) { out._.push(a); continue; }
+    const eq = a.indexOf('=');
+    if (eq !== -1) { out[a.slice(2, eq)] = a.slice(eq + 1); continue; }
+    const key = a.slice(2);
+    const next = argv[i + 1];
+    if (next === undefined || next.startsWith('--')) { out[key] = true; continue; }
+    out[key] = next; i++;
+  }
+  return out;
+}
+
+// Resolve `wiki` binary the same way deploy.sh-installed vaults do:
+//   1. Sibling `.bin/wiki` if invoked from a vault root (cache/, wiki/ present).
+//   2. Sibling `bin/wiki` if invoked from the source repo.
+//   3. `wiki` on $PATH.
+function resolveWikiBin() {
+  const here = __dirname;
+  // When daily-brief lives in <vault>/.bin, `wiki` is its sibling.
+  const sibling = path.join(here, 'wiki');
+  if (fs.existsSync(sibling)) return sibling;
+  // When run from the source repo (bin/daily-brief), `bin/wiki` is the sibling too.
+  const wikiPath = path.join(here, 'wiki');
+  if (fs.existsSync(wikiPath)) return wikiPath;
+  return 'wiki';
+}
+
+function runWiki(wikiBin, args) {
+  const r = spawnSync(wikiBin, args, { encoding: 'utf-8' });
+  if (r.status !== 0) {
+    const stderr = (r.stderr || '').split('\n').slice(0, 3).join(' | ');
+    console.error(`daily-brief: \`wiki ${args.join(' ')}\` failed (exit ${r.status}): ${stderr}`);
+    process.exit(2);
+  }
+  return r.stdout || '';
+}
+
+function main() {
+  const args = parseArgv(process.argv.slice(2));
+  const date = args.date || new Date().toISOString().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    console.error(`daily-brief: --date must be YYYY-MM-DD (got "${date}")`);
+    process.exit(1);
+  }
+  const wikiBin = resolveWikiBin();
+
+  // Step 0 — defensive obs-id sync. Idempotent: a no-op when coverage is
+  // already 100%. Failure is non-fatal: the brief still ships, but a one-
+  // line note goes to stderr so a watchful operator can spot it.
+  if (!args['no-sync']) {
+    const r = spawnSync(wikiBin, ['sync-ids'], { encoding: 'utf-8' });
+    if (r.status !== 0) {
+      console.error(`daily-brief: warning — \`wiki sync-ids\` failed (exit ${r.status}); proceeding with brief anyway.`);
+    }
+  }
+
+  const overdueOut = runWiki(wikiBin, ['todo', 'list', '--overdue']);
+  const dueTodayOut = runWiki(wikiBin, ['todo', 'list', '--due-today']);
+  const agendaOut = runWiki(wikiBin, ['agenda', '--on', date]);
+
+  const overdue = parseTodoOutput(overdueOut);
+  const dueToday = parseTodoOutput(dueTodayOut);
+  const { events, birthdays } = parseAgendaOnThisDayOutput(agendaOut);
+
+  const body = formatBrief({ date, overdue, dueToday, events, birthdays });
+  process.stdout.write(body);
+
+  // Cache log: keeps a copy of every brief on disk so "did Alfred actually
+  // send a brief on day X" is answerable with `ls`. Cheap; opt-out via --no-log.
+  if (!args['no-log']) {
+    try {
+      const vaultRoot = process.env.VAULT_ROOT
+        || (fs.existsSync(path.join(path.dirname(wikiBin), '..', 'wiki'))
+            ? path.resolve(path.dirname(wikiBin), '..')
+            : process.cwd());
+      const logDir = path.join(vaultRoot, 'cache', 'daily-brief');
+      fs.mkdirSync(logDir, { recursive: true });
+      fs.writeFileSync(path.join(logDir, `${date}.txt`), body);
+    } catch (e) {
+      // Logging failure must not break the pipe to email-digest.
+      console.error(`daily-brief: cache log write failed (non-fatal): ${e.message}`);
+    }
+  }
+}
+
+main();

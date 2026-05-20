@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "capture-on-host": {
+      "bodyContains": ["[on 2026-05-19]", "did 3km gym run"]
+    }
+  }
+}

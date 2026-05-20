@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "capture-today-host": {
+      "bodyContains": ["[on 20", "morning workout 3km"]
+    }
+  }
+}

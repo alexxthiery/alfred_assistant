@@ -7,8 +7,9 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test 'tests/unit/*.test.js' && bin/wiki-test",
+    "test": "node --test 'tests/unit/*.test.js' && bin/wiki-test && npm run test:gmail",
     "test:unit": "node --test 'tests/unit/*.test.js'",
-    "test:fixtures": "bin/wiki-test"
+    "test:fixtures": "bin/wiki-test",
+    "test:gmail": "python3 tests/unit/gmail.test.py"
   }
 }

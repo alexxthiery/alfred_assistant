@@ -22,7 +22,7 @@ const { spawnSync } = require('node:child_process');
 
 const { detectVaultRoot } = require('./vault-root.js');
 const { listWikiPages, forEachPage } = require('./vault.js');
-const { parseObservations, parseRelations } = require('./graph.js');
+const { parseObservations, parseRelations, extractWikilinks } = require('./graph.js');
 
 const VAULT_ROOT = detectVaultRoot();
 const WIKI_DIR = path.join(VAULT_ROOT, 'wiki');
@@ -69,7 +69,9 @@ const SNAPSHOT_SCHEMA_PATH = path.join(CACHE_DIR, '.snapshot-schema');
 const SNAPSHOT_SCHEMA_VERSION = 'v3-2026-05-19-fts'; // bumped: observations.id added + BM25 FTS index on observations.body
 
 function buildVaultNdjson() {
-  const wikilinkRe = /\[\[([a-z0-9][a-z0-9-]*)\]\]/g;
+  // mention_count = distinct inbound wikilinks per source page (graph edges),
+  // via the shared extractWikilinks (deduped per page). Reuses graph.js so the
+  // slug pattern can't drift from the rest of the system.
   const mentions = new Map();
   const pages = [];
   const obsRows = [];
@@ -99,10 +101,8 @@ function buildVaultNdjson() {
     for (const r of rels) {
       relRows.push({ slug, verb: r.verb, target: r.target });
     }
-    let m;
-    wikilinkRe.lastIndex = 0;
-    while ((m = wikilinkRe.exec(body)) !== null) {
-      if (m[1] !== slug) mentions.set(m[1], (mentions.get(m[1]) || 0) + 1);
+    for (const target of extractWikilinks(body)) {
+      if (target !== slug) mentions.set(target, (mentions.get(target) || 0) + 1);
     }
     pages.push({
       slug,
@@ -180,7 +180,13 @@ function loadVaultDb() {
   const sql = [
     "INSTALL fts; LOAD fts;",
     `CREATE TABLE vault AS SELECT * FROM read_json_auto('${esc(DB_NDJSON_PATH)}', format='newline_delimited');`,
-    `CREATE TABLE observations AS SELECT row_number() OVER () AS obs_uid, * FROM read_json_auto('${esc(OBS_NDJSON_PATH)}', format='newline_delimited');`,
+    // Pin the nullable date columns to VARCHAR. read_json_auto infers a column
+    // as JSON (not VARCHAR) when every row is null — e.g. a vault with no dated
+    // observations — which then breaks `WHERE on_date = '...'` comparisons. The
+    // `* REPLACE (TRY_CAST(...))` forces VARCHAR regardless of data, so query
+    // sites never need a per-call CAST. TRY_CAST yields NULL (not the string
+    // 'null') for JSON-null, preserving correct filtering on all-null vaults.
+    `CREATE TABLE observations AS SELECT row_number() OVER () AS obs_uid, * REPLACE (TRY_CAST(since AS VARCHAR) AS since, TRY_CAST(until AS VARCHAR) AS until, TRY_CAST(as_of AS VARCHAR) AS as_of, TRY_CAST(on_date AS VARCHAR) AS on_date, TRY_CAST(by_date AS VARCHAR) AS by_date) FROM read_json_auto('${esc(OBS_NDJSON_PATH)}', format='newline_delimited');`,
     `CREATE TABLE relations AS SELECT * FROM read_json_auto('${esc(REL_NDJSON_PATH)}', format='newline_delimited');`,
     "CREATE INDEX vault_slug ON vault(slug);",
     "CREATE INDEX observations_slug ON observations(slug);",

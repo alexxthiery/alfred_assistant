@@ -1,0 +1,5 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["day-host-a", "day-host-b", "activity on target date"],
+  "stdoutNotContains": ["day-host-c", "activity on different date"]
+}

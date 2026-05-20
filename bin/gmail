@@ -1,0 +1,333 @@
+#!/usr/bin/env python3
+"""bin/gmail — stateless Gmail IMAP read CLI.
+
+Three subverbs:
+    search [flags]    list matching messages, one tab-separated row per match
+    show <uid>        print headers + decoded text body of one message
+    count [flags]     print the number of matching messages (just an int)
+
+Auth: env vars EMAIL_FROM + GMAIL_IMAP_APP_PASSWORD. Missing or wrong creds
+fail fast with a one-line hint pointing at the app-passwords page. No local
+cache — each invocation opens an IMAPS session, runs the query, closes.
+
+Pure helpers live in bin/lib/gmail.py and are unit-tested. This file is the
+orchestrator: argparse, IMAP session, fail-loud error mapping.
+"""
+
+import argparse
+import imaplib
+import os
+import socket
+import sys
+from contextlib import contextmanager
+
+# Make bin/lib/gmail.py importable when running from source or .bin/.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_HERE, 'lib'))
+
+import gmail as G  # noqa: E402  (after sys.path adjust)
+
+
+# Exit codes — kept stable so scripts piping into this CLI can branch.
+EXIT_OK = 0
+EXIT_BAD_ARGS = 1
+EXIT_MISSING_ENV = 2
+EXIT_AUTH = 3
+EXIT_NETWORK = 4
+EXIT_IMAP = 5
+
+
+def _die(code, msg):
+    """Print one diagnostic line to stderr and exit. No tracebacks."""
+    print(f'gmail: {msg}', file=sys.stderr)
+    sys.exit(code)
+
+
+def _require_env():
+    """Read auth env vars; exit cleanly if missing."""
+    user = os.environ.get('EMAIL_FROM')
+    pw = os.environ.get('GMAIL_IMAP_APP_PASSWORD')
+    if not user:
+        _die(EXIT_MISSING_ENV, 'EMAIL_FROM env var not set (your Gmail address).')
+    if not pw:
+        _die(EXIT_MISSING_ENV,
+             'GMAIL_IMAP_APP_PASSWORD env var not set. '
+             'Mint one at https://myaccount.google.com/apppasswords '
+             '(requires 2FA enabled).')
+    return user, pw
+
+
+@contextmanager
+def gmail_session():
+    """Open IMAPS, log in, SELECT INBOX. Always closes on exit."""
+    user, pw = _require_env()
+    try:
+        M = imaplib.IMAP4_SSL('imap.gmail.com', 993, timeout=30)
+    except (socket.error, socket.timeout, OSError) as e:
+        _die(EXIT_NETWORK, f'Gmail unreachable: {e}. Check your network.')
+    try:
+        try:
+            M.login(user, pw)
+        except imaplib.IMAP4.error as e:
+            _die(EXIT_AUTH,
+                 f'IMAP login failed: {e}. '
+                 f'Verify GMAIL_IMAP_APP_PASSWORD; mint a new one at '
+                 f'https://myaccount.google.com/apppasswords if needed.')
+        try:
+            M.select('INBOX', readonly=True)
+        except imaplib.IMAP4.error as e:
+            _die(EXIT_IMAP, f'SELECT INBOX failed: {e}.')
+        yield M
+    finally:
+        try:
+            M.logout()
+        except Exception:
+            pass  # logout failures during cleanup are not actionable
+
+
+def _uid_search(M, criteria):
+    """Run UID SEARCH with the given argv; return list of UID strs (newest last)."""
+    try:
+        typ, data = M.uid('SEARCH', None, *criteria)
+    except imaplib.IMAP4.error as e:
+        _die(EXIT_IMAP, f'SEARCH failed: {e}.')
+    if typ != 'OK':
+        _die(EXIT_IMAP, f'SEARCH returned {typ!r}: {data!r}.')
+    raw = data[0] or b''
+    return raw.split() if raw else []
+
+
+def _fetch_headers(M, uids):
+    """UID FETCH header-only for a list of UID bytes. Returns dict[uid_str]->bytes."""
+    if not uids:
+        return {}
+    uid_set = b','.join(uids)
+    try:
+        typ, data = M.uid('FETCH', uid_set, '(BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE)])')
+    except imaplib.IMAP4.error as e:
+        _die(EXIT_IMAP, f'FETCH (headers) failed: {e}.')
+    if typ != 'OK':
+        _die(EXIT_IMAP, f'FETCH returned {typ!r}.')
+
+    # IMAP returns pairs: (b'<uid_seq> (BODY[HEADER.FIELDS (...)] {N}', <literal-bytes>), b')'
+    # Pull out the literal whenever it's a tuple, paired with its UID.
+    out = {}
+    for item in data:
+        if isinstance(item, tuple) and len(item) == 2:
+            envelope, literal = item
+            env_str = envelope.decode('latin-1', errors='replace')
+            # Envelope looks like: '12345 (UID 67890 BODY[HEADER.FIELDS (...)] {NNN}'
+            # We pull the UID token explicitly so we don't depend on sequence-id ordering.
+            uid_match = None
+            for token in env_str.replace('(', ' ').split():
+                if uid_match == 'pending':
+                    uid_match = token
+                    break
+                if token == 'UID':
+                    uid_match = 'pending'
+            if uid_match and uid_match != 'pending':
+                out[uid_match] = literal
+    return out
+
+
+class GmailBodyUnavailable(Exception):
+    """Raised when both BODY.PEEK[] and RFC822 fetch return imaplib's
+    sentinel [None] — stdlib imaplib's regex parser fails on certain
+    response shapes Gmail emits (e.g. corporate Outlook forwards routed through
+    third-party security proxies). Caught by cmd_show for graceful
+    degradation (print headers + 'body unavailable' line). Never silent."""
+
+
+def _fetch_one_body(M, uid, request):
+    """Single FETCH attempt with the given request string. Returns the
+    literal bytes if imaplib parsed a tuple out of the response, else None.
+    Lets the caller try a fallback FETCH form."""
+    try:
+        typ, data = M.uid('FETCH', uid, request)
+    except imaplib.IMAP4.error as e:
+        _die(EXIT_IMAP, f'FETCH ({request}) failed: {e}.')
+    if typ != 'OK':
+        _die(EXIT_IMAP, f'FETCH ({request}) returned {typ!r}.')
+    for item in data:
+        if isinstance(item, tuple) and len(item) == 2:
+            return item[1]
+    return None
+
+
+def _fetch_one_message(M, uid):
+    """UID FETCH the full RFC 822 body of one message.
+
+    Tries BODY.PEEK[] first (modern IMAP4rev1 form), then RFC822 (older
+    alias) on failure — sometimes the latter parses where the former
+    doesn't because of stdlib imaplib's response-parsing quirks. If both
+    fail with [None], raises GmailBodyUnavailable so callers can degrade
+    gracefully (print headers + a clear diagnostic, never silent).
+    """
+    body = _fetch_one_body(M, uid, '(BODY.PEEK[])')
+    if body is not None:
+        return body
+    body = _fetch_one_body(M, uid, '(RFC822)')
+    if body is not None:
+        return body
+    raise GmailBodyUnavailable(
+        f'Gmail returned an unparseable IMAP response for UID {uid}. '
+        f'Try opening this message in the Gmail web UI. '
+        f'(Known stdlib imaplib limitation on certain forwarded/proxied messages.)'
+    )
+
+
+def _flags_from_args(args):
+    """Translate argparse Namespace into the dict shape build_search_criteria wants."""
+    return {
+        'from': getattr(args, 'from'),
+        'to': args.to,
+        'subject': args.subject,
+        'body': args.body,
+        'since': args.since,
+        'before': args.before,
+        'has_attachment': args.has_attachment,
+        'label': args.label,
+        'query': args.query,
+    }
+
+
+def cmd_search(args):
+    flags = _flags_from_args(args)
+    try:
+        criteria = G.build_search_criteria(flags)
+    except G.GmailFlagError as e:
+        _die(EXIT_BAD_ARGS, str(e))
+
+    with gmail_session() as M:
+        uids = _uid_search(M, criteria)
+        # Newest first, capped at --limit. IMAP returns oldest first.
+        uids = list(reversed(uids))[: args.limit]
+        if args.ids_only:
+            for u in uids:
+                print(u.decode('ascii'))
+            return EXIT_OK
+
+        header_map = _fetch_headers(M, uids)
+        for u in uids:
+            u_str = u.decode('ascii')
+            raw = header_map.get(u_str, b'')
+            try:
+                headers = G.parse_header_block(raw)
+            except G.GmailParseError as e:
+                _die(EXIT_IMAP, f'parse failed for UID {u_str}: {e}')
+            print(G.format_search_row(u_str, headers))
+            if args.full:
+                body_raw = _fetch_one_message(M, u_str)
+                try:
+                    body = G.extract_text_body(body_raw)
+                except G.GmailParseError:
+                    body = ''
+                for line in body.splitlines()[:10]:
+                    print(f'    {line}')
+                print()
+    return EXIT_OK
+
+
+def cmd_show(args):
+    uid = args.uid
+    if not uid.isdigit():
+        _die(EXIT_BAD_ARGS, f'UID must be numeric; got {uid!r}.')
+
+    raw_body = None
+    body_error = None
+    with gmail_session() as M:
+        try:
+            raw_body = _fetch_one_message(M, uid)
+        except GmailBodyUnavailable as e:
+            body_error = str(e)
+            # Headers usually still fetchable even when the full body is not.
+            # Try a header-only FETCH as a salvage so the user gets at least
+            # the From/Subject/Date for orientation.
+            header_map = _fetch_headers(M, [uid.encode('ascii')])
+            raw_body = header_map.get(uid, b'')
+
+    try:
+        headers = G.parse_header_block(raw_body)
+    except G.GmailParseError as e:
+        _die(EXIT_IMAP, f'header parse failed: {e}')
+
+    print(f'From: {headers.get("from", "")}')
+    print(f'To: {headers.get("to", "")}')
+    print(f'Date: {headers.get("date", "")}')
+    print(f'Subject: {headers.get("subject", "")}')
+    print('---')
+
+    if body_error is not None:
+        # Graceful degradation: headers above, then a single clear line about
+        # what went wrong. Non-zero exit so scripts can branch on it.
+        print(f'(body unavailable: {body_error})')
+        return EXIT_IMAP
+
+    try:
+        body = G.extract_text_body(raw_body)
+    except G.GmailParseError as e:
+        _die(EXIT_IMAP, f'body parse failed: {e}')
+    print(body)
+    return EXIT_OK
+
+
+def cmd_count(args):
+    flags = _flags_from_args(args)
+    try:
+        criteria = G.build_search_criteria(flags)
+    except G.GmailFlagError as e:
+        _die(EXIT_BAD_ARGS, str(e))
+    with gmail_session() as M:
+        uids = _uid_search(M, criteria)
+    print(len(uids))
+    return EXIT_OK
+
+
+def _add_filter_flags(p):
+    """Shared flag set for `search` and `count`."""
+    p.add_argument('--from', dest='from', default=None, help='sender substring match')
+    p.add_argument('--to', default=None, help='recipient substring match')
+    p.add_argument('--subject', default=None, help='subject contains text')
+    p.add_argument('--body', default=None, help='body contains text (server-side TEXT search)')
+    p.add_argument('--since', default=None, help='on or after YYYY-MM-DD')
+    p.add_argument('--before', default=None, help='strictly before YYYY-MM-DD')
+    p.add_argument('--has-attachment', dest='has_attachment', action='store_true',
+                   help='has any attachment')
+    p.add_argument('--label', default=None, help='Gmail label (e.g. "Work")')
+    p.add_argument('--query', default=None,
+                   help='raw Gmail search syntax (X-GM-RAW); overrides other flags')
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        prog='gmail',
+        description='Stateless Gmail IMAP read CLI. See docs/GMAIL.md.',
+    )
+    sub = parser.add_subparsers(dest='verb', required=True)
+
+    p_search = sub.add_parser('search', help='list matching messages')
+    _add_filter_flags(p_search)
+    p_search.add_argument('--limit', type=int, default=50, help='max results (default 50)')
+    p_search.add_argument('--full', action='store_true',
+                          help='include first ~10 lines of body per match')
+    p_search.add_argument('--ids-only', dest='ids_only', action='store_true',
+                          help='print only UIDs, for piping into `gmail show`')
+
+    p_show = sub.add_parser('show', help='print headers + body of one message')
+    p_show.add_argument('uid', help='UID returned by `gmail search`')
+
+    p_count = sub.add_parser('count', help='print number of matches')
+    _add_filter_flags(p_count)
+
+    args = parser.parse_args(argv)
+    if args.verb == 'search':
+        return cmd_search(args)
+    if args.verb == 'show':
+        return cmd_show(args)
+    if args.verb == 'count':
+        return cmd_count(args)
+    parser.error(f'unknown verb {args.verb!r}')
+
+
+if __name__ == '__main__':
+    sys.exit(main())

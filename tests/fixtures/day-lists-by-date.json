@@ -1,0 +1,12 @@
+{
+  "_comment": "wiki day YYYY-MM-DD lists observations whose [on] date matches. Setup uses capture --on to stamp 3 observations across 2 dates; day 2026-05-19 should surface only the 2 from that date.",
+  "setup": [
+    ["write", "day-host-a", "--title", "Day host A", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed ^[t:1]", "--soft"],
+    ["write", "day-host-b", "--title", "Day host B", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed ^[t:1]", "--soft"],
+    ["write", "day-host-c", "--title", "Day host C", "--type", "concept", "--tags", "meta", "--content", "- [fact] seed ^[t:1]", "--soft"],
+    ["capture", "day-host-a", "activity on target date a", "--on", "2026-05-19"],
+    ["capture", "day-host-b", "activity on target date b", "--on", "2026-05-19"],
+    ["capture", "day-host-c", "activity on different date", "--on", "2026-05-18"]
+  ],
+  "cmd": ["day", "2026-05-19"]
+}
