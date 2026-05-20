@@ -7,15 +7,13 @@
 
 # Alfred Assistant
 
-A self-hosted personal-knowledge agent backed by a Karpathy-style LLM wiki.
+A typed-graph personal-knowledge CLI, plus an agent persona that drives it.
 
-Alfred is the assistant; the wiki is the memory.
-You message Alfred on Telegram; he extracts structured facts into a versioned, schema-enforced graph at `wiki/`.
-Verbs (`wiki ingest`, `wiki patch`, `wiki review`, …) do the writing — never markdown by hand.
+The foundation is **`bin/wiki`** — a standalone, zero-dependency CLI that turns a folder of markdown into a versioned, schema-enforced graph. Drive it by hand, or point an **LLM agent ("Alfred")** at it. Alfred runs on whatever agent runtime you like — a terminal session (Claude Code or Codex) or an always-on Telegram bot (nanoclaw) — all reading one shared persona and the same vault. Verbs (`wiki ingest`, `wiki patch`, `wiki review`, …) do the writing; never markdown by hand.
 
-> This repository contains the CLIs, schema, persona template, and tests.
-> It assumes you run Alfred inside a [nanoclaw](https://github.com/<your-username>/nanoclaw) container connected to a Telegram bot.
-> The vault content (your actual `wiki/*.md`, `raw/*`) lives outside this repo, on your machine.
+> This repository contains the CLI, schema, persona, runtime adapters, and tests.
+> The CLI works standalone; an agent is optional. To run the agent, pick a runtime in [`integrations/`](integrations/) — Claude Code or Codex (a terminal, the lightest setup) or [nanoclaw](https://github.com/<your-username>/nanoclaw) (an always-on Telegram bot).
+> The vault content (your `wiki/*.md`, `raw/*`) lives outside this repo, on your machine.
 
 ## Philosophy
 
@@ -37,8 +35,8 @@ Open issues welcome. Breaking changes will be noted in `CHANGELOG.md`.
 ## Architecture (one paragraph)
 
 `raw/` (immutable source archive) → `wiki/` (assistant-maintained typed graph, one concept per page) → `SCHEMA.md` (the contract).
-Alfred runs inside a nanoclaw Docker container with the vault directory bind-mounted at `/workspace/extra/vault/`.
-A `PreToolUseHook` blocks direct `Write`/`Edit`/Bash-redirects to `wiki/*.md` — all writes go through `bin/wiki` so the CLI can enforce schema, microsyntax, provenance, autolink, and audit invariants.
+The CLI is runtime-agnostic: drive it from a terminal, or let an agent runtime drive it (nanoclaw / Claude Code / Codex — see [`integrations/`](integrations/)), all reading one shared persona (`AGENTS.md` in the vault).
+All writes go through `bin/wiki`, which enforces schema, microsyntax, provenance, autolink, and audit invariants. That "go through the CLI" rule is enforced at the git layer by `wiki`'s tamper-check — it refuses to operate while the vault has out-of-band edits — so it holds on every runtime regardless of hook support (runtimes with hooks, like nanoclaw and Claude Code, add a friendlier early block).
 Auto-commit on every write turns the vault into a git-versioned, revertable knowledge base.
 
 ## What it does (feature map)
@@ -52,7 +50,7 @@ The capability surface, with a pointer to the detailed doc for each. This is the
 - **Weekly digest:** a Monday discovery-and-quality email (promotion candidates, missing edges, audit offenders, stale markers). See [`docs/WEEKLY-DIGEST.md`](docs/WEEKLY-DIGEST.md).
 - **Gmail recall (`bin/gmail`):** a stateless IMAP read CLI (`search` / `show` / `count`) so the agent can answer "what did X send me last week?" or "what's the deadline in that email?" without mirroring your inbox to disk. See [`docs/GMAIL.md`](docs/GMAIL.md).
 - **Maintenance:** `wiki groom --mechanical` (close missing relations, run autolink, report stub debt), `wiki audit --all` (quality score), `wiki review` (discovery digest), `wiki sync-ids` (backfill observation ids).
-- **The agent (Alfred):** the conversational layer over the CLI. His instructions, including the operating-loop reflexes (search-before-answer, volunteer-captures, surface-contradictions, Gmail-fallback), are in [`docs/PERSONA.template.md`](docs/PERSONA.template.md).
+- **The agent (Alfred):** the optional conversational layer over the CLI. One persona (`AGENTS.md` in the vault) is shared by every runtime — nanoclaw, Claude Code, Codex — so Alfred behaves identically wherever you reach him. The published template (with the operating-loop reflexes: search-before-answer, volunteer-captures, surface-contradictions, Gmail-fallback) is [`docs/PERSONA.template.md`](docs/PERSONA.template.md); runtime wiring is in [`integrations/`](integrations/).
 - **Credential handling:** the rules for app passwords and secrets are in [`docs/SECURITY.md`](docs/SECURITY.md).
 
 ## Repository layout
@@ -103,6 +101,12 @@ alfred_assistant/
     DAILY-BRIEF.md        # the deterministic 07:00 morning brief
     GMAIL.md              # the Gmail IMAP read CLI (setup, verbs, troubleshooting)
     SECURITY.md           # credential-handling rules (app passwords, secrets, rotation)
+  integrations/           # per-runtime adapters (config + launch wrappers; NOT persona variants)
+    README.md             #   the adapter contract + "pick your runtime"
+    claude-code/          #   PreToolUse write-guard hook + settings snippet + alfred-cc wrapper
+    codex/                #   alfred-codex wrapper (+ tamper-check backstop note)
+    nanoclaw/             #   pointer to docs/NANOCLAW-PATCHES.md + AGENTS.md loader note
+    scheduling/           #   OS cron/launchd recipes for the daily brief + weekly review
   examples/
     .alfred.yml.example   # config file template, copy to <vault>/.alfred.yml
     example-vault/        # 13-page demo vault you can experiment against (alice, bob-jones, paper-llm-wiki-2024, …)
