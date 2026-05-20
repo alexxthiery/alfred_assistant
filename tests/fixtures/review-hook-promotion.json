@@ -1,0 +1,9 @@
+{
+  "_comment": "wiki review surfaces a connective hook that recurs across >=3 atoms but has no concept page yet, under 'Hook promotion candidates'. Locks the bottom-up promote-on-recurrence discipline of the intellectual pipeline.",
+  "setup": [
+    ["write", "hk-a", "--title", "HK A", "--type", "concept", "--tags", "idea", "--content", "- [claim] a ^[telegram:2026-05-20]", "--hooks", "control-strength-tracks-noise"],
+    ["write", "hk-b", "--title", "HK B", "--type", "concept", "--tags", "idea", "--content", "- [claim] b ^[telegram:2026-05-20]", "--hooks", "control-strength-tracks-noise"],
+    ["write", "hk-c", "--title", "HK C", "--type", "concept", "--tags", "idea", "--content", "- [claim] c ^[telegram:2026-05-20]", "--hooks", "control-strength-tracks-noise"]
+  ],
+  "cmd": ["review"]
+}

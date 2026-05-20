@@ -614,6 +614,7 @@ This table lists every frontmatter field the CLI actively reads. **`stable`** fi
 | `kind`           | string      | type=source                 | write                                  | stable        | Free-form: clipping, paper, lab, transcript, ...               |
 | `birth`          | ISO date    | measurement-series subjects | measure                                | stable        | Used to derive `age` column in growth-curve TSVs               |
 | `homepage`/`scholar`/`orcid`/`github`/`linkedin`/`twitter`/`arxiv`/`email` | string | — | context, audit | experimental | Structured external links on person entities; see "Structured external-link fields" section |
+| `hooks`          | string list | idea atoms (`type=concept`) | hooks, review, write, ingest           | experimental  | Sparse connective keywords (Luhmann entry points); 1-4 per atom; recurring hooks promote to a `type=concept` page; see "Connective hooks" |
 
 Adding a new field that the CLI should read: list it here with `experimental` status, ship one minor version with that label, promote to `stable` next minor if no shape changes needed. Removing a field: deprecate in vX.Y (warn on use), remove in vX.(Y+1) with a `wiki migrate` step.
 
@@ -627,6 +628,16 @@ A page may carry an `aliases: [name1, name2]` frontmatter field. Aliases:
 ## Summary field
 
 A page may carry a `summary: "..."` frontmatter field — a single-line description for index/preview output. Set via `wiki patch --summary "..."`. If absent, the CLI falls back to the first non-heading body line.
+
+## Connective hooks (intellectual pipeline)
+
+Idea atoms may carry a `hooks: [kw1, kw2]` frontmatter field: sparse *connective* keywords (1-3 per atom). A hook is a **shared join key**, not a description — two cards link only when a future card independently lands on the *same* hook string, so a hook must be a short, **standard concept name** the field already shares (`advantage-baseline`, `control-variate`, `two-timescale`, `logmeanexp`), 1-3 words, a label not a claim. Anti-patterns: sentence-like coinages (`reference-subtraction-exposes-relative-value`) that no future card will reuse, and bare umbrella words (`optimization`) that match everything. They are the lightweight, bottom-up layer of the principle/instance idea graph:
+
+- Set via `wiki write/patch --hooks "a,b,c"`, on entities via the ingest spec (`"hooks": [...]`), or accreted via patch `add_hooks`.
+- `wiki hooks [--min N]` lists the live hook vocabulary with page counts — read it before minting a hook so you reuse an existing one (reuse-first). The CLI soft-warns when a hook looks sentence-like (>3 hyphens or >32 chars).
+- **Ingest writes hooks only — never principle pages.** A hook recurring across ≥3 atoms surfaces in `wiki review` under "Hook promotion candidates"; *only then* promote it to a `type=concept` principle page (canonical name + synonym `aliases`) and link the carrying atoms via `instance_of`/`about`. Connections then surface through `related --unconnected` (shared-principle neighbours). Minting a principle page at first ingest (one instance, invented synonyms) is empty abstraction — let recurrence earn the page.
+
+The full ritual (capture → process → hook-determination → promotion → grooming) lives in the persona's "Intellectual pipeline" section, not in the CLI; the CLI only provides the `hooks` field, the `wiki hooks` listing, and the review section.
 
 ## Placement-first protocol
 

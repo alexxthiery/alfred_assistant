@@ -68,6 +68,7 @@
         "type":  { "type": "string", "enum": ["entity", "concept", "decision"], "default": "entity" },
         "tags":  { "type": "array", "items": { "$ref": "#/$defs/tag" } },
         "aliases":   { "type": "array", "items": { "type": "string" } },
+        "hooks":     { "type": "array", "items": { "type": "string" }, "description": "Sparse connective keywords (Luhmann entry points); promote to a concept page on recurrence." },
         "facts":      { "type": "array", "items": { "$ref": "#/$defs/observation" } },
         "hypotheses": { "type": "array", "items": { "$ref": "#/$defs/observation" } },
         "opinions":   { "type": "array", "items": { "$ref": "#/$defs/observation" } },
@@ -143,6 +144,7 @@
         "add_tags":    { "type": "array", "items": { "$ref": "#/$defs/tag" } },
         "remove_tags": { "type": "array", "items": { "$ref": "#/$defs/tag" } },
         "add_aliases": { "type": "array", "items": { "type": "string" } },
+        "add_hooks":   { "type": "array", "items": { "type": "string" }, "description": "Union connective hooks into the page's frontmatter." },
         "summary":     { "type": "string" },
         "title":       { "type": "string" }
       },
@@ -152,7 +154,8 @@
         { "required": ["add_opinions"] },
         { "required": ["add_claims"] },
         { "required": ["add_relations"] },
-        { "required": ["supersede"] }
+        { "required": ["supersede"] },
+        { "required": ["add_hooks"] }
       ]
     }
   }

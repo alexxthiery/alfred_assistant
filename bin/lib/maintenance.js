@@ -29,9 +29,10 @@ const EXTRA_FIELDS = [
   'homepage', 'scholar', 'orcid', 'github', 'linkedin', 'twitter', 'arxiv', 'email',
   'when', 'duration', 'location', 'attendees', 'recurrence',
   'born', 'visibility', 'sensitive', 'confidence',
+  'hooks',
 ];
 
-const LIST_FIELDS = new Set(['derived_from', 'supersedes', 'aliases', 'attendees']);
+const LIST_FIELDS = new Set(['derived_from', 'supersedes', 'aliases', 'attendees', 'hooks']);
 
 // HR07: parse/serialize round-trip is lossy for aliases containing `,` or `]`
 // (audit/12 § parser-robustness). User chose the reject-at-write path: any
@@ -132,6 +133,26 @@ function validateExtraFieldValue(name, raw) {
   }
 }
 
+// Soft-warn on hooks that look sentence-like instead of short connective
+// concept names. A hook only creates a link if a FUTURE card lands on the same
+// string, so a long/sentence-like hook (a whole claim crammed into a slug)
+// bridges nothing. Returns human-readable warning strings (empty = all fine).
+// Soft by design: callers print these as hints; they never block a write.
+const HOOK_MAX_CHARS = 32;
+const HOOK_MAX_HYPHENS = 3;
+function hookWarnings(hooks) {
+  const out = [];
+  const list = Array.isArray(hooks) ? hooks : [];
+  for (const h of list) {
+    if (typeof h !== 'string' || !h) continue;
+    const hyphens = (h.match(/-/g) || []).length;
+    if (h.length > HOOK_MAX_CHARS || hyphens > HOOK_MAX_HYPHENS) {
+      out.push(`hook "${h}" looks sentence-like (${h.length} chars, ${hyphens} hyphens); prefer a short standard concept name (e.g. advantage-baseline, control-variate, two-timescale)`);
+    }
+  }
+  return out;
+}
+
 function applyExtraFrontmatter(fm, args) {
   for (const f of EXTRA_FIELDS) {
     if (args[f] === undefined || args[f] === false) continue;
@@ -152,6 +173,7 @@ module.exports = {
   validateExtraFieldValue,
   validateAliasArg,
   aliasValueError,
+  hookWarnings,
   EXTRA_FIELDS,
   LIST_FIELDS,
 };

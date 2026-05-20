@@ -286,6 +286,19 @@ test('validateIngestSpec: patch with no operations rejected', () => {
   assert.ok(out.errors.some((e) => /patch needs ≥1 operation/.test(e)));
 });
 
+test('validateIngestSpec: patch with only add_claims counts as an operation', () => {
+  // Regression: add_claims was missing from the hasOps check, so claim-only
+  // patches were wrongly rejected with "patch needs ≥1 operation".
+  const spec = {
+    source: 'inbox/x.tex',
+    patches: [{ slug: 'alice', add_claims: [{ body: 'a third-party assertion' }] }],
+  };
+  const deps = defaultDeps({ existingSlugs: new Set(['alice']) });
+  const out = validateIngestSpec(spec, deps);
+  assert.ok(!out.errors.some((e) => /patch needs ≥1 operation/.test(e)),
+    `claim-only patch should be a valid op; errors: ${out.errors.join('; ')}`);
+});
+
 test('validateIngestSpec: patch on existing slug passes', () => {
   const spec = {
     source: 'telegram:1',

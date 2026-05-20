@@ -581,6 +581,51 @@ If a previously-leaked secret is discovered in an old page, treat it as compromi
 
 ---
 
+## Intellectual pipeline — ideas, hooks, and connection
+
+This vault is not only {{USER_NAME}}'s life-graph; it is their **thinking** graph. Its intellectual purpose: *surface non-obvious, cross-domain connections across {{USER_NAME}}'s intellectual domains, resurface the right prior idea at the right moment, and challenge priors.* Turning ideas into prose/papers is not a goal here.
+
+Ideas enter in two layers, **concept-oriented, never source-anchored** (factor by idea, not by the paper it came from):
+
+- **Instance** — a concrete claim/result (`type: concept`, body `[claim]`/`[hypothesis]` with `^[provenance]`).
+- **Principle** — the abstract, reusable pattern the instance exemplifies (`type: concept`, body `[hypothesis]`, because it is a generalisation, not the source's words). Link: instance `instance_of [[principle]]`.
+
+Connections live at the principle layer: two instances from different domains pointing at one principle is a non-obvious bridge; an instance that `contradicts` a principle is a tension to surface.
+
+### Capture vs process (two phases — never skip the second)
+
+1. **Capture (frictionless):** a paper, a blurb, or {{USER_NAME}} thinking out loud lands raw via `inbox` / `inbox ingest-url`. No decomposition at capture.
+2. **Process session (a standing ritual):** convert raw items into atoms. Capturing is not understanding; an unprocessed `inbox queue` is a graveyard. This pass is where thinking compounds — run it regularly.
+
+### The process loop (per raw item)
+
+1. **Decompose** into atomic ideas — one assertion each.
+2. **Classify** each as instance or principle; abstract the principle *away* from the source.
+3. **Mint hooks** (see below).
+4. **Propose** the principle + instance pages + `instance_of`/`about` links + hooks to {{USER_NAME}}; they approve/edit; then `wiki ingest`. The approve step is the safety rail for the unproven LLM-abstraction core — never auto-write abstractions silently.
+5. **Surface connections:** right after ingest, run `wiki related <new-slug> --unconnected` and `wiki unlinked-mentions <new-slug>`; report 1-2 non-obvious bridges.
+
+### Hooks — how to determine them (the heart of connection quality)
+
+A **hook** is a sparse connective keyword (frontmatter `hooks: [...]`, 1-4 per atom): an *API name for a transferable structure*, chosen so a future idea from another domain lands next to this one. Hooks are CONNECTIVE, not descriptive — e.g. `control-strength-tracks-noise`, not `ridge` or `regularization`. Per atom:
+
+1. **Strip to structure.** Restate the claim with domain nouns removed.
+2. **Name the handle.** Compress to a short reusable slug.
+3. **Transfer test (the bar for "non-trivial").** Keep a hook only if you can name 2+ plausible *other*, ideally cross-domain, instances that would independently land on it. Can't name two → too specific or descriptive: drop. Matches almost anything (`tradeoff`) → too generic: drop. Aim for recurrence plausible but not universal.
+4. **Reuse-first.** Run `wiki hooks` (the live vocabulary) and `wiki list --type concept`; reuse the closest existing hook string verbatim; record divergent phrasings as `aliases` rather than minting near-duplicates. This stops vocabulary fragmentation.
+5. **Condition on purpose.** Bias steps 1-3 toward the cross-domain bridges in {{USER_NAME}}'s interests, not topical labels.
+6. **Prune to 1-4.** A hook is a doorway, not a tag.
+
+### Promotion and grooming
+
+A hook is a *proto-principle*. When `wiki review` lists one under "Hook promotion candidates" (recurs on ≥3 atoms, no concept page yet), promote it: create the `type: concept` principle, give it the canonical name + synonym `aliases`, and link the carrying atoms via `instance_of`/`about`. During grooming also merge near-duplicate principles (`wiki merge`) and formalise missing edges. This standing pass is where the graph compounds; it is not optional.
+
+### Challenge
+
+When {{USER_NAME}} states a strong intellectual position, run `wiki challenge <slug>` and check for instances that `contradicts` a shared principle. Surface the tension before agreeing (Reflex 3).
+
+---
+
 ## CLI quick reference
 
 ```

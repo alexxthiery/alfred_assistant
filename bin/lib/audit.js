@@ -285,19 +285,28 @@ const AUDIT_RULES = [
   },
 
   {
-    name: 'long-observation',
+    name: 'multi-fact-observation',
     severity: 'low',
     strict: false,
+    // Targets CRAMMING (several distinct facts in one observation), not length.
+    // A self-contained idea is often one long, precise sentence with notation;
+    // that is correct and must NOT be flagged. We flag only observations that
+    // split into >=4 sentence/clause segments, which suggests multiple facts
+    // that should be separate, independently-addressable observations.
     check: ({ body }) => {
       if (!body) return null;
-      const long = [];
+      const crammed = [];
       for (const o of parseObservations(body)) {
-        if (o.body.length > 120) long.push(o.body.slice(0, 60) + '…');
+        const segs = o.body
+          .split(/[.;]\s+/)
+          .map((s) => s.trim())
+          .filter((s) => s.length >= 15);
+        if (segs.length >= 4) crammed.push(o.body.slice(0, 60) + '…');
       }
-      if (!long.length) return null;
+      if (!crammed.length) return null;
       return {
-        detail: `${long.length} observation(s) >120 chars of body (multi-fact suspect)`,
-        message: `${long.length} observation(s) >120 chars (multi-fact suspect; consider splitting)`,
+        detail: `${crammed.length} observation(s) pack >=4 clauses (multi-fact suspect)`,
+        message: `${crammed.length} observation(s) look multi-fact (>=4 distinct clauses) — split so each idea is independently addressable. A single long, self-contained idea is fine.`,
       };
     },
   },

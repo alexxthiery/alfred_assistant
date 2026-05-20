@@ -1,0 +1,4 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["hooks:", "shrinkage", "bias-variance", "control-strength-tracks-noise"]
+}

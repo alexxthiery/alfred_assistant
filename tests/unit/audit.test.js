@@ -234,7 +234,7 @@ test('speculative-shape-fact: detail string identifies the trigger word', () => 
 // Ironclad rules protect closed-set schema vocabulary (unknown observation
 // categories, unknown relation verbs). They are NOT bypassable by --soft,
 // because they catch syntax errors against the schema rather than
-// discretionary quality concerns (lonely, long-observation, etc.).
+// discretionary quality concerns (lonely, multi-fact-observation, etc.).
 
 test('AUDIT_RULES: uncategorized-bullets is marked ironclad', () => {
   const r = findRule('uncategorized-bullets');
@@ -263,11 +263,11 @@ test('ironcladRuleErrors: empty for clean body', () => {
   assert.deepEqual(errors, []);
 });
 
-test('ironcladRuleErrors: silent on advisory-only issues (lonely, long-observation, etc.)', () => {
+test('ironcladRuleErrors: silent on advisory-only issues (lonely, multi-fact-observation, etc.)', () => {
   // A page with no categories or relations would trip uncategorized-bullets if
   // it had bullets; here we exercise the "no relevant ironclad violation" path.
   const errors = ironcladRuleErrors({
-    body: '- [fact] a fact line that is intentionally extremely long, over one hundred and twenty characters, to trigger long-observation advisory ^[t:1]',
+    body: '- [fact] a single self-contained fact line with no ironclad violation ^[t:1]',
   }, deps());
   assert.deepEqual(errors, []);
 });
@@ -304,17 +304,24 @@ test('invented-verb: silent when all verbs are in schema', () => {
   assert.equal(out, null);
 });
 
-test('long-observation: fires on >120-char observation body', () => {
-  const r = findRule('long-observation');
-  const longText = 'x'.repeat(130);
-  const out = r.check({ body: `- [fact] ${longText}` }, deps());
-  assert.ok(out);
+test('multi-fact-observation: fires on a crammed >=4-clause observation', () => {
+  const r = findRule('multi-fact-observation');
+  const crammed = '- [fact] the system uses a critic for value. the actor is the proposal. weights stay exact. parameters move slowly ^[t:1]';
+  const out = r.check({ body: crammed }, deps());
+  assert.ok(out, 'four distinct clauses should be flagged as multi-fact');
 });
 
-test('long-observation: silent on short observations', () => {
-  const r = findRule('long-observation');
-  const out = r.check({ body: '- [fact] short' }, deps());
-  assert.equal(out, null);
+test('multi-fact-observation: silent on a long but self-contained single idea', () => {
+  const r = findRule('multi-fact-observation');
+  // One long, precise sentence with notation (>120 chars, but ONE idea) — must NOT flag.
+  const longSingle = '- [fact] ACT-SMC defines its twist as the prior-reference log-density-ratio u_t(x_t)=log p(x_t|y_{t+1:T}) minus log p(x_t), the smoothing marginal relative to the prior marginal at time t ^[t:1]';
+  assert.ok(longSingle.length > 130);
+  assert.equal(r.check({ body: longSingle }, deps()), null);
+});
+
+test('multi-fact-observation: silent on short observations', () => {
+  const r = findRule('multi-fact-observation');
+  assert.equal(r.check({ body: '- [fact] short' }, deps()), null);
 });
 
 test('empty-page: fires on substantive type with no obs or relations', () => {
@@ -400,7 +407,7 @@ test('auditPage: examples are preserved on uncategorized-bullets', () => {
 // ─── strictRuleErrors ──────────────────────────────────────────────────────
 
 test('strictRuleErrors: only emits rules with strict=true', () => {
-  // long-observation is strict:false, so a single long-obs page should yield 0 strict errors.
+  // multi-fact-observation is strict:false, so an advisory-only page yields 0 strict errors.
   const longText = 'x'.repeat(130);
   const out = strictRuleErrors({
     slug: 'x', title: 'X', type: 'note', tags: ['meta'],

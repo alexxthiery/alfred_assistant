@@ -53,7 +53,8 @@ const { applyFlagAliases } = require('./lib/flag-aliases.js');
 const { flushStaged } = require('./lib/staged-writes.js');
 const { buildTitleEntries, autolinkBody } = require('./lib/autolink.js');
 const { computeMissingInverses, groupByTarget } = require('./lib/inverse-closure.js');
-const { formatIndex, formatLogLine, applyExtraFrontmatter, validateExtraFieldValue, validateAliasArg, aliasValueError } = require('./lib/maintenance.js');
+const { formatIndex, formatLogLine, applyExtraFrontmatter, validateExtraFieldValue, validateAliasArg, aliasValueError, hookWarnings } = require('./lib/maintenance.js');
+const { knownFlags, unknownFlags, valuelessFlags, GLOBAL_FLAGS } = require('./lib/flag-spec.js');
 const {
   VAULT_ROOT, WIKI_DIR, SCHEMA_PATH, INDEX_PATH, LOG_PATH,
   nowISO, wikiPath, listWikiPages, readPage, forEachPage, invalidatePageCache,
@@ -354,6 +355,15 @@ function buildAllPagesSnapshot() {
 
 // ─── write verbs ───────────────────────────────────────────────────────────
 
+// Print soft hints (stderr, non-blocking) for sentence-like hooks. Accepts a
+// comma-string (from --hooks) or an array (from ingest specs).
+function warnHooks(hooks) {
+  const list = typeof hooks === 'string'
+    ? hooks.split(',').map((s) => s.trim()).filter(Boolean)
+    : (Array.isArray(hooks) ? hooks : []);
+  for (const w of hookWarnings(list)) console.error(`[hint] ${w}`);
+}
+
 function cmdWrite(args) {
   const slug = args._[0];
   if (!slug) {
@@ -487,6 +497,7 @@ function cmdWrite(args) {
   const tryApplyExtra = (fm) => {
     try { applyExtraFrontmatter(fm, args); }
     catch (e) { console.error(`error: ${e.message}`); process.exit(3); }
+    if (args.hooks) warnHooks(args.hooks);
   };
 
   let op = 'create';
@@ -909,6 +920,16 @@ function cmdPatch(args) {
   if (args.summary !== undefined && args.summary !== false) {
     fm.summary = String(args.summary);
     ops.push('summary');
+  }
+
+  // Hooks — union connective keywords into frontmatter (comma-split, deduped).
+  if (args.hooks !== undefined && args.hooks !== false) {
+    const incoming = String(args.hooks).split(',').map((s) => s.trim()).filter(Boolean);
+    const merged = Array.isArray(fm.hooks) ? [...fm.hooks] : [];
+    for (const h of incoming) if (!merged.includes(h)) merged.push(h);
+    fm.hooks = merged;
+    ops.push(`hooks:+${incoming.length}`);
+    warnHooks(incoming);
   }
 
   // born / visibility / sensitive / confidence — typed frontmatter fields.
@@ -1553,6 +1574,38 @@ function cmdHubs(args) {
   }
 }
 
+// List every connective hook in use across the vault with its page count and
+// whether it has already been promoted to a concept page (slug==hook). This is
+// the live vocabulary Alfred reads at the start of a process session so he
+// reuses an existing hook instead of minting a near-duplicate (the solo-vault
+// convergence guard). Sorted by frequency; `--min N` filters to recurring hooks.
+function cmdHooks(args) {
+  const minCount = args.min !== undefined ? Math.max(1, parseInt(args.min, 10) || 1) : 1;
+  const counts = new Map();      // hook -> page count
+  const samples = new Map();     // hook -> [slug, ...] (first few)
+  forEachPage(({ slug, fm }) => {
+    const hooks = Array.isArray(fm.hooks) ? fm.hooks : [];
+    for (const h of hooks) {
+      if (typeof h !== 'string' || !h) continue;
+      counts.set(h, (counts.get(h) || 0) + 1);
+      if (!samples.has(h)) samples.set(h, []);
+      const s = samples.get(h);
+      if (s.length < 3) s.push(slug);
+    }
+  });
+  const ranked = [...counts.entries()]
+    .filter(([, n]) => n >= minCount)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  if (ranked.length === 0) {
+    console.log(minCount > 1 ? `(no hooks used on >= ${minCount} pages)` : '(no hooks in use yet)');
+    return;
+  }
+  for (const [hook, n] of ranked) {
+    const promoted = fs.existsSync(wikiPath(hook)) ? 'concept' : '—';
+    console.log(`${n}\t${promoted}\t${hook}\t(${samples.get(hook).join(', ')})`);
+  }
+}
+
 function cmdTimeline(args) {
   const slug = args._[0];
   if (!slug) { console.error('Usage: wiki timeline <slug>'); process.exit(1); }
@@ -1773,6 +1826,7 @@ function cmdIngest(args) {
     };
     // Optional extras
     if (e.aliases) fm.aliases = Array.isArray(e.aliases) ? e.aliases : [e.aliases];
+    if (e.hooks) { fm.hooks = Array.isArray(e.hooks) ? e.hooks : [e.hooks]; warnHooks(fm.hooks); }
     if (e.summary) fm.summary = e.summary;
     for (const k of ['homepage', 'scholar', 'orcid', 'github', 'linkedin', 'twitter', 'arxiv', 'email']) {
       if (e[k]) fm[k] = e[k];
@@ -1858,6 +1912,15 @@ function cmdIngest(args) {
     }
     if (additions.length) {
       newBody = newBody.trimEnd() + '\n' + additions.join('\n') + '\n';
+    }
+    // add_hooks: union connective hooks into frontmatter (deduped, order-preserving).
+    if (Array.isArray(p.add_hooks) && p.add_hooks.length) {
+      const merged = Array.isArray(fm.hooks) ? [...fm.hooks] : [];
+      for (const h of p.add_hooks) {
+        if (typeof h === 'string' && h && !merged.includes(h)) merged.push(h);
+      }
+      fm.hooks = merged;
+      warnHooks(p.add_hooks);
     }
     fm.updated = nowISO();
     stagePage(wikiPath(p.slug), serializeFrontmatter(fm, mintIdsForBody(newBody)));
@@ -3398,6 +3461,9 @@ function cmdPersonaLint(args) {
     'SCHEMA.md',
     'AGENTS.md',
     'AGENTS.local.md',
+    'persona/pipeline.md',
+    'persona/routines.md',
+    'persona/examples.md',
     'alfred/_persona.md',
     'alfred/_persona.local.md',
     'docs/PERSONA.template.md',
@@ -3709,6 +3775,48 @@ function cmdReview(args) {
     })),
   });
 
+  // ── Section 3b: hook promotion candidates ────────────────────────────────
+  // Connective hooks (the sparse `hooks:` field on idea atoms) recurring across
+  // >= HOOK_PROMOTE_THRESHOLD pages but not yet a concept page (and not already
+  // an alias). These have earned promotion to a `type: concept` principle, with
+  // the carrying atoms linked via instance_of/about. Mirrors the bottom-up
+  // "promote on recurrence" discipline; the threshold is lower than the tag
+  // anchor's (hooks are rarer and more specific than taxonomy tags).
+  const HOOK_PROMOTE_THRESHOLD = 3;
+  const hookCount = new Map();
+  const hookSamples = new Map();
+  const aliasSet = new Set();
+  for (const p of all) {
+    const al = Array.isArray(p.fm.aliases) ? p.fm.aliases : [];
+    for (const a of al) aliasSet.add(a);
+  }
+  for (const p of all) {
+    const hooks = Array.isArray(p.fm.hooks) ? p.fm.hooks : [];
+    for (const h of hooks) {
+      if (typeof h !== 'string' || !h) continue;
+      hookCount.set(h, (hookCount.get(h) || 0) + 1);
+      if (!hookSamples.has(h)) hookSamples.set(h, []);
+      const s = hookSamples.get(h);
+      if (s.length < 4) s.push(p.slug);
+    }
+  }
+  const hookCandidates = [];
+  for (const [hook, n] of hookCount.entries()) {
+    if (n < HOOK_PROMOTE_THRESHOLD) continue;
+    if (fs.existsSync(wikiPath(hook))) continue; // already a page/principle
+    if (aliasSet.has(hook)) continue;            // already represented via an alias
+    hookCandidates.push({ hook, n });
+  }
+  hookCandidates.sort((x, y) => y.n - x.n || x.hook.localeCompare(y.hook));
+  sections.push({
+    title: 'Hook promotion candidates',
+    note: `Connective hooks recurring across ≥ ${HOOK_PROMOTE_THRESHOLD} atoms with no concept page yet. Promote each to a \`type: concept\` principle and link the carrying atoms via instance_of/about (canonical name + aliases synonym ring).`,
+    items: hookCandidates.slice(0, 15).map((e) => ({
+      head: `${e.hook} (${e.n} atoms)`,
+      lines: [`carried by: ${hookSamples.get(e.hook).join(', ')}`],
+    })),
+  });
+
   // ── Section 4: stale temporal markers ────────────────────────────────────
   const today = new Date();
   const SIX_MONTHS_MS = 1000 * 60 * 60 * 24 * 30 * 6;
@@ -3980,7 +4088,7 @@ const VERBS = [
   { name: 'list',     section: 'READ', lines: ['  list [--tag t] [--type t] [--limit N] [--slugs-only]   list pages (alphabetical); --limit caps output'] },
   { name: 'search',   section: 'READ', lines: ['  search <query> [--tag T] [--limit N] [--literal] [--regex] [--title-only]   BM25 + synonyms; fallback flags for substring/regex'] },
   { name: 'recent',   section: 'READ', lines: ['  recent [--days N] [--type T]              pages updated recently'] },
-  { name: 'preview',  section: 'READ', lines: ['  preview <slug>                            cheap peek (~10 lines, ~150 tokens)'] },
+  { name: 'preview',  section: 'READ', lines: ['  preview <slug> [--compact]                cheap peek (~10 lines, ~150 tokens); --compact trims further'] },
   { name: 'print',    section: 'READ', lines: ['  print <slug> [--backlinks] [--links]      full page with optional context'] },
   { name: 'context',  section: 'READ', lines: ['  context <slug> [--compact]                bundled: FM + obs + relations + 1-hop neighbors (--compact: agent-friendly, ~30% fewer lines)'] },
   { name: 'sources',  section: 'READ', lines: ['  sources                                   list type=source pages'] },
@@ -3988,7 +4096,7 @@ const VERBS = [
   { name: 'unlinked-mentions', section: 'READ', lines: ['  unlinked-mentions <slug> [--limit N]      pages whose body mentions <slug>\'s title/aliases but lacks a [[wikilink]] (wikilink-promotion candidates)'] },
   { name: 'render',   section: 'READ', lines: ['  render <slug>                             execute the first ```sql fence on a type=view page'] },
   { name: 'agenda',   section: 'READ', lines: [
-    '  agenda [today|week|upcoming|past|all]     list type=event pages by when',
+    '  agenda [today|week|upcoming|past|all]     list type=event pages by when (also accepts --window <w>)',
     '  agenda --on YYYY-MM-DD                    on-this-day: events + birthdays sharing MM-DD (any year)',
     '  agenda --month-day MM-DD                  same as --on but year-agnostic',
   ] },
@@ -4145,10 +4253,11 @@ const VERBS = [
     ],
   },
   { name: 'resolve',  section: 'GRAPH + NAVIGATION', lines: ['  resolve <fuzzy>                           fuzzy name → slug (top matches)'] },
-  { name: 'path',     section: 'GRAPH + NAVIGATION', lines: ['  path <from> <to> [--max-hops N]           shortest typed-edge path'] },
+  { name: 'path',     section: 'GRAPH + NAVIGATION', lines: ['  path <from> <to> [--max-hops N] [--directed]   shortest typed-edge path; --directed follows edge direction'] },
   { name: 'hubs',     section: 'GRAPH + NAVIGATION', lines: ['  hubs [--top N]                            most-backlinked pages'] },
   { name: 'place',    section: 'GRAPH + NAVIGATION', lines: ['  place "concept"                           pre-write helper: existing? similar? suggested'] },
   { name: 'stubs',    section: 'GRAPH + NAVIGATION', lines: ['  stubs [--top N] [--show-refs]             referenced-but-missing slugs, ranked'] },
+  { name: 'hooks',    section: 'GRAPH + NAVIGATION', lines: ['  hooks [--min N]                           connective hooks in use + page counts (live vocabulary for reuse-first; --min filters to recurring)'] },
   { name: 'timeline', section: 'GRAPH + NAVIGATION', lines: ['  timeline <slug>                           dated observations + events involving slug, sorted'] },
 
   // TODO
@@ -4217,7 +4326,7 @@ const VERBS = [
       '  event-tag              (medium)— type=event without "event" in tags',
       '  uncategorized-bullets  (medium)— `- ` lines not observations or relations',
       '  empty-page             (medium)— substantive type with no obs/relations',
-      '  long-observation       (low)   — obs body > 120 chars (multi-fact suspect)',
+      '  multi-fact-observation (low)   — obs packs >=4 clauses (split; a long single idea is fine)',
       '',
       'Cross-page rules (--all only):',
       '  hot-text-mention       — capitalized 2+ word phrase in 2+ pages, no stub',
@@ -4368,6 +4477,7 @@ const cmds = {
   relations: cmdRelations, observations: cmdObservations,
   autolink: cmdAutolink,
   resolve: cmdResolve, path: cmdPath, hubs: cmdHubs, place: cmdPlace, stubs: cmdStubs,
+  hooks: cmdHooks,
   timeline: cmdTimeline,
   // todo
   todo: cmdTodo,
@@ -4410,6 +4520,43 @@ const FLAG_ALIASES = {
   if (errors.length) {
     for (const e of errors) console.error(`error: wiki ${verb}: ${e}`);
     process.exit(1);
+  }
+}
+
+// Strict flag validation. parseArgs accepts any `--flag`; without this a verb
+// silently ignores flags it does not read (typos, unsupported flags, or a flag
+// meant for another verb), e.g. `wiki list --limit` did nothing. Reject unknown
+// flags loudly. The known set (help-advertised + global + shared write-core
+// family) is kept complete against the code by tests/unit/flag-parity.test.js,
+// so this never rejects a flag the verb actually honors. Runs after alias
+// rewriting so deprecated flags are normalized first.
+{
+  const v = VERBS.find((e) => e.name === verb);
+  const helpText = v ? [...(v.lines || []), v.longHelp || ''].join('\n') : '';
+  const unknown = unknownFlags(verb, args, helpText);
+  if (unknown.length) {
+    const plural = unknown.length > 1 ? 's' : '';
+    console.error(`error: wiki ${verb}: unknown flag${plural} ${unknown.map((f) => '--' + f).join(', ')}`);
+    const known = [...knownFlags(verb, helpText)]
+      .filter((f) => !GLOBAL_FLAGS.has(f))
+      .sort();
+    if (known.length) console.error(`  known flags: ${known.map((f) => '--' + f).join(' ')}`);
+    console.error(`  run \`wiki ${verb} --help\` for usage`);
+    process.exit(2);
+  }
+}
+
+// Value-required flags passed with no value. parseArgs makes `--title` (no
+// value) into title=true, which the write path would persist as the string
+// "true". Reject loudly instead of silently corrupting the page. The set is
+// conservative (boolean flags are never listed), so this cannot reject a valid
+// bare flag like --soft.
+{
+  const valueless = valuelessFlags(args);
+  if (valueless.length) {
+    const plural = valueless.length > 1 ? 's' : '';
+    console.error(`error: wiki ${verb}: flag${plural} ${valueless.map((f) => '--' + f).join(', ')} require${plural ? '' : 's'} a value`);
+    process.exit(2);
   }
 }
 

@@ -186,8 +186,9 @@ function validateIngestSpec(spec, deps) {
       errors.push(`${ctx}: target page does not exist (and is not being created in this spec)`);
     }
     const hasOps = (p.add_facts && p.add_facts.length) || (p.add_hypotheses && p.add_hypotheses.length)
-      || (p.add_opinions && p.add_opinions.length) || (p.add_relations && p.add_relations.length)
-      || (p.supersede && p.supersede.length);
+      || (p.add_opinions && p.add_opinions.length) || (p.add_claims && p.add_claims.length)
+      || (p.add_relations && p.add_relations.length)
+      || (p.supersede && p.supersede.length) || (p.add_hooks && p.add_hooks.length);
     if (!hasOps) errors.push(`${ctx}: patch needs ≥1 operation`);
     validateRelations(p.add_relations || [], ctx, p.slug);
   }

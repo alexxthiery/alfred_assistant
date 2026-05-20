@@ -1,0 +1,8 @@
+{
+  "_comment": "Connective hooks round-trip: wiki write --hooks sets the frontmatter list; wiki patch --hooks unions more in (deduped). Locks the intellectual-pipeline hooks field on the write + patch paths.",
+  "setup": [
+    ["write", "ridge-hook", "--title", "Ridge penalty NSR", "--type", "concept", "--tags", "idea", "--content", "- [claim] optimal ridge penalty proportional to NSR/n ^[telegram:2026-05-20]", "--hooks", "shrinkage,bias-variance"],
+    ["patch", "ridge-hook", "--hooks", "control-strength-tracks-noise,shrinkage"]
+  ],
+  "cmd": ["print", "ridge-hook"]
+}
