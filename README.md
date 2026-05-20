@@ -1,17 +1,7 @@
 <!-- TODO before public release:
   1. Replace <your-username> placeholders below with your actual GitHub handle.
   2. Fill in <nanoclaw-maintainer> with the upstream attribution.
-  3. Rewrite git history to scrub the author email from the early commits
-     (email only; keep the name). The repo content is already PII-clean; only
-     the author/committer metadata carries the old personal address. Easy
-     because no force-push collides with collaborators (solo private repo):
-       brew install git-filter-repo
-       # replace OLD with your old commit email, NEW with the noreply address:
-       git filter-repo --email-callback 'return b"NEW" if email == b"OLD" else email'
-       git remote add origin <url>   # filter-repo drops the remote
-       git push --force origin main
-     The noreply address for this account is <id>+<login>@users.noreply.github.com.
-     Back up the repo dir first. Verify with: git log --all --format='%ae' | sort -u
+  (Author email already scrubbed from history; commits use a GitHub noreply address.)
 -->
 
 
