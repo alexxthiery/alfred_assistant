@@ -7,5 +7,10 @@
 set -euo pipefail
 VAULT="${ALFRED_VAULT:-$HOME/Library/CloudStorage/Dropbox/_AI_box}"
 [ -f "$VAULT/AGENTS.md" ] || { echo "alfred-codex: no AGENTS.md in $VAULT (set ALFRED_VAULT)" >&2; exit 1; }
+# Put the deployed CLI on PATH so the persona's bare `wiki`/`inbox` resolve.
+[ -d "$VAULT/.bin" ] && export PATH="$VAULT/.bin:$PATH"
+# Disable the RTK rewrite hook for this session so Alfred gets raw CLI/file output.
+# Honored by ~/.claude/hooks/rtk-gate.sh; harmless if that gate is not installed.
+export ALFRED_NO_RTK=1
 cd "$VAULT"
 exec codex "$@"
