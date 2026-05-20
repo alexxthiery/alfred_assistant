@@ -83,20 +83,19 @@ echo ""
 # new template content (e.g. new persona sections) without losing edits.
 TMP=$(mktemp)
 
-# Strip the leading <!-- ... --> instructions block (template metadata for
-# humans, not for Alfred). It's the first HTML comment in the file.
-awk 'BEGIN{skip=0} /^<!--$/{if(NR==1){skip=1;next}} skip && /^-->$/{skip=0;next} !skip{print}' \
-  "$SRC/docs/PERSONA.template.md" \
-  | sed -e "s|{{USER_NAME}}|$USER_NAME|g" \
-        -e "s|{{USER_SLUG}}|$USER_SLUG|g" \
-        -e "s|{{USER_EMAIL}}|$USER_EMAIL|g" \
-        -e "s|{{USER_TZ_CITY}}|$USER_TZ_CITY|g" \
-  > "$TMP"
+# Render via the single shared renderer (tools/render-persona.sh) so the
+# substitution + identity-from-.alfred.yml logic lives in exactly one place.
+# .alfred.yml was seeded above, so the renderer reads the canonical identity.
+"$SELF/render-persona.sh" --vault "$TARGET" --stdout > "$TMP"
 
-RENDERED="$TARGET/alfred/_persona.local.md"
+# Canonical persona is the personalized AGENTS.md at the vault root (all
+# runtimes read it: nanoclaw by instruction, Codex natively, Claude Code via
+# the CLAUDE.md @import). The template render goes to AGENTS.local.md for
+# comparison; the canonical AGENTS.md is never overwritten here.
+RENDERED="$TARGET/AGENTS.local.md"
 if [ -f "$RENDERED" ]; then
   if diff -q "$RENDERED" "$TMP" > /dev/null 2>&1; then
-    echo "[persona] _persona.local.md unchanged"
+    echo "[persona] AGENTS.local.md unchanged"
   else
     echo "[persona] WOULD UPDATE $RENDERED"
   fi
@@ -105,28 +104,26 @@ else
 fi
 
 if $APPLY; then
-  mkdir -p "$TARGET/alfred"
   cp "$TMP" "$RENDERED"
   echo "[persona] wrote $RENDERED"
 fi
 
-# Side-by-side comparison vs the live _persona.md, since the user's runtime
-# may be reading that file (not the .local.md the template prescribes). The
-# diff shows what new content (e.g. Phase 8/9/10 sections) the template
-# has that the live file lacks, so the user can merge selectively.
-if [ -f "$TARGET/alfred/_persona.md" ]; then
-  EXISTING=$(wc -l < "$TARGET/alfred/_persona.md" | tr -d ' ')
+# Side-by-side comparison vs the canonical AGENTS.md, so the user can merge
+# new template content (new sections/features) into their personalized persona
+# without losing hand edits.
+if [ -f "$TARGET/AGENTS.md" ]; then
+  EXISTING=$(wc -l < "$TARGET/AGENTS.md" | tr -d ' ')
   NEW=$(wc -l < "$TMP" | tr -d ' ')
-  if diff -q "$TARGET/alfred/_persona.md" "$TMP" > /dev/null 2>&1; then
-    echo "[persona] live _persona.md matches rendered template (no merge needed)"
+  if diff -q "$TARGET/AGENTS.md" "$TMP" > /dev/null 2>&1; then
+    echo "[persona] canonical AGENTS.md matches rendered template (no merge needed)"
   else
-    ADDED=$(diff "$TARGET/alfred/_persona.md" "$TMP" | grep -c '^>' || true)
-    REMOVED=$(diff "$TARGET/alfred/_persona.md" "$TMP" | grep -c '^<' || true)
+    ADDED=$(diff "$TARGET/AGENTS.md" "$TMP" | grep -c '^>' || true)
+    REMOVED=$(diff "$TARGET/AGENTS.md" "$TMP" | grep -c '^<' || true)
     echo ""
-    echo "[persona] live _persona.md vs rendered template: $EXISTING → $NEW lines (+$ADDED / −$REMOVED)"
-    echo "  The live file is NOT overwritten by deploy.sh."
-    echo "  Inspect: diff $TARGET/alfred/_persona.md $RENDERED"
-    echo "  Merge wanted deltas manually. Hand personalization in _persona.md survives."
+    echo "[persona] canonical AGENTS.md vs rendered template: $EXISTING → $NEW lines (+$ADDED / −$REMOVED)"
+    echo "  The canonical AGENTS.md is NOT overwritten by deploy.sh."
+    echo "  Inspect: diff $TARGET/AGENTS.md $RENDERED"
+    echo "  Merge wanted deltas manually. Hand personalization in AGENTS.md survives."
   fi
 fi
 

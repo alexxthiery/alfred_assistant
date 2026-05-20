@@ -7,6 +7,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added (Multi-runtime — single canonical persona)
+- **`tools/render-persona.sh`** — the single persona-render engine. Strips the template's instruction comment and substitutes `{{USER_*}}` from `.alfred.yml` (via the existing `config.js` parser, so there is one identity source and one substitution code path). It renders the *template* to `AGENTS.local.md` (a merge-comparison artifact) — never the canonical persona — so a re-render can't clobber hand-personalization.
+- **`tools/deploy.sh`** now delegates its persona render to `render-persona.sh` (eliminating the duplicate inline substitution) and compares the render against the canonical `AGENTS.md`. Single render path; no divergence.
+- These support the runtime model where one canonical `AGENTS.md` (the user's personalized persona, in the vault) is read by every runtime: nanoclaw (loader repointed to `AGENTS.md`), Codex (native), and Claude Code (a one-line `@AGENTS.md` import in `CLAUDE.md`). No symlinks (Dropbox-fragile per the Phase 10 lesson); the `@`-import is the no-drift way to share one file. The persona's remaining runtime-isms (vault paths, scheduling) are harmless (the CLI locates the vault itself) and are cleaned up alongside the scheduling rework.
+
 ### Added (Multi-runtime — integrity core)
 - **Tamper-check escalated from warn to a hard block.** `wiki` now refuses any write-class verb while the vault has uncommitted out-of-band changes (the vault was edited outside the CLI, or a prior auto-commit failed) instead of silently folding them into the next commit. This is the runtime-independent write-guard: it works at the git layer, so it catches an out-of-band edit regardless of which runtime (nanoclaw / Claude Code / Codex / a human) made it. No-op when the vault isn't a git repo or auto-commit is disabled (a dirty tree is then expected).
 - **Escape hatches**: `--accept-tamper` (fold the edit into this write once) and the new `wiki bless` verb (accept + commit the current vault state — the remedy when a manual edit was intentional).
