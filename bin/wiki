@@ -119,7 +119,7 @@ function regenerateIndex() {
   fs.writeFileSync(INDEX_PATH, formatIndex(pages, { now: nowISO() }));
 }
 
-function appendLog(op, detail) {
+function appendLog(op, detail, opts = {}) {
   fs.mkdirSync(WIKI_DIR, { recursive: true });
   const ts = nowISO().replace('T', ' ').slice(0, 19);
   // Defense in depth: redact known secret shapes from BOTH the log line
@@ -133,7 +133,7 @@ function appendLog(op, detail) {
   } else {
     fs.appendFileSync(LOG_PATH, line);
   }
-  autoCommit(op, safeDetail);
+  autoCommit(op, safeDetail, opts);
 }
 
 // Auto-commit every CLI mutation to the vault's git repo. Best-effort:
@@ -146,7 +146,12 @@ function autoCommitDisabled() {
   return !!(process.env.WIKI_NO_AUTO_COMMIT && process.env.WIKI_NO_AUTO_COMMIT !== '0' && process.env.WIKI_NO_AUTO_COMMIT !== 'false');
 }
 
-function autoCommit(op, detail) {
+// Set true for the lifetime of a `--accept-tamper` invocation so the ensuing
+// write's auto-commit folds in the accepted out-of-band edit (which may be
+// outside wiki/raw). Normal writes leave it false → scoped staging.
+let AUTOCOMMIT_STAGE_ALL = false;
+
+function autoCommit(op, detail, opts = {}) {
   if (autoCommitDisabled()) {
     console.error('auto-commit: skipped (WIKI_NO_AUTO_COMMIT / --no-auto-commit). Run `git -C $VAULT_ROOT add -A && git commit` to capture this write.');
     return;
@@ -157,9 +162,6 @@ function autoCommit(op, detail) {
     const { spawnSync } = require('child_process');
     const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
     // Array-form spawnSync: argv is passed through verbatim, no shell interpolation.
-    // See tamperCheck for the race-window discussion: by the time we hit
-    // `git add -A`, log.md has already been written and any concurrent
-    // out-of-CLI edit gets folded into the same commit indistinguishably.
     const git = (args) => {
       const r = spawnSync('git', args, { cwd: VAULT_ROOT, env, encoding: 'utf-8' });
       if (r.error) throw r.error;
@@ -168,7 +170,23 @@ function autoCommit(op, detail) {
       }
       return r;
     };
-    git(['add', '-A']);
+    // Normal writes stage ONLY the directories the CLI itself writes (wiki/
+    // pages + index + log; raw/ for `measure` TSVs and replay captures). The
+    // old `git add -A` swept EVERY dirty/untracked file — so a hand-edited
+    // AGENTS.md or a stray root doc got folded into the next wiki commit
+    // indistinguishably, defeating the tamper-check meant to flag exactly those.
+    // Scoping restores that: anything outside wiki/raw stays uncommitted and is
+    // surfaced by tamperCheck on the next write.
+    //
+    // The escape hatches deliberately stage EVERYTHING: `wiki bless` and
+    // `--accept-tamper` mean "I accept the current out-of-band state" — which
+    // can include stray root files — so they must be able to clear them.
+    if (opts.all || AUTOCOMMIT_STAGE_ALL) {
+      git(['add', '-A']);
+    } else {
+      const owned = ['wiki', 'raw'].filter((d) => fs.existsSync(path.join(VAULT_ROOT, d)));
+      if (owned.length) git(['add', '-A', '--', ...owned]);
+    }
     // Skip commit if nothing staged (e.g. only ignored files changed).
     const staged = git(['diff', '--cached', '--name-only']).stdout.trim();
     if (!staged) return;
@@ -275,7 +293,7 @@ function cmdBless() {
   if (nonIndex.length) {
     console.error(`  NOTE: ${nonIndex.length} change(s) beyond wiki/index.md — review the list above; these are genuine out-of-band edits.`);
   }
-  appendLog('bless', `accepted ${changed.length} out-of-band vault change(s)`);
+  appendLog('bless', `accepted ${changed.length} out-of-band vault change(s)`, { all: true });
   console.log('blessed: current vault state committed as accepted.');
 }
 
@@ -4964,5 +4982,9 @@ if (args['no-auto-commit']) {
 // before they're folded into the next auto-commit.
 const WRITE_VERBS = new Set(['write', 'patch', 'ingest', 'mv', 'delete', 'merge', 'link', 'autolink', 'groom', 'todo']);
 if (WRITE_VERBS.has(verb)) tamperCheck({ accept: !!args['accept-tamper'] });
+// --accept-tamper means "fold the accepted out-of-band edit into this write's
+// commit" — so this invocation's auto-commit must stage everything, not just
+// the scoped wiki/raw paths (the edit may be a stray root file).
+if (args['accept-tamper']) AUTOCOMMIT_STAGE_ALL = true;
 
 cmds[verb](args);

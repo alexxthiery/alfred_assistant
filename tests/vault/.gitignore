@@ -1,0 +1,11 @@
+# Mirror the real vault's transient-artifact ignores so a git-backed test vault
+# behaves like production (the auto-commit/tamper-check tests depend on this).
+.cache/
+cache/
+.DS_Store
+# Agent scratch + the tamper log are runtime artifacts, never committed.
+alfred/log/
+alfred/scratchpad.md
+alfred/notes/
+alfred/tamper.log
+alfred/_persona.local.md
