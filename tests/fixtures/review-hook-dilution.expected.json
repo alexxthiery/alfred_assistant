@@ -1,0 +1,4 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["Diluted hooks (audit, do not promote as-is)", "over-applied-hook (13 atoms)"]
+}

@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# telegram-send — send a message body (read from stdin) to a Telegram chat via
+# the Bot API. The send-side mirror of email-digest, for the Telegram channel
+# of the vault-backed reminder system (reminder-dispatch | telegram-send).
+#
+# Usage:
+#   echo "body text" | telegram-send
+#   telegram-send --dry-run
+#       (validates env vars + token via getMe; does NOT send; stdin is drained.
+#        Suitable for startup checks and cron pre-flight.)
+#
+# Empty / whitespace-only stdin is a no-op (exit 0), so an empty dispatch (no
+# reminders due) sends nothing.
+#
+# Required env vars:
+#   TELEGRAM_BOT_TOKEN   — Bot API token (reused from nanoclaw's Alfred bot)
+#   TELEGRAM_CHAT_ID     — destination chat id (your Telegram user id for a 1:1 DM)
+#
+# Get the chat id by messaging @userinfobot. See docs/TELEGRAM.md. Sending via
+# the Bot API does not interfere with nanoclaw receiving on the same token.
+
+set -euo pipefail
+
+DRY_RUN=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1; shift ;;
+    -h|--help)
+      sed -n '2,/^set/p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *) echo "telegram-send: unknown arg: $1" >&2; exit 1 ;;
+  esac
+done
+
+if [ -z "${TELEGRAM_BOT_TOKEN:-}" ]; then
+  echo "telegram-send: TELEGRAM_BOT_TOKEN env var not set" >&2
+  exit 2
+fi
+if [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+  echo "telegram-send: TELEGRAM_CHAT_ID env var not set (message @userinfobot to get it; see docs/TELEGRAM.md)" >&2
+  exit 2
+fi
+
+API="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}"
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  # getMe validates the token + Bot API reachability without sending anything.
+  if curl --silent --show-error --fail --max-time 15 "${API}/getMe" --output /dev/null; then
+    echo "telegram-send --dry-run: OK (token valid, Bot API reachable). Would send to chat ${TELEGRAM_CHAT_ID}."
+    cat >/dev/null   # drain stdin so the caller's pipe doesn't break
+    exit 0
+  else
+    echo "telegram-send --dry-run: getMe failed. Verify TELEGRAM_BOT_TOKEN is correct and not revoked." >&2
+    cat >/dev/null
+    exit 3
+  fi
+fi
+
+BODY=$(cat)
+# Empty / whitespace-only body: no-op. Lets `reminder-dispatch | telegram-send`
+# send nothing when no reminders are due.
+if [ -z "${BODY//[[:space:]]/}" ]; then
+  exit 0
+fi
+
+# Plain text (no parse_mode) avoids Markdown/HTML escaping pitfalls. curl with
+# --data-urlencode handles newlines and special characters safely.
+RESP=$(curl --silent --show-error --max-time 20 \
+  --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+  --data-urlencode "text=${BODY}" \
+  --data "disable_web_page_preview=true" \
+  "${API}/sendMessage") || { echo "telegram-send: curl failed reaching the Bot API" >&2; exit 3; }
+
+# The Bot API can return HTTP 200 with {"ok":false,...} (e.g. bad chat_id), so
+# check the payload, not just curl's exit status.
+if printf '%s' "$RESP" | grep -q '"ok":true'; then
+  echo "sent to Telegram chat ${TELEGRAM_CHAT_ID}"
+else
+  echo "telegram-send: Bot API rejected the send: ${RESP}" >&2
+  exit 3
+fi

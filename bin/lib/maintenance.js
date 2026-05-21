@@ -22,6 +22,7 @@
 'use strict';
 
 const { firstBodyLine } = require('./graph.js');
+const { isISO8601DateTime } = require('./date.js');
 
 const EXTRA_FIELDS = [
   'status', 'due', 'priority', 'decided_on', 'supersedes', 'derived_from',
@@ -30,9 +31,10 @@ const EXTRA_FIELDS = [
   'when', 'duration', 'location', 'attendees', 'recurrence',
   'born', 'visibility', 'sensitive', 'confidence',
   'hooks',
+  'remind_at', 'reminded_at', 'notify',
 ];
 
-const LIST_FIELDS = new Set(['derived_from', 'supersedes', 'aliases', 'attendees', 'hooks']);
+const LIST_FIELDS = new Set(['derived_from', 'supersedes', 'aliases', 'attendees', 'hooks', 'notify']);
 
 // HR07: parse/serialize round-trip is lossy for aliases containing `,` or `]`
 // (audit/12 § parser-robustness). User chose the reject-at-write path: any
@@ -66,11 +68,17 @@ function validateAliasArg(arg) {
 
 function formatIndex(pages, opts = {}) {
   const now = opts.now || '';
+  const today = now.slice(0, 10);
   const byType = {};
   for (const { slug: fileSlug, fm, body } of pages) {
+    const type = fm.type || 'note';
+    // Keep the browse index lean: omit retired items (they remain in wiki/ and
+    // queryable via `todo list --include-done` / `agenda past`). Done todos are
+    // operational chores, not knowledge; past events are historical.
+    if (type === 'todo' && (fm.status || 'open') === 'done') continue;
+    if (type === 'event' && fm.when && today && String(fm.when).slice(0, 10) < today) continue;
     const slug = fm.id || fileSlug;
     const title = fm.title || slug;
-    const type = fm.type || 'note';
     const summary = firstBodyLine(body);
     (byType[type] ||= []).push({ slug, title, summary });
   }
@@ -127,6 +135,14 @@ function validateExtraFieldValue(name, raw) {
         return { error: `--confidence must be a number in [0, 1] (got "${v}")` };
       }
       return { value: num };
+    }
+    case 'remind_at':
+    case 'reminded_at': {
+      const v = String(raw).trim();
+      if (!isISO8601DateTime(v)) {
+        return { error: `--${name} must be ISO8601 datetime YYYY-MM-DDTHH:MM[:SS][±HH:MM|Z] (got "${v}")` };
+      }
+      return { value: v };
     }
     default:
       return { value: raw };

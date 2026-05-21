@@ -932,10 +932,33 @@ function cmdPatch(args) {
     warnHooks(incoming);
   }
 
-  // born / visibility / sensitive / confidence — typed frontmatter fields.
-  // Validation lives in bin/lib/maintenance.js::validateExtraFieldValue so
-  // `wiki write` and `wiki patch` share the contract.
-  for (const f of ['born', 'visibility', 'sensitive', 'confidence']) {
+  // Remove-hooks — set-difference symmetric to --hooks. The hygiene path: drop
+  // a hook from a card whose own claim does not instantiate it (prunes the
+  // spurious members of a diluted/over-applied hook). Only removes hooks that
+  // are present; missing ones are a silent no-op.
+  if (args['remove-hooks'] !== undefined && args['remove-hooks'] !== false) {
+    const drop = new Set(String(args['remove-hooks']).split(',').map((s) => s.trim()).filter(Boolean));
+    const before = Array.isArray(fm.hooks) ? fm.hooks : [];
+    const kept = before.filter((h) => !drop.has(h));
+    const removed = before.length - kept.length;
+    fm.hooks = kept;
+    if (removed) ops.push(`hooks:-${removed}`);
+  }
+
+  // notify — comma-split list (which channels a reminder fires on), mirroring
+  // the hooks block above. Set independently of remind_at so a reminder's
+  // channels can be edited in place.
+  if (args.notify !== undefined && args.notify !== false) {
+    fm.notify = String(args.notify).split(',').map((s) => s.trim()).filter(Boolean);
+    ops.push(`notify:${fm.notify.join(',')}`);
+  }
+
+  // born / visibility / sensitive / confidence / remind_at / reminded_at —
+  // typed frontmatter fields. Validation lives in
+  // bin/lib/maintenance.js::validateExtraFieldValue so `wiki write` and
+  // `wiki patch` share the contract. reminded_at is the dispatcher's
+  // idempotency stamp (set via `wiki patch <slug> --reminded_at <ts>`).
+  for (const f of ['born', 'visibility', 'sensitive', 'confidence', 'remind_at', 'reminded_at']) {
     if (args[f] === undefined || args[f] === false) continue;
     const { value, error } = validateExtraFieldValue(f, args[f]);
     if (error) { console.error(`error: ${error}`); process.exit(3); }
@@ -973,7 +996,7 @@ function cmdPatch(args) {
   }
 
   if (ops.length === 0) {
-    console.error('error: nothing to patch. Pass at least one of --observation, --relation, --add-tag, --remove-tag, --alias, --summary, --title, --born, --visibility, --sensitive, --confidence.');
+    console.error('error: nothing to patch. Pass at least one of --observation, --relation, --add-tag, --remove-tag, --alias, --summary, --title, --born, --visibility, --sensitive, --confidence, --remind_at, --reminded_at, --notify.');
     process.exit(1);
   }
 
@@ -1231,7 +1254,7 @@ function todoSlugify(title) {
 
 function todoAdd(args) {
   const title = args._[0];
-  if (!title) { console.error('Usage: wiki todo add "title" [--due ...] [--priority ...]'); process.exit(1); }
+  if (!title) { console.error('Usage: wiki todo add "title" [--due ...] [--priority ...] [--remind_at ISO] [--notify telegram,email]'); process.exit(1); }
   const baseSlug = todoSlugify(title);
   let slug = baseSlug;
   let n = 2;
@@ -1244,6 +1267,20 @@ function todoAdd(args) {
   };
   if (args.due) fm.due = args.due;
   if (args.priority) fm.priority = args.priority;
+  // Reminder fields: a todo with remind_at is a timed reminder. The dispatcher
+  // (bin/reminder-dispatch) fires the Telegram push at remind_at; the morning
+  // brief surfaces it on its due date. notify defaults to both channels and is
+  // only meaningful alongside remind_at.
+  if (args.remind_at !== undefined && args.remind_at !== false) {
+    const { value, error } = validateExtraFieldValue('remind_at', args.remind_at);
+    if (error) { console.error(`error: ${error}`); process.exit(3); }
+    fm.remind_at = value;
+    fm.notify = args.notify
+      ? String(args.notify).split(',').map((s) => s.trim()).filter(Boolean)
+      : ['telegram', 'email'];
+  } else if (args.notify) {
+    fm.notify = String(args.notify).split(',').map((s) => s.trim()).filter(Boolean);
+  }
   fs.mkdirSync(WIKI_DIR, { recursive: true });
   fs.writeFileSync(wikiPath(slug), serializeFrontmatter(fm, '\n'));
   regenerateIndex();
@@ -1271,8 +1308,13 @@ function todoList(args) {
     if (args.done && status !== 'done') return;
     if (args['due-today'] && fm.due !== today) return;
     if (args.overdue && (!fm.due || fm.due >= today)) return;
+    if (args.reminders && !fm.remind_at) return;
     const slug = fm.id || fileSlug;
-    rows.push({ slug, title: fm.title || '', status, due: fm.due || '', priority: fm.priority || '' });
+    rows.push({
+      slug, title: fm.title || '', status, due: fm.due || '', priority: fm.priority || '',
+      remind_at: fm.remind_at || '', reminded_at: fm.reminded_at || '',
+      notify: Array.isArray(fm.notify) ? fm.notify.join(',') : (fm.notify || ''),
+    });
   });
   const prio = { high: 0, med: 1, medium: 1, low: 2 };
   rows.sort((a, b) => {
@@ -1284,7 +1326,13 @@ function todoList(args) {
   for (const r of rows) {
     const dueStr = r.due ? `due ${r.due}` : '';
     const pStr = r.priority ? `[${r.priority}]` : '';
-    console.log(`${r.status}\t${r.slug}\t${r.title}\t${dueStr}\t${pStr}`);
+    // Columns 5+ are reminder metadata, appended (never reordered) so the
+    // index-based parser in bin/lib/daily-brief.js still reads cols 0-4.
+    // bin/lib/reminder-dispatch.js parses these trailing columns by prefix.
+    const remindStr = r.remind_at ? `remind ${r.remind_at}` : '';
+    const remindedStr = r.reminded_at ? `reminded ${r.reminded_at}` : '';
+    const notifyStr = r.notify ? `notify ${r.notify}` : '';
+    console.log(`${r.status}\t${r.slug}\t${r.title}\t${dueStr}\t${pStr}\t${remindStr}\t${remindedStr}\t${notifyStr}`);
   }
 }
 
@@ -3843,6 +3891,13 @@ function cmdReview(args) {
   // "promote on recurrence" discipline; the threshold is lower than the tag
   // anchor's (hooks are rarer and more specific than taxonomy tags).
   const HOOK_PROMOTE_THRESHOLD = 3;
+  // Above this many carriers a hook is almost certainly over-applied: it has
+  // drifted into a semi-stopword that bridges loosely-related cards across
+  // domains (the failure mode behind spurious connections). Such a hook is NOT
+  // a clean promotion candidate — its members must be audited and the inapt
+  // ones pruned/split before it earns a principle page. In connection scoring
+  // a hook this common is also weak evidence (see `related` IDF weighting).
+  const HOOK_DILUTION_THRESHOLD = 12;
   const hookCount = new Map();
   const hookSamples = new Map();
   const aliasSet = new Set();
@@ -3857,25 +3912,38 @@ function cmdReview(args) {
       hookCount.set(h, (hookCount.get(h) || 0) + 1);
       if (!hookSamples.has(h)) hookSamples.set(h, []);
       const s = hookSamples.get(h);
-      if (s.length < 4) s.push(p.slug);
+      if (s.length < 6) s.push(p.slug);
     }
   }
   const hookCandidates = [];
+  const dilutedHooks = [];
   for (const [hook, n] of hookCount.entries()) {
+    if (n > HOOK_DILUTION_THRESHOLD) { dilutedHooks.push({ hook, n }); continue; }
     if (n < HOOK_PROMOTE_THRESHOLD) continue;
     if (fs.existsSync(wikiPath(hook))) continue; // already a page/principle
     if (aliasSet.has(hook)) continue;            // already represented via an alias
     hookCandidates.push({ hook, n });
   }
   hookCandidates.sort((x, y) => y.n - x.n || x.hook.localeCompare(y.hook));
+  dilutedHooks.sort((x, y) => y.n - x.n || x.hook.localeCompare(y.hook));
   sections.push({
     title: 'Hook promotion candidates',
-    note: `Connective hooks recurring across ≥ ${HOOK_PROMOTE_THRESHOLD} atoms with no concept page yet. Promote each to a \`type: concept\` principle and link the carrying atoms via instance_of/about (canonical name + aliases synonym ring).`,
+    note: `Connective hooks recurring across ${HOOK_PROMOTE_THRESHOLD}–${HOOK_DILUTION_THRESHOLD} atoms with no concept page yet. Promote each to a \`type: concept\` principle and link the carrying atoms via instance_of/about (canonical name + aliases synonym ring). Before promoting, reread the carriers and drop any whose own claim does not instantiate the hook.`,
     items: hookCandidates.slice(0, 15).map((e) => ({
       head: `${e.hook} (${e.n} atoms)`,
       lines: [`carried by: ${hookSamples.get(e.hook).join(', ')}`],
     })),
   });
+  if (dilutedHooks.length) {
+    sections.push({
+      title: 'Diluted hooks (audit, do not promote as-is)',
+      note: `Hooks carried by > ${HOOK_DILUTION_THRESHOLD} atoms. A hook this common has likely been over-applied into a semi-stopword and is bridging loosely-related cards. Audit each member for aptness; prune the inapt ones (or split the hook into specific sub-concepts) BEFORE promoting. Do not promote a diluted hook to a principle as-is.`,
+      items: dilutedHooks.slice(0, 15).map((e) => ({
+        head: `${e.hook} (${e.n} atoms)`,
+        lines: [`sample: ${hookSamples.get(e.hook).join(', ')}`],
+      })),
+    });
+  }
 
   // ── Section 4: stale temporal markers ────────────────────────────────────
   const today = new Date();
@@ -4145,8 +4213,8 @@ const SECTIONS = [
 
 const VERBS = [
   // READ
-  { name: 'list',     section: 'READ', lines: ['  list [--tag t] [--type t] [--limit N] [--slugs-only]   list pages (alphabetical); --limit caps output'] },
-  { name: 'search',   section: 'READ', lines: ['  search <query> [--tag T] [--limit N] [--literal] [--regex] [--title-only]   BM25 + synonyms; fallback flags for substring/regex'] },
+  { name: 'list',     section: 'READ', lines: ['  list [--tag t] [--type t] [--limit N] [--slugs-only] [--include-done]   list pages (alphabetical); done todos hidden unless --include-done'] },
+  { name: 'search',   section: 'READ', lines: ['  search <query> [--tag T] [--limit N] [--literal] [--regex] [--title-only] [--include-done]   BM25 + synonyms; done todos hidden unless --include-done'] },
   { name: 'recent',   section: 'READ', lines: ['  recent [--days N] [--type T]              pages updated recently'] },
   { name: 'preview',  section: 'READ', lines: ['  preview <slug> [--compact]                cheap peek (~10 lines, ~150 tokens); --compact trims further'] },
   { name: 'print',    section: 'READ', lines: ['  print <slug> [--backlinks] [--links]      full page with optional context'] },
@@ -4269,6 +4337,7 @@ const VERBS = [
       '  patch <slug> [--observation "..."] [--relation "verb [[target]]"]',
       '              [--supersede "<substring>"]    strike-through old obs + [until today]',
       '              [--add-tag x] [--remove-tag x] [--alias name]',
+      '              [--hooks a,b] [--remove-hooks a,b]   add / drop connective hooks',
       '              [--summary "..."] [--title "..."] [--born YYYY-MM-DD | MM-DD]',
       '              [--visibility private|personal|public] [--sensitive true|false] [--confidence 0.0-1.0]',
     ],
@@ -4328,7 +4397,8 @@ const VERBS = [
 
   // TODO
   { name: 'todo', section: 'TODO', lines: [
-    '  todo add "title" [--due] [--priority]     todo list [--open|--due-today|--overdue|--done] [--asof YYYY-MM-DD]',
+    '  todo add "title" [--due] [--priority]     (timed reminder: also pass remind_at=<ISO> and notify=telegram,email)',
+    '  todo list [--open|--due-today|--overdue|--done|--reminders] [--asof YYYY-MM-DD]',
     '  todo done <slug>                          todo defer <slug> --to YYYY-MM-DD',
   ] },
 

@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "todo-renew-passport": {
+      "bodyContains": ["2026-05-25T01:00:00Z"]
+    }
+  }
+}

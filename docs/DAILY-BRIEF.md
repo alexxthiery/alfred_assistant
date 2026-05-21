@@ -97,6 +97,10 @@ wiki write anniversary-wedding --type event --when 2015-06-22 \
 wiki todo add "Pay tax" --due 2026-05-21 --priority high
 ```
 
+A **timed reminder** is just a todo with a `remind_at` (and `--notify`). Its
+`due` date is what makes it appear in this brief; the `remind_at` time drives a
+separate Telegram push via the reminder dispatcher. See `docs/REMINDERS.md`.
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |

@@ -1,0 +1,21 @@
+{
+  "_comment": "wiki related weights a shared hook by IDF with a stopword floor at the dilution threshold (12). A hook shared via a rare hook (df 2) is a strong bridge; a hook on >12 cards contributes 0. Here tgt shares 'rare-hook' with rare-mate only (df 2 -> weight 2*ln(12/2)=3.58) and 'over-applied-hook' with 13 dh-* cards (df 14 -> weight 0). All cards share tag 'idea' (+2). So rare-mate scores 2+3.58=5.6 while each dh-* scores tag-only 2.0 (the diluted hook adds nothing). Locks the IDF floor: spurious over-applied hooks cannot manufacture bridges.",
+  "setup": [
+    ["write", "tgt", "--title", "TGT", "--type", "concept", "--tags", "idea", "--content", "- [claim] target ^[telegram:2026-05-20]", "--hooks", "rare-hook,over-applied-hook"],
+    ["write", "rare-mate", "--title", "Rare Mate", "--type", "concept", "--tags", "idea", "--content", "- [claim] rare ^[telegram:2026-05-20]", "--hooks", "rare-hook"],
+    ["write", "dh-01", "--title", "DH 01", "--type", "concept", "--tags", "idea", "--content", "- [claim] one ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-02", "--title", "DH 02", "--type", "concept", "--tags", "idea", "--content", "- [claim] two ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-03", "--title", "DH 03", "--type", "concept", "--tags", "idea", "--content", "- [claim] three ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-04", "--title", "DH 04", "--type", "concept", "--tags", "idea", "--content", "- [claim] four ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-05", "--title", "DH 05", "--type", "concept", "--tags", "idea", "--content", "- [claim] five ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-06", "--title", "DH 06", "--type", "concept", "--tags", "idea", "--content", "- [claim] six ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-07", "--title", "DH 07", "--type", "concept", "--tags", "idea", "--content", "- [claim] seven ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-08", "--title", "DH 08", "--type", "concept", "--tags", "idea", "--content", "- [claim] eight ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-09", "--title", "DH 09", "--type", "concept", "--tags", "idea", "--content", "- [claim] nine ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-10", "--title", "DH 10", "--type", "concept", "--tags", "idea", "--content", "- [claim] ten ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-11", "--title", "DH 11", "--type", "concept", "--tags", "idea", "--content", "- [claim] eleven ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-12", "--title", "DH 12", "--type", "concept", "--tags", "idea", "--content", "- [claim] twelve ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-13", "--title", "DH 13", "--type", "concept", "--tags", "idea", "--content", "- [claim] thirteen ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"]
+  ],
+  "cmd": ["related", "tgt"]
+}

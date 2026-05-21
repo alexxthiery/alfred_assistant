@@ -1,0 +1,126 @@
+#!/usr/bin/env node
+// reminder-dispatch — emit due reminders to stdout and stamp them, runtime-
+// independent. The Telegram half of the vault-backed reminder system.
+//
+// A reminder is a vault todo with a `remind_at` datetime (see `wiki todo add
+// --remind_at`). This binary finds the ones due now (remind_at <= now, no
+// `reminded_at` stamp, notify includes telegram), prints one line each to
+// stdout, and stamps each via `wiki patch --reminded_at <now>` so a re-run
+// never double-sends. A host cron (every ~15 min) pipes stdout into
+// `telegram-send`:
+//
+//   reminder-dispatch | telegram-send
+//
+// No agent involved — like run-daily-brief.sh, it does not depend on nanoclaw
+// being up. The email half is handled separately by `daily-brief` (a reminder
+// todo with a `due:` date shows in the morning brief).
+//
+// All firing logic lives in lib/reminder-dispatch.js (pure). This file is just
+// orchestration: spawn `wiki`, filter, emit, stamp, log.
+//
+// Usage:
+//   reminder-dispatch                 fire reminders due as of now
+//   reminder-dispatch --now <ISO>     fire as of a fixed time (determinism/tests)
+//   reminder-dispatch --dry-run       print due reminders, do NOT stamp
+//   reminder-dispatch --no-log        skip cache log write
+//
+// Logs the emitted payload to <VAULT_ROOT>/cache/reminder-dispatch/YYYY-MM-DD.txt
+// unless --no-log. Exits 0 on success, 2 on subprocess failure, 1 on bad args.
+
+'use strict';
+
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+const {
+  parseReminderRows,
+  filterDue,
+  formatTelegram,
+} = require('./lib/reminder-dispatch.js');
+
+// Parse minimal --flag / --flag=value / --flag value form (mirrors daily-brief).
+function parseArgv(argv) {
+  const out = { _: [] };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (!a.startsWith('--')) { out._.push(a); continue; }
+    const eq = a.indexOf('=');
+    if (eq !== -1) { out[a.slice(2, eq)] = a.slice(eq + 1); continue; }
+    const key = a.slice(2);
+    const next = argv[i + 1];
+    if (next === undefined || next.startsWith('--')) { out[key] = true; continue; }
+    out[key] = next; i++;
+  }
+  return out;
+}
+
+// Resolve `wiki` the same way daily-brief does: sibling of this binary
+// (vault .bin/ or repo bin/), else `wiki` on $PATH.
+function resolveWikiBin() {
+  const sibling = path.join(__dirname, 'wiki');
+  if (fs.existsSync(sibling)) return sibling;
+  return 'wiki';
+}
+
+function runWiki(wikiBin, args) {
+  const r = spawnSync(wikiBin, args, { encoding: 'utf-8' });
+  if (r.status !== 0) {
+    const stderr = (r.stderr || '').split('\n').slice(0, 3).join(' | ');
+    console.error(`reminder-dispatch: \`wiki ${args.join(' ')}\` failed (exit ${r.status}): ${stderr}`);
+    process.exit(2);
+  }
+  return r.stdout || '';
+}
+
+// ISO datetime without milliseconds, matching the ISO_DATETIME_RE the wiki
+// CLI validates `reminded_at` against (which rejects the `.123` millis that
+// Date#toISOString emits).
+function nowISO() {
+  return new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+}
+
+function main() {
+  const args = parseArgv(process.argv.slice(2));
+  const now = args.now || nowISO();
+  if (Number.isNaN(Date.parse(now))) {
+    console.error(`reminder-dispatch: --now must be an ISO datetime (got "${now}")`);
+    process.exit(1);
+  }
+  const wikiBin = resolveWikiBin();
+
+  const stdout = runWiki(wikiBin, ['todo', 'list', '--reminders']);
+  const due = filterDue(parseReminderRows(stdout), now);
+  const payload = formatTelegram(due);
+
+  if (payload) process.stdout.write(payload + '\n');
+
+  // Stamp AFTER emitting: a crash mid-emit must not mark a reminder sent. The
+  // residual risk is a downstream telegram-send failure after we stamp (that
+  // one reminder is then not re-sent) — acceptable for v1, and the email half
+  // still surfaced it that morning. Skipped under --dry-run.
+  if (!args['dry-run']) {
+    for (const r of due) {
+      runWiki(wikiBin, ['patch', r.slug, '--reminded_at', now]);
+    }
+  }
+
+  // Cache log: a copy of every dispatch so "did a reminder fire on day X" is
+  // answerable with `ls`. Cheap; opt-out via --no-log. Failure is non-fatal so
+  // it can't break the pipe to telegram-send.
+  if (!args['no-log'] && payload) {
+    try {
+      const vaultRoot = process.env.VAULT_ROOT
+        || (fs.existsSync(path.join(path.dirname(wikiBin), '..', 'wiki'))
+            ? path.resolve(path.dirname(wikiBin), '..')
+            : process.cwd());
+      const logDir = path.join(vaultRoot, 'cache', 'reminder-dispatch');
+      fs.mkdirSync(logDir, { recursive: true });
+      fs.appendFileSync(path.join(logDir, `${now.slice(0, 10)}.txt`), `[${now}]\n${payload}\n`);
+    } catch (e) {
+      console.error(`reminder-dispatch: cache log write failed (non-fatal): ${e.message}`);
+    }
+  }
+}
+
+main();

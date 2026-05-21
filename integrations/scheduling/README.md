@@ -7,6 +7,7 @@ Scheduled jobs do **not** belong to any agent runtime. They run from the OS sche
 | Job | Needs an agent? | How it runs |
 |---|---|---|
 | **Daily brief** (07:00) | **No** — deterministic | `run-daily-brief.sh`: `bin/daily-brief \| bin/email-digest`. Pure composition; most robust. |
+| **Reminder dispatch** (every 15 min) | **No** — deterministic | `run-reminder-dispatch.sh`: `bin/reminder-dispatch \| bin/telegram-send`. Fires vault todos whose `remind_at` is due; idempotent (stamps `reminded_at`). Silent when nothing is due. |
 | **Weekly review** (Mon 09:00) | **Yes** — synthesis | `run-weekly-review.sh`: `claude -p "...weekly routine..."` (loads Alfred from `AGENTS.md`) piped to `email-digest`. Swap `claude -p` for `codex exec` if preferred. |
 
 Both are runtime-independent: the daily needs no LLM at all; the weekly invokes a *headless* agent on demand, not a persistent runtime.
@@ -22,12 +23,14 @@ Both are runtime-independent: the daily needs no LLM at all; the weekly invokes 
    launchctl start com.alfred.daily-brief   # test-fire now
    ```
 4. For the weekly, make a parallel plist (Hour 9, Weekday 1) pointing at `run-weekly-review.sh`.
+5. For reminders, install `com.alfred.reminder-dispatch.plist` the same way (it fires every 15 min via `StartInterval`). `ENV_FILE` must also export `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` (see `../../docs/TELEGRAM.md`).
 
 ## Linux (cron) equivalent
 
 ```cron
-0 7 * * *  ALFRED_VAULT=/path/to/vault ENV_FILE=/path/to/.env /path/to/run-daily-brief.sh
-0 9 * * 1  ALFRED_VAULT=/path/to/vault ENV_FILE=/path/to/.env /path/to/run-weekly-review.sh
+0 7 * * *    ALFRED_VAULT=/path/to/vault ENV_FILE=/path/to/.env /path/to/run-daily-brief.sh
+*/15 * * * * ALFRED_VAULT=/path/to/vault ENV_FILE=/path/to/.env /path/to/run-reminder-dispatch.sh
+0 9 * * 1    ALFRED_VAULT=/path/to/vault ENV_FILE=/path/to/.env /path/to/run-weekly-review.sh
 ```
 
 ## Why not nanoclaw `schedule_task`?

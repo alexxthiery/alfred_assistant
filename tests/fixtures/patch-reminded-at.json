@@ -1,0 +1,7 @@
+{
+  "_comment": "The dispatcher stamps a fired reminder via `wiki patch <slug> --reminded_at <ts>`. The stamp's presence is what makes dispatch idempotent (a re-run skips already-stamped reminders). reminded_at is validated as an ISO8601 datetime like remind_at.",
+  "setup": [
+    ["todo", "add", "Renew passport", "--due", "2026-05-25", "--remind_at", "2026-05-25T09:00+08:00"]
+  ],
+  "cmd": ["patch", "todo-renew-passport", "--reminded_at", "2026-05-25T01:00:00Z"]
+}

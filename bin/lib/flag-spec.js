@@ -45,8 +45,9 @@ const WRITE_CORE_FLAGS = new Set([
   ...EXTRA_FIELDS,
   'add-tag', 'alias', 'allow-duplicates', 'allow-secret', 'append', 'content',
   'file', 'force-alias', 'force-duplicate', 'no-anchor', 'observation',
-  'provenance', 'relation', 'remove-tag', 'replace', 'replay', 'soft', 'stdin',
-  'summary', 'supersede', 'tags', 'title', 'type', 'dry-run', 'today', 'on',
+  'provenance', 'relation', 'remove-tag', 'remove-hooks', 'replace', 'replay',
+  'soft', 'stdin', 'summary', 'supersede', 'tags', 'title', 'type', 'dry-run',
+  'today', 'on',
 ]);
 
 // Verbs that thread args through the shared write core and so accept the whole
@@ -104,7 +105,7 @@ function knownFlags(verb, helpText) {
 const VALUE_REQUIRED_FLAGS = new Set([
   // identity / content
   'title', 'summary', 'content', 'type', 'tags', 'alias', 'add-tag', 'remove-tag',
-  'hooks',
+  'hooks', 'remove-hooks',
   // observations / relations
   'observation', 'relation', 'supersede', 'provenance',
   // typed frontmatter + external links
@@ -112,6 +113,7 @@ const VALUE_REQUIRED_FLAGS = new Set([
   'recurrence', 'attendees', 'derived_from', 'supersedes', 'decided_on',
   'raw_path', 'sha256', 'homepage', 'scholar', 'orcid', 'github', 'linkedin',
   'twitter', 'arxiv', 'email', 'status', 'due', 'priority',
+  'remind_at', 'reminded_at', 'notify',
   // dates / numbers / selectors
   'on', 'by', 'since', 'until', 'days', 'limit', 'max-hops', 'threshold',
   'only', 'date', 'birth', 'window', 'month-day', 'to', 'asof',

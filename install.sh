@@ -36,7 +36,7 @@ mkdir -p "$DEST_BIN"
 
 # Symlink each top-level script (not the lib/ subdir — let the CLI find it via require)
 linked=0
-for f in wiki inbox wiki-test email-digest; do
+for f in wiki inbox wiki-test email-digest daily-brief reminder-dispatch telegram-send; do
   src="$SRC_BIN/$f"
   dst="$DEST_BIN/$f"
   if [ ! -f "$src" ]; then

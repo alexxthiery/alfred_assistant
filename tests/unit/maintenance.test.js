@@ -12,7 +12,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const { formatIndex, formatLogLine, applyExtraFrontmatter } = require(
+const { formatIndex, formatLogLine, applyExtraFrontmatter, validateExtraFieldValue } = require(
   path.resolve(__dirname, '..', '..', 'bin', 'lib', 'maintenance.js')
 );
 
@@ -47,6 +47,20 @@ test('formatIndex: fm.id overrides file slug', () => {
   const out = formatIndex(pages, { now: '' });
   assert.ok(out.includes('[[new-name]]'));
   assert.equal(out.includes('[[old-name]]'), false);
+});
+
+test('formatIndex: omits done todos and past events (keeps open todos + future/undated)', () => {
+  const pages = [
+    { slug: 'open-t',  fm: { title: 'Open',  type: 'todo',  status: 'open' }, body: '' },
+    { slug: 'done-t',  fm: { title: 'Done',  type: 'todo',  status: 'done' }, body: '' },
+    { slug: 'past-ev', fm: { title: 'Past',  type: 'event', when: '2026-05-01' }, body: '' },
+    { slug: 'soon-ev', fm: { title: 'Soon',  type: 'event', when: '2026-12-01' }, body: '' },
+  ];
+  const out = formatIndex(pages, { now: '2026-05-20T00:00:00Z' });
+  assert.ok(out.includes('[[open-t]]'), 'open todo kept');
+  assert.equal(out.includes('[[done-t]]'), false, 'done todo omitted');
+  assert.equal(out.includes('[[past-ev]]'), false, 'past event omitted');
+  assert.ok(out.includes('[[soon-ev]]'), 'future event kept');
 });
 
 test('formatIndex: missing fm.title falls back to slug', () => {
@@ -136,4 +150,30 @@ test('applyExtraFrontmatter: multiple fields in one call', () => {
   assert.equal(fm.status, 'done');
   assert.equal(fm.due, '2026-06-01');
   assert.equal(fm.priority, 'high');
+});
+
+// ─── reminder fields: remind_at / reminded_at validation, notify list ────────
+
+test('validateExtraFieldValue: remind_at accepts ISO8601 datetime with offset', () => {
+  assert.equal(validateExtraFieldValue('remind_at', '2026-05-23T14:00+08:00').value, '2026-05-23T14:00+08:00');
+  assert.equal(validateExtraFieldValue('remind_at', '2026-05-23T06:00:00Z').value, '2026-05-23T06:00:00Z');
+  assert.equal(validateExtraFieldValue('remind_at', '2026-05-23T14:00').value, '2026-05-23T14:00');
+});
+
+test('validateExtraFieldValue: remind_at rejects date-only and garbage', () => {
+  assert.ok(validateExtraFieldValue('remind_at', '2026-05-23').error);
+  assert.ok(validateExtraFieldValue('remind_at', 'next tuesday').error);
+  // millis are rejected (Date#toISOString form must be trimmed before stamping)
+  assert.ok(validateExtraFieldValue('remind_at', '2026-05-23T06:00:00.123Z').error);
+});
+
+test('validateExtraFieldValue: reminded_at uses the same datetime rule', () => {
+  assert.equal(validateExtraFieldValue('reminded_at', '2026-05-23T07:00:00Z').value, '2026-05-23T07:00:00Z');
+  assert.ok(validateExtraFieldValue('reminded_at', 'whenever').error);
+});
+
+test('applyExtraFrontmatter: notify comma-string splits into a list', () => {
+  const fm = {};
+  applyExtraFrontmatter(fm, { notify: 'telegram, email' });
+  assert.deepEqual(fm.notify, ['telegram', 'email']);
 });

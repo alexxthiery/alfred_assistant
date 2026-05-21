@@ -31,12 +31,15 @@ function cmdList(args) {
   const limit = args.limit !== undefined ? Math.max(1, parseInt(args.limit, 10) || 1) : Infinity;
   // Collect filtered rows first so --limit can apply after the tag/type filter
   // (and so we can report how many were withheld instead of truncating silently).
+  const includeDone = !!args['include-done'];
   const rows = [];
   forEachPage(({ slug: fileSlug, fm }) => {
     const slug = fm.id || fileSlug;
     const tags = Array.isArray(fm.tags) ? fm.tags : [];
     if (args.tag && !tags.includes(args.tag)) return;
     if (args.type && fm.type !== args.type) return;
+    // Done todos are completed chores, not live content — hidden unless asked.
+    if (!includeDone && fm.type === 'todo' && (fm.status || 'open') === 'done') return;
     rows.push({ slug, title: fm.title || '', tags });
   });
   const shown = rows.slice(0, limit === Infinity ? rows.length : limit);
@@ -61,22 +64,33 @@ function cmdList(args) {
 //                when you want to find raw markdown like "<!--obs:abc123-->".
 //   --regex      regex match (anchored is up to the caller).
 //   --title-only restrict to page titles (substring); always JS-side, no FTS.
+// Slugs of completed todos — hidden from list/search by default (chores, not
+// live content). Pass --include-done to see them.
+function doneTodoSet() {
+  const s = new Set();
+  forEachPage(({ slug: fileSlug, fm }) => {
+    if (fm.type === 'todo' && (fm.status || 'open') === 'done') s.add(fm.id || fileSlug);
+  });
+  return s;
+}
+
 function cmdSearch(args) {
   const query = args._[0];
   if (!query && !args.tag) {
-    console.error('Usage: wiki search <query> [--tag T] [--limit N] [--literal] [--regex] [--title-only]');
+    console.error('Usage: wiki search <query> [--tag T] [--limit N] [--literal] [--regex] [--title-only] [--include-done]');
     process.exit(1);
   }
   const limit = Math.max(1, parseInt(args.limit, 10) || 20);
   const useLiteral = !!args.literal;
   const useRegex = !!args.regex;
   const useTitleOnly = !!args['title-only'];
+  const doneSet = args['include-done'] ? null : doneTodoSet();
   const useFts = query && !useLiteral && !useRegex && !useTitleOnly;
   if (useFts) {
-    cmdSearchBm25(query, { limit, tag: args.tag });
+    cmdSearchBm25(query, { limit, tag: args.tag, doneSet });
     return;
   }
-  cmdSearchJs(query, { tag: args.tag, useLiteral, useRegex, useTitleOnly });
+  cmdSearchJs(query, { tag: args.tag, useLiteral, useRegex, useTitleOnly, doneSet });
 }
 
 // FTS retrieval: spawn duckdb against the cached vault.duckdb, BM25-rank
@@ -139,6 +153,7 @@ function cmdSearchBm25(query, opts) {
   // tag-correct. Just format and print.
   let printed = 0;
   for (const row of rows) {
+    if (opts.doneSet && opts.doneSet.has(row.slug)) continue;
     const score = typeof row.score === 'number' ? row.score.toFixed(3) : row.score;
     console.log(`${row.slug}\t${score}\t${row.title || ''}`);
     const excerpt = (row.body || '').replace(/\s+/g, ' ').trim().slice(0, 160);
@@ -163,6 +178,7 @@ function cmdSearchJs(query, opts) {
       if (!tags.includes(opts.tag)) return;
     }
     const slug = fm.id || fileSlug;
+    if (opts.doneSet && opts.doneSet.has(slug)) return;
     const title = fm.title || '';
     if (re) {
       if (opts.useTitleOnly) {
@@ -462,16 +478,40 @@ function cmdRelated(args) {
   const unconnected = !!args.unconnected;
   const myTags = new Set(Array.isArray(page.fm.tags) ? page.fm.tags : []);
   const myOutbound = new Set(extractWikilinks(page.body));
+  const myHooks = new Set(Array.isArray(page.fm.hooks) ? page.fm.hooks : []);
   const re = new RegExp(`\\[\\[${slug}\\]\\]`);
 
-  // Single walk: build the backlinks set + the snapshot needed for scoring.
+  // Single walk: build the backlinks set, the per-page snapshot, and the global
+  // hook document-frequency (how many pages carry each hook). df drives the IDF
+  // weighting below.
   const backlinks = new Set();
   const others = []; // [{slug, fm, body, outbound}]
+  const hookDf = new Map();
+  let pageCount = 0;
   forEachPage(({ slug: other, fm, body }) => {
+    pageCount += 1;
+    for (const h of (Array.isArray(fm.hooks) ? fm.hooks : [])) {
+      if (typeof h === 'string' && h) hookDf.set(h, (hookDf.get(h) || 0) + 1);
+    }
     if (other === slug) return;
     if (re.test(body)) backlinks.add(other);
     others.push({ slug: other, fm, body, outbound: new Set(extractWikilinks(body)) });
   });
+
+  // A shared hook is the primary connection signal for the idea-atom layer, but
+  // its evidential value is inverse to how common the hook is: a hook shared by
+  // 2-3 cards is a strong, surprising bridge; a hook on a dozen-plus cards has
+  // drifted into a semi-stopword that bridges everything (the dilution failure)
+  // and should count for ~nothing. Weight a shared hook by IDF with a stopword
+  // floor at the dilution threshold: w = HOOK_W * max(0, ln(D / df)). This zeros
+  // out hooks at/above D members, so over-applied hooks cannot manufacture false
+  // bridges — the graph stays noise-tolerant without policing every hook.
+  const HOOK_DILUTION = 12; // mirrors `wiki review` HOOK_DILUTION_THRESHOLD
+  const HOOK_W = 2;
+  const hookWeight = (h) => {
+    const df = hookDf.get(h) || 1;
+    return HOOK_W * Math.max(0, Math.log(HOOK_DILUTION / df));
+  };
 
   const scores = {};
   for (const o of others) {
@@ -484,12 +524,15 @@ function cmdRelated(args) {
       if (backlinks.has(o.slug)) score += 3;
     }
     for (const t of myOutbound) if (o.outbound.has(t)) score += 1;
+    for (const h of (Array.isArray(o.fm.hooks) ? o.fm.hooks : [])) {
+      if (myHooks.has(h)) score += hookWeight(h);
+    }
     if (score > 0) scores[o.slug] = { score, title: o.fm.title || '', type: o.fm.type || 'note' };
   }
   const ranked = Object.entries(scores).sort((a, b) => b[1].score - a[1].score);
   if (ranked.length === 0) { console.log('(no related pages)'); return; }
   for (const [s, info] of ranked.slice(0, 20)) {
-    console.log(`${info.score}\t${info.type}\t${s}\t${info.title}`);
+    console.log(`${info.score.toFixed(1)}\t${info.type}\t${s}\t${info.title}`);
   }
 }
 

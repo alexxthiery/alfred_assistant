@@ -9,11 +9,15 @@ Alfred touches two kinds of secret: Gmail app passwords (SMTP send + IMAP read) 
 | Gmail SMTP-send app password | `GMAIL_APP_PASSWORD` | `~/nanoclaw/.env` | `bin/email-digest` (weekly digest, daily brief) |
 | Gmail IMAP-read app password | `GMAIL_IMAP_APP_PASSWORD` | `~/nanoclaw/.env` | `bin/gmail` (Reflex 4 email recall) |
 | Sender address | `EMAIL_FROM` | `~/nanoclaw/.env` | both of the above |
+| Telegram bot token | `TELEGRAM_BOT_TOKEN` | `~/nanoclaw/.env` | `bin/telegram-send` (reminder dispatch); also nanoclaw's own Telegram I/O |
+| Telegram destination chat id | `TELEGRAM_CHAT_ID` | `~/nanoclaw/.env` | `bin/telegram-send` (reminder dispatch) — not a secret, but kept beside the token |
 | Anthropic/OneCLI proxy token | injected by the OneCLI gateway | OneCLI keychain | the container's HTTPS proxy |
 
 **The flow.** `~/nanoclaw/src/providers/claude.ts` reads a hardcoded allowlist of keys from `~/nanoclaw/.env` via `readEnvFile()` (which deliberately does NOT load them into `process.env`) and injects them into the agent container with docker `-e` flags. To add a new secret env var, you must extend that allowlist (see `docs/NANOCLAW-PATCHES.md` Patch 3) and rebuild nanoclaw. Putting a key in `.env` alone does nothing until it is allowlisted.
 
 `.env` itself is gitignored and never committed. No secret should ever be written into a tracked file.
+
+**Host-side jobs are exempt from the allowlist.** The reminder dispatcher (`integrations/scheduling/run-reminder-dispatch.sh`) runs from the OS scheduler, not inside the container, and sources `~/nanoclaw/.env` directly. So `TELEGRAM_CHAT_ID` (and the already-present `TELEGRAM_BOT_TOKEN`) work for `bin/telegram-send` without any `claude.ts` allowlist change — Patch 3 is only needed for secrets the in-container agent must read.
 
 ## The rules
 

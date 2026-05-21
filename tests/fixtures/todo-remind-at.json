@@ -1,0 +1,4 @@
+{
+  "_comment": "wiki todo add --remind_at creates a timed reminder: the remind_at datetime is stored and notify defaults to both channels (telegram,email). This is the single write that covers both delivery channels — the morning brief (via due date) and the Telegram dispatcher (via remind_at).",
+  "cmd": ["todo", "add", "Pickleball booking", "--due", "2026-05-23", "--remind_at", "2026-05-23T14:00+08:00"]
+}

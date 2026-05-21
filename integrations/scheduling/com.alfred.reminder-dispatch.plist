@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd job for the reminder dispatcher (every 15 minutes).
+  Install:
+    1. Edit ALFRED_VAULT / ENV_FILE below and the path to run-reminder-dispatch.sh.
+    2. cp to ~/Library/LaunchAgents/com.alfred.reminder-dispatch.plist
+    3. launchctl load ~/Library/LaunchAgents/com.alfred.reminder-dispatch.plist
+  Secrets are NOT in this file — run-reminder-dispatch.sh sources them from ENV_FILE.
+  StartInterval is the firing cadence: a reminder fires within ~15 min of its
+  remind_at. Reminders are never lost — a missed window fires on the next run.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.alfred.reminder-dispatch</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/ABSOLUTE/PATH/TO/alfred_assistant/integrations/scheduling/run-reminder-dispatch.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ALFRED_VAULT</key><string>/Users/YOU/Library/CloudStorage/Dropbox/_AI_box</string>
+    <key>ENV_FILE</key><string>/Users/YOU/nanoclaw/.env</string>
+  </dict>
+  <key>StartInterval</key><integer>900</integer>
+  <key>StandardOutPath</key><string>/tmp/alfred-reminder-dispatch.out</string>
+  <key>StandardErrorPath</key><string>/tmp/alfred-reminder-dispatch.err</string>
+</dict>
+</plist>

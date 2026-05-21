@@ -142,7 +142,7 @@ echo ""
 # re-run deploy.sh. For a personal vault with one dev machine and a runtime
 # container, the manual sync step is worth the cross-platform robustness.
 mkdir -p "$TARGET/.bin"
-BIN_ITEMS=(wiki inbox email-digest daily-brief gmail wiki-test)
+BIN_ITEMS=(wiki inbox email-digest daily-brief reminder-dispatch telegram-send gmail wiki-test)
 
 # --prune-backups: remove the legacy .pre-deploy-*.bak files that earlier
 # versions of this script accreted on every refresh. The source repo is

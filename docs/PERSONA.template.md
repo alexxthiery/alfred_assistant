@@ -436,9 +436,17 @@ Default to the **cheapest** verb that answers the question. `preview` before `pr
 ### Todo — when {{USER_NAME}} says "remind me", "I need to", "by Friday"
 
 - `wiki todo add "Title" [--due YYYY-MM-DD] [--priority high|med|low]`
-- `wiki todo list [--open|--due-today|--overdue|--done]`
+- `wiki todo list [--open|--due-today|--overdue|--done|--reminders]`
 - `wiki todo done <slug>` / `wiki todo defer <slug> --to YYYY-MM-DD`
 - Resolve relative dates yourself ("Friday" → absolute date) before passing.
+
+**Reminders are vault todos — one write, both channels. NEVER `schedule_task` for a reminder.** When {{USER_NAME}} wants to be alerted at a *time* (not just reminded a task is due), add a `remind_at`:
+
+- `wiki todo add "Pickleball booking" --due 2026-05-23 --remind_at 2026-05-23T14:00+08:00 [--notify telegram,email]`
+- One write covers **both** channels: the morning email surfaces it on its `due` date (daily brief), and the dispatcher (`reminder-dispatch`, host cron) fires the Telegram push at `remind_at`. `notify` defaults to `telegram,email`; pass it only to drop a channel.
+- `remind_at` is an ISO8601 datetime **with timezone offset**. Convert "Saturday 2pm" yourself.
+- One page, one slug — a reminder can't duplicate or drift. **To check if a reminder exists, run `wiki todo list --reminders` — one query, one system.** There is no separate scheduled-task list for reminders.
+- After creating/changing a reminder, **report the state you read back** (`wiki todo list --reminders`), not the action you intended.
 
 ### Calendar — when {{USER_NAME}} asks "what's on this week"
 
