@@ -1,0 +1,11 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "rr-parent": {
+      "bodyMissing": ["parent_of [[rr-child]]"]
+    },
+    "rr-child": {
+      "bodyMissing": ["child_of [[rr-parent]]"]
+    }
+  }
+}

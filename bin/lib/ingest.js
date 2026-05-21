@@ -31,6 +31,7 @@ function validateIngestSpec(spec, deps) {
     existingSlugs,                   // Set<string> — slugs whose page is already on disk
     fuzzyMatchFn = () => [],         // (query, opts) => [{slug, confidence, reason}]
     allowDuplicates = false,
+    allowDuplicateSlugs = new Set(), // B2: per-slug opt-out (from --allow-duplicate-slug)
   } = deps;
 
   const errors = [];
@@ -70,18 +71,23 @@ function validateIngestSpec(spec, deps) {
 
   // ─── fuzzy duplicate check against existing vault ───────────────────────
   if (!allowDuplicates) {
-    const checkNewSlug = (slug, title, section) => {
+    // B2: per-entity opt-out. A single false positive no longer forces the
+    // all-or-nothing --allow-duplicates on the whole batch: set
+    // `"allow_duplicate": true` on the spec item, or pass its slug via
+    // --allow-duplicate-slug, to wave through just that one.
+    const checkNewSlug = (slug, title, section, perItemAllow) => {
+      if (perItemAllow || allowDuplicateSlugs.has(slug)) return;
       if (!slug || !title || title.length < 3) return;
       if (existingSlugs.has(slug)) return;
       const matches = fuzzyMatchFn(title, { excludeSlug: slug }) || [];
       const hit = matches.find((m) => m.confidence >= FUZZY_DUP_THRESHOLD && m.slug !== slug);
       if (hit) {
-        errors.push(`${section} "${slug}" (title "${title}") may duplicate existing [[${hit.slug}]] (confidence ${hit.confidence.toFixed(2)}, ${hit.reason}). Use \`wiki resolve "${title}"\` first, or pass --allow-duplicates if intentional.`);
+        errors.push(`${section} "${slug}" (title "${title}") may duplicate existing [[${hit.slug}]] (confidence ${hit.confidence.toFixed(2)}, ${hit.reason}). Use \`wiki resolve "${title}"\` first, set "allow_duplicate": true on this item, pass --allow-duplicate-slug ${slug}, or --allow-duplicates for the whole batch.`);
       }
     };
-    for (const s of stubs)    if (s) checkNewSlug(s.slug, s.title, 'stubs');
-    for (const e of entities) if (e) checkNewSlug(e.slug, e.title, 'entities');
-    for (const e of events)   if (e) checkNewSlug(e.slug, e.title, 'events');
+    for (const s of stubs)    if (s) checkNewSlug(s.slug, s.title, 'stubs', s.allow_duplicate);
+    for (const e of entities) if (e) checkNewSlug(e.slug, e.title, 'entities', e.allow_duplicate);
+    for (const e of events)   if (e) checkNewSlug(e.slug, e.title, 'events', e.allow_duplicate);
   }
 
   // ─── shared helpers (closed over schema + errors) ───────────────────────

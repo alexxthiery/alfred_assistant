@@ -43,9 +43,9 @@ const FREEFORM_VERBS = new Set(['measure']);
 // flag-parity test guarantees the set stays complete against the code.
 const WRITE_CORE_FLAGS = new Set([
   ...EXTRA_FIELDS,
-  'add-tag', 'alias', 'allow-duplicates', 'allow-secret', 'append', 'content',
-  'file', 'force-alias', 'force-duplicate', 'no-anchor', 'observation',
-  'provenance', 'relation', 'remove-tag', 'remove-hooks', 'replace', 'replay',
+  'add-tag', 'alias', 'allow-duplicates', 'allow-duplicate-slug', 'allow-secret', 'append', 'content',
+  'file', 'force-alias', 'force-duplicate', 'no-alias', 'no-anchor', 'observation',
+  'provenance', 'relation', 'remove-relation', 'remove-tag', 'remove-hooks', 'replace', 'replay',
   'soft', 'stdin', 'summary', 'supersede', 'tags', 'title', 'type', 'dry-run',
   'today', 'on',
 ]);
@@ -107,7 +107,7 @@ const VALUE_REQUIRED_FLAGS = new Set([
   'title', 'summary', 'content', 'type', 'tags', 'alias', 'add-tag', 'remove-tag',
   'hooks', 'remove-hooks',
   // observations / relations
-  'observation', 'relation', 'supersede', 'provenance',
+  'observation', 'relation', 'remove-relation', 'supersede', 'provenance',
   // typed frontmatter + external links
   'born', 'visibility', 'confidence', 'source', 'location', 'duration',
   'recurrence', 'attendees', 'derived_from', 'supersedes', 'decided_on',
@@ -117,6 +117,7 @@ const VALUE_REQUIRED_FLAGS = new Set([
   // dates / numbers / selectors
   'on', 'by', 'since', 'until', 'days', 'limit', 'max-hops', 'threshold',
   'only', 'date', 'birth', 'window', 'month-day', 'to', 'asof',
+  'allow-duplicate-slug', 'rule',
 ]);
 
 // Value-required flags that were passed with no value (boolean `true`).

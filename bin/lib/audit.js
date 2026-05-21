@@ -73,7 +73,13 @@ const AUDIT_RULES = [
     severity: 'high',
     strict: true,
     check: ({ title, type }, { schema }) => {
-      if (type === 'event' || !title) return null;
+      // C1: idea-card types are NEVER events — exempt them. "visit count",
+      // "literature review", "policy launch" are domain terms on concept/
+      // synthesis pages, not mislabeled events. This also makes `wiki ingest`
+      // and `wiki write` agree (neither flags a concept), removing the
+      // ingest-lenient / write-strict inconsistency. The rule still fires on
+      // note / entity / untyped titles, where an event keyword is a real smell.
+      if (type === 'event' || type === 'concept' || type === 'synthesis' || !title) return null;
       if (!schema || !schema.eventKeywords || !schema.eventKeywords.size) return null;
       const titleLower = String(title).toLowerCase();
       const hits = [];
@@ -309,25 +315,31 @@ const AUDIT_RULES = [
     name: 'multi-fact-observation',
     severity: 'low',
     strict: false,
-    // Targets CRAMMING (several distinct facts in one observation), not length.
-    // A self-contained idea is often one long, precise sentence with notation;
-    // that is correct and must NOT be flagged. We flag only observations that
-    // split into >=4 sentence/clause segments, which suggests multiple facts
-    // that should be separate, independently-addressable observations.
+    // Targets CRAMMING (several INDEPENDENT facts in one observation), not
+    // length or sentence count. A dense, self-contained idea is often several
+    // sentences that elaborate ONE point ("X is Y. This means Z. Therefore W.")
+    // — those later sentences are continuations, not new facts, and must NOT be
+    // flagged (C3: the cold-read card standard mandates exactly this density).
+    // We count only INDEPENDENT sentences (a sentence that opens with a back-
+    // referential / connective word is treated as elaboration of the prior
+    // idea) and flag only when >=4 independent assertions share one observation.
     check: ({ body }) => {
       if (!body) return null;
+      const CONTINUATION = /^(this|these|those|that|it|its|they|such|therefore|thus|hence|so|because|since|which|where|when|while|as|then|here|also|moreover|furthermore|equivalently|in other words|in particular|for example|e\.g\.|i\.e\.|that is)\b/i;
       const crammed = [];
       for (const o of parseObservations(body)) {
         const segs = o.body
           .split(/[.;]\s+/)
           .map((s) => s.trim())
           .filter((s) => s.length >= 15);
-        if (segs.length >= 4) crammed.push(o.body.slice(0, 60) + '…');
+        if (segs.length < 4) continue; // not even long enough to suspect cramming
+        const independent = segs.filter((s, idx) => idx === 0 || !CONTINUATION.test(s));
+        if (independent.length >= 4) crammed.push(o.body.slice(0, 60) + '…');
       }
       if (!crammed.length) return null;
       return {
-        detail: `${crammed.length} observation(s) pack >=4 clauses (multi-fact suspect)`,
-        message: `${crammed.length} observation(s) look multi-fact (>=4 distinct clauses) — split so each idea is independently addressable. A single long, self-contained idea is fine.`,
+        detail: `${crammed.length} observation(s) pack >=4 independent assertions (multi-fact suspect)`,
+        message: `${crammed.length} observation(s) look multi-fact (>=4 independent assertions) — split so each idea is independently addressable. A single long, self-contained idea (sentences that elaborate one point) is fine.`,
       };
     },
   },
@@ -340,7 +352,10 @@ const AUDIT_RULES = [
       if (!SUBSTANTIVE_TYPES.has(type)) return null;
       if (!body) return { detail: `no body; type=${type} expected to have at least one [fact] or typed relation`, message: '' };
       // Stub template (`Stub. ^[source]`) is exempt — intentionally minimal.
-      if (/^\s*Stub\.\s*\^\[[^\]]+\]\s*$/.test(body.trim())) return null;
+      // C2: greedy `.+` (not `[^\]]+`) so a provenance marker containing a
+      // wikilink — e.g. `^[gmail:...:[[someone]]-x]` — whose `]]` would
+      // otherwise end the bracket class early still matches and stays exempt.
+      if (/^\s*Stub\.\s*\^\[.+\]\s*$/.test(body.trim())) return null;
       const obsCount = parseObservations(body).length;
       const relCount = parseRelations(body).length;
       if (obsCount > 0 || relCount > 0) return null;

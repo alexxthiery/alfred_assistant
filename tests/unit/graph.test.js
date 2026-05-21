@@ -376,3 +376,19 @@ test('scoreSlugCandidates: aliases-as-scalar-string is normalized to list', () =
 test('scoreSlugCandidates: empty pages list → empty result', () => {
   assert.deepEqual(scoreSlugCandidates('anything', []), []);
 });
+
+// ─── B1: word-boundary substring (no intra-word false positives) ─────────────
+
+test('scoreSlugCandidates: short title does NOT match inside a larger word (B1)', () => {
+  const pages = [{ slug: 'abc', title: 'ABC', aliases: [] }];
+  // "abcdef" contains "abc" but only intra-word — must NOT be a 0.7 dup hit.
+  assert.deepEqual(scoreSlugCandidates('A surrogate abcdef lower bound', pages), []);
+  assert.deepEqual(scoreSlugCandidates('reward plus an abcdef bonus term', pages), []);
+});
+
+test('scoreSlugCandidates: whole-word overlap still matches (B1 keeps real hits)', () => {
+  const pages = [{ slug: 'abc', title: 'ABC', aliases: [] }];
+  const out = scoreSlugCandidates('the ABC gadget tour', pages);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].confidence, 0.7);
+});

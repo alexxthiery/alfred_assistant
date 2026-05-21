@@ -1,0 +1,9 @@
+{
+  "_comment": "Bidirectional inverse resolution: the schema's inverses map is one-directional (parent_of -> child_of). Removing from the child side (child_of, the right-hand verb, not a map key) must still strip the parent_of edge on the parent page via reverse lookup. Setup makes parent_of [[rp-child]] (auto-closes child_of [[rp-parent]] on rp-child); removing child_of from rp-child must clear parent_of from rp-parent too.",
+  "setup": [
+    ["write", "rp-parent", "--title", "RP Parent", "--type", "entity", "--tags", "person,family", "--content", "- [fact] parent ^[telegram:2026-05-20]"],
+    ["write", "rp-child", "--title", "RP Child", "--type", "entity", "--tags", "person,family", "--content", "- [fact] child ^[telegram:2026-05-20]"],
+    ["patch", "rp-parent", "--relation", "parent_of [[rp-child]]"]
+  ],
+  "cmd": ["patch", "rp-child", "--remove-relation", "child_of [[rp-parent]]"]
+}

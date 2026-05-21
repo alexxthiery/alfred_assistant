@@ -1,0 +1,9 @@
+{
+  "_comment": "wiki patch --remove-relation drops a typed relation from the page AND its registered inverse from the target (symmetric to --relation + inverse-closure). Setup creates parent_of [[rr-child]] on rr-parent, which auto-closes child_of [[rr-parent]] onto rr-child. Removing it must clear BOTH sides — otherwise the next `wiki groom` re-adds the inverse and the edge returns.",
+  "setup": [
+    ["write", "rr-parent", "--title", "RR Parent", "--type", "entity", "--tags", "person,family", "--content", "- [fact] parent for remove-relation test ^[telegram:2026-05-20]"],
+    ["write", "rr-child", "--title", "RR Child", "--type", "entity", "--tags", "person,family", "--content", "- [fact] child for remove-relation test ^[telegram:2026-05-20]"],
+    ["patch", "rr-parent", "--relation", "parent_of [[rr-child]]"]
+  ],
+  "cmd": ["patch", "rr-parent", "--remove-relation", "parent_of [[rr-child]]"]
+}

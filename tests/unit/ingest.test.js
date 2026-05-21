@@ -458,3 +458,27 @@ test('validateBody: empty body produces no errors (only FM-level rules can fire)
   // No provenance/uncat/invented/event errors when body is empty.
   assert.deepEqual(errors, []);
 });
+
+// ─── B2: per-item duplicate opt-out ──────────────────────────────────────────
+
+test('validateIngestSpec: B2 allow_duplicate / allowDuplicateSlugs wave through one fuzzy dup', () => {
+  const schema = makeSchema();
+  const deps = {
+    schema,
+    knownVerbs: makeKnownVerbs(schema),
+    existingSlugs: new Set(['abc']),
+    fuzzyMatchFn: () => [{ slug: 'abc', confidence: 0.7, reason: 'substring "abc"' }],
+    allowDuplicates: false,
+  };
+  const mk = (extra) => ({
+    source: 'telegram:1',
+    entities: [{ slug: 'gadget-concept', title: 'a gadget concept', type: 'concept', tags: ['work'], facts: [{ body: 'an idea. ^[telegram:1]' }], ...extra }],
+  });
+  const dupErrs = (out) => out.errors.filter((e) => /may duplicate/.test(e));
+  // baseline: flagged
+  assert.equal(dupErrs(validateIngestSpec(mk({}), deps)).length, 1);
+  // per-entity opt-out: not flagged
+  assert.equal(dupErrs(validateIngestSpec(mk({ allow_duplicate: true }), deps)).length, 0);
+  // --allow-duplicate-slug opt-out: not flagged
+  assert.equal(dupErrs(validateIngestSpec(mk({}), { ...deps, allowDuplicateSlugs: new Set(['gadget-concept']) })).length, 0);
+});

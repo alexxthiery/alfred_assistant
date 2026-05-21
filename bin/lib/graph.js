@@ -148,6 +148,17 @@ function levenshtein(a, b) {
 //   0.9   alias match
 //   0.7   substring match in title or alias (>=3 chars)
 //   0.5 - 0.1*lev   Levenshtein distance <= 2
+// True iff `needle` occurs in `haystack` delimited by word boundaries (so a
+// 3-letter title like "abc" matches "the abc tour" but NOT "abcdef").
+// Case-sensitive callers should lowercase first. Falls back to plain includes
+// if the needle can't be safely turned into a regex.
+function wordBoundaryContains(haystack, needle) {
+  if (!needle) return false;
+  const esc = String(needle).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  try { return new RegExp(`\\b${esc}\\b`).test(haystack); }
+  catch { return String(haystack).includes(needle); }
+}
+
 function scoreSlugCandidates(query, pages, opts = {}) {
   const matches = [];
   const qLower = String(query).toLowerCase();
@@ -172,8 +183,18 @@ function scoreSlugCandidates(query, pages, opts = {}) {
       matches.push({ slug, confidence: 0.9, reason: `alias "${aliasHit}"` });
       continue;
     }
+    // B1 fix: require a WORD-BOUNDARY substring match, not raw `includes`.
+    // The old `qLower.includes(name)` direction fired on any short title that
+    // appeared inside a larger word of the candidate's title (a 3-char page
+    // title matched new titles where those letters sat mid-word), scoring
+    // 0.70 = FUZZY_DUP_THRESHOLD and rejecting whole ingest batches. A
+    // word-boundary test keeps genuine whole-word overlaps while dropping
+    // intra-word noise.
     const allNames = [title, ...aliasList].filter(Boolean);
-    const subHit = allNames.find((n) => n.toLowerCase().includes(qLower) || qLower.includes(n.toLowerCase()));
+    const subHit = allNames.find((n) => {
+      const nl = n.toLowerCase();
+      return wordBoundaryContains(qLower, nl) || wordBoundaryContains(nl, qLower);
+    });
     if (subHit && subHit.length >= 3) {
       matches.push({ slug, confidence: 0.7, reason: `substring "${subHit}"` });
       continue;

@@ -253,7 +253,28 @@ function cmdBless() {
     console.error('bless: vault is not a git repo — nothing to bless.');
     return;
   }
-  appendLog('bless', 'accepted out-of-band vault change(s)');
+  // A2: a reflexive `bless` must never be a blind all-state commit. Show
+  // exactly what is being accepted, and call out anything beyond wiki/index.md
+  // (the file the CLI itself regenerates) so a genuine out-of-band edit is not
+  // absorbed without scrutiny. With A1 fixed, bless should rarely be needed.
+  let changed = [];
+  try {
+    const { spawnSync } = require('child_process');
+    const r = spawnSync('git', ['status', '--porcelain'], { cwd: VAULT_ROOT, encoding: 'utf-8' });
+    changed = (r.stdout || '').split('\n').map((l) => l.replace(/\s+$/, '')).filter(Boolean);
+  } catch { /* fall through to commit */ }
+  if (!changed.length) {
+    console.log('bless: working tree already clean — nothing to bless.');
+    return;
+  }
+  console.error(`bless: accepting ${changed.length} change(s):`);
+  for (const c of changed.slice(0, 30)) console.error(`  ${c}`);
+  if (changed.length > 30) console.error(`  … ${changed.length - 30} more`);
+  const nonIndex = changed.filter((c) => !/\bwiki\/index\.md$/.test(c));
+  if (nonIndex.length) {
+    console.error(`  NOTE: ${nonIndex.length} change(s) beyond wiki/index.md — review the list above; these are genuine out-of-band edits.`);
+  }
+  appendLog('bless', `accepted ${changed.length} out-of-band vault change(s)`);
   console.log('blessed: current vault state committed as accepted.');
 }
 
@@ -513,9 +534,14 @@ function cmdWrite(args) {
     op = 'append';
   } else {
     let created = nowISO();
+    let preservedHooks = null;
     if (exists && args.replace) {
       const cur = parseFrontmatter(fs.readFileSync(filePath, 'utf-8'));
       if (cur.fm.created) created = cur.fm.created;
+      // D1: --replace writes fresh frontmatter; without this it silently dropped
+      // the page's `hooks` (the core graph-linking metadata). Preserve them
+      // unless --hooks is explicitly passed (which overrides).
+      if (!args.hooks && Array.isArray(cur.fm.hooks) && cur.fm.hooks.length) preservedHooks = cur.fm.hooks;
       op = 'replace';
     }
     const title = args.title || slug;
@@ -528,6 +554,7 @@ function cmdWrite(args) {
       tags,
     };
     tryApplyExtra(fm);
+    if (preservedHooks && !fm.hooks) fm.hooks = preservedHooks;
     const finalBody = body.endsWith('\n') ? body : body + '\n';
     fs.writeFileSync(filePath, serializeFrontmatter(fm, mintIdsForBody(finalBody)));
   }
@@ -888,6 +915,34 @@ function cmdPatch(args) {
     ops.push(`rel:${line.slice(0, 50)}`);
   }
 
+  // Remove-relation — drop a typed relation from this page AND its registered
+  // inverse from the target page (symmetric to --relation + inverse-closure).
+  // This is the graph's only inverse-aware *removal*: deleting just one side
+  // leaves a dangling edge that `wiki groom` / inverse-closure then resurrect
+  // (they only ever ADD a missing inverse). The target-side strip runs after
+  // the main write below, keyed off `relRemoval`.
+  let relRemoval = null;
+  if (args['remove-relation'] !== undefined && args['remove-relation'] !== false) {
+    const spec = String(args['remove-relation']).trim().replace(/^- /, '');
+    let rmVerb, rmTarget;
+    const m = spec.match(/^("?[^"[]+?"?)\s+\[\[([^\]]+)\]\]$/);
+    if (m) { rmVerb = m[1].trim().replace(/^"|"$/g, ''); rmTarget = m[2].trim(); }
+    else if (spec.includes('=')) { const [v, t] = spec.split('=').map((s) => s.trim()); rmVerb = v; rmTarget = t; }
+    if (!rmVerb || !rmTarget) {
+      console.error(`error: invalid --remove-relation: ${args['remove-relation']}; use 'verb [[target]]' or 'verb=target'`);
+      process.exit(1);
+    }
+    const matchesRel = (ln, verb, target) => {
+      const r = ln.match(/^- ("?[^"[]+?"?)\s+\[\[([^\]]+)\]\]\s*$/);
+      return !!r && r[1].trim().replace(/^"|"$/g, '') === verb && r[2].trim() === target;
+    };
+    const lines = newBody.split('\n');
+    const kept = lines.filter((ln) => !matchesRel(ln, rmVerb, rmTarget));
+    newBody = kept.join('\n');
+    relRemoval = { verb: rmVerb, target: rmTarget, removedHere: lines.length - kept.length, matchesRel };
+    ops.push(`rel-:${rmVerb} [[${rmTarget}]]`);
+  }
+
   // Tag mutations
   let tags = Array.isArray(fm.tags) ? [...fm.tags] : [];
   if (args['add-tag']) {
@@ -981,14 +1036,22 @@ function cmdPatch(args) {
     const oldTitle = fm.title;
     const newTitle = String(args.title);
     if (oldTitle && oldTitle !== newTitle) {
-      // HR07: if old title would become an alias and contains `,` or `]`,
-      // refuse — would corrupt the round-trip. (Pre-HR07 pages could have
-      // such titles; this halts before we propagate the hazard.)
+      // The old title is normally promoted to an alias so inbound links and
+      // searches keep resolving. HR07 forbids `,`/`]` in aliases (round-trip
+      // hazard). D2: rather than ABORT the rename (which blocked renaming any
+      // declarative, comma-bearing card title — exactly the titles the card
+      // standard mandates), skip the auto-alias with a warning when the old
+      // title is alias-invalid, or whenever --no-alias is passed.
       const titleErr = aliasValueError(oldTitle);
-      if (titleErr) { console.error(`error: ${titleErr} (would be promoted to alias on title rename)`); process.exit(3); }
-      const aliases = [...aliasesOf(fm)];
-      if (!aliases.includes(oldTitle)) aliases.push(oldTitle);
-      fm.aliases = aliases;
+      if (args['no-alias']) {
+        // explicit opt-out: rename only, no alias promotion.
+      } else if (titleErr) {
+        console.error(`warning: old title not promoted to alias (${titleErr}); renamed without it. Pass --no-alias to silence this.`);
+      } else {
+        const aliases = [...aliasesOf(fm)];
+        if (!aliases.includes(oldTitle)) aliases.push(oldTitle);
+        fm.aliases = aliases;
+      }
       ops.push(`title:${oldTitle}->${newTitle}`);
       titleChanged = true;
     }
@@ -996,7 +1059,7 @@ function cmdPatch(args) {
   }
 
   if (ops.length === 0) {
-    console.error('error: nothing to patch. Pass at least one of --observation, --relation, --add-tag, --remove-tag, --alias, --summary, --title, --born, --visibility, --sensitive, --confidence, --remind_at, --reminded_at, --notify.');
+    console.error('error: nothing to patch. Pass at least one of --observation, --relation, --remove-relation, --add-tag, --remove-tag, --alias, --summary, --title, --born, --visibility, --sensitive, --confidence, --remind_at, --reminded_at, --notify.');
     process.exit(1);
   }
 
@@ -1089,6 +1152,39 @@ function cmdPatch(args) {
       }
       console.log(`  inverse-closure: +${missing.length} on ${byTarget.size} page(s)`);
     }
+  }
+
+  // Remove-relation inverse cleanup: strip the registered inverse off the
+  // target page so the edge is gone on BOTH sides. Without this, the next
+  // `wiki groom` / inverse-closure re-adds the inverse and the relation
+  // returns. Runs even when this page had no matching line (the caller may be
+  // removing from the inverse side), so the target is always reconciled.
+  if (relRemoval) {
+    const schema = loadSchema();
+    // Resolve the inverse verb BIDIRECTIONALLY. The schema's inverses Map is
+    // one-directional (it stores left→right only), so a forward get() misses
+    // when the caller names the right-hand verb (e.g. `author_of`, whose pair
+    // is keyed `authored_by author_of`). Fall back to a reverse lookup so
+    // removal strips the target regardless of which side the verb is on.
+    let invVerb = null;
+    if (schema.symmetric.has(relRemoval.verb)) invVerb = relRemoval.verb;
+    else if (schema.inverses.has(relRemoval.verb)) invVerb = schema.inverses.get(relRemoval.verb);
+    else { for (const [a, b] of schema.inverses) { if (b === relRemoval.verb) { invVerb = a; break; } } }
+    let removedThere = 0;
+    if (invVerb && relRemoval.target !== slug && fs.existsSync(wikiPath(relRemoval.target))) {
+      const tp = wikiPath(relRemoval.target);
+      const { fm: tfm, body: tbody } = parseFrontmatter(fs.readFileSync(tp, 'utf-8'));
+      const tlines = tbody.split('\n');
+      const tkept = tlines.filter((ln) => !relRemoval.matchesRel(ln, invVerb, slug));
+      removedThere = tlines.length - tkept.length;
+      if (removedThere) {
+        tfm.updated = nowISO();
+        fs.writeFileSync(tp, serializeFrontmatter(tfm, tkept.join('\n')));
+        appendLog('patch-inverse-rm', `${relRemoval.target}: -${removedThere} (${invVerb} [[${slug}]])`);
+      }
+    }
+    console.log(`  remove-relation: -${relRemoval.removedHere} on ${slug}` +
+      (invVerb ? `, -${removedThere} on ${relRemoval.target} (inverse ${invVerb})` : ' (no registered inverse)'));
   }
 
   // Post-write audit hook
@@ -1783,6 +1879,10 @@ function cmdStubs(args) {
 // spec: {body, since?, until?, on?, asOf?, tags?, source?}
 // defaultSource: applied if obs has no own source (becomes ^[default])
 function formatObservation(spec, category, defaultSource) {
+  // E1: accept a bare string as shorthand for { body: "..." }. The natural
+  // spec `hypotheses: ["plain text"]` used to silently drop every element
+  // (no `.body`), producing content-free pages with no error.
+  if (typeof spec === 'string') spec = { body: spec };
   if (!spec || !spec.body) return null;
   const dateParts = [];
   if (spec.since) dateParts.push(`[since ${spec.since}]`);
@@ -1878,6 +1978,9 @@ function cmdIngest(args) {
     existingSlugs,
     fuzzyMatchFn: (title, opts) => resolveSlugCandidates(title, opts),
     allowDuplicates: !!args['allow-duplicates'],
+    allowDuplicateSlugs: new Set(
+      String(args['allow-duplicate-slug'] || '').split(',').map((s) => s.trim()).filter(Boolean),
+    ),
   });
 
   if (errors.length) {
@@ -2043,6 +2146,47 @@ function cmdIngest(args) {
     process.exit(2);
   }
 
+  // ─── DRY-RUN (E3) ─────────────────────────────────────────────────────
+  // Validation + staging already ran (in-memory only — nothing on disk yet),
+  // so we can report the full plan plus a simulated audit and dangling-target
+  // check without writing or committing. Turns B1/C1/E1/E2 from post-write
+  // cleanups into pre-write diagnostics.
+  if (args['dry-run']) {
+    const list = (a) => { const u = [...new Set(a)]; return u.length ? ' — ' + u.join(', ') : ''; };
+    console.log('# ingest --dry-run (no writes, no commit)');
+    console.log(`  would create: ${[...new Set(created)].length}${list(created)}`);
+    console.log(`  would modify: ${[...new Set(modified)].length}${list(modified)}`);
+    console.log(`  would skip:   ${[...new Set(skipped)].length}${list(skipped)}`);
+    const allSlugs = new Set([...existingSlugs, ...createdSlugs]);
+    const auditDeps = { schema, knownVerbs };
+    const sev = { low: 0, medium: 0, high: 0 };
+    const dangling = [];
+    const blockers = [];
+    for (const [p, content] of stagedWrites) {
+      const s = path.basename(p).replace(/\.md$/, '');
+      const { fm, body } = parseFrontmatter(content);
+      for (const r of parseRelations(body)) {
+        if (!allSlugs.has(r.target)) dangling.push(`${s} -[${r.verb}]-> ${r.target}`);
+      }
+      const res = auditPage(
+        { slug: s, title: String(fm.title || s), type: fm.type || 'note', tags: Array.isArray(fm.tags) ? fm.tags : [], body, fm },
+        auditDeps,
+      );
+      for (const i of (res.issues || [])) {
+        sev[i.severity] = (sev[i.severity] || 0) + 1;
+        if (i.severity === 'medium' || i.severity === 'high') blockers.push(`[${i.severity}] ${s}: ${i.rule}: ${i.detail}`);
+      }
+    }
+    if (dangling.length) {
+      console.log(`  dangling relation targets (${dangling.length}) — resolve to no existing or batch page:`);
+      for (const d of dangling.slice(0, 30)) console.log(`    ${d}`);
+    }
+    console.log(`  simulated audit: ${sev.high || 0} high, ${sev.medium || 0} medium, ${sev.low || 0} low across ${stagedWrites.size} page(s)`);
+    for (const b of blockers.slice(0, 30)) console.log(`    ${b}`);
+    console.log('# dry-run: nothing written.');
+    return;
+  }
+
   // ─── FLUSH ────────────────────────────────────────────────────────────
   // All staged writes go to disk now. See bin/lib/staged-writes.js for the
   // per-file atomicity contract (temp + renameSync per entry).
@@ -2059,7 +2203,12 @@ function cmdIngest(args) {
   skipped.length = 0;   skipped.push(...dedupedSkipped);
 
   const touched = [...new Set([...created, ...modified])];
-  appendLog('ingest', `${created.length} created, ${modified.length} modified, ${skipped.length} skipped`);
+  // A1: the commit is DEFERRED to a single appendLog after index regen +
+  // inverse-closure + autolink (below), so the working tree is never left
+  // dirty. The old early commit here committed a stale index.md, and the
+  // regenerated index only got committed if inverse-closure happened to fire
+  // (missing.length>0) — so one-way-verb ingests (instance_of/cites/extends)
+  // orphaned wiki/index.md every time → tamper-block → bless-churn.
 
   // HR23: post-flush snapshot. Pre-HR23, this leg did 3 separate full-vault
   // walks (regenerateIndex + buildTitleMap + per-touched-slug auditSlug
@@ -2113,7 +2262,8 @@ function cmdIngest(args) {
         newBody += additions.join('\n') + '\n';
         tfm.updated = nowISO();
         fs.writeFileSync(p, serializeFrontmatter(tfm, newBody));
-        appendLog('ingest-inverse', `${target}: +${items.length}`);
+        // No commit here (A1): the deferred final commit below captures these
+        // inverse writes along with the index + autolink edits.
         // Update snapshot + ensure the target is in `touched` so the audit
         // and autolink steps see its updated state. `touched` is an Array
         // built upstream via dedup, so guard against duplicate insertion.
@@ -2136,6 +2286,13 @@ function cmdIngest(args) {
     try { autolinkSlug(slug, { direction: 'both', dryRun: false, verbose: false, titleMap }); }
     catch (e) { autolinkFailures.push({ slug, message: e.message }); }
   }
+
+  // A1: single DEFERRED commit, after every write (flushed pages + regenerated
+  // index + inverse-closure edits + autolink body edits). This is the only
+  // commit cmdIngest makes; it guarantees a clean working tree regardless of
+  // the audit outcome below, so the next `wiki` command is never tamper-blocked
+  // and autolink edits are no longer silently left for a later `bless`.
+  appendLog('ingest', `${created.length} created, ${modified.length} modified, ${skipped.length} skipped`);
 
   // 6) Audit touched slugs from the snapshot (no per-slug disk re-read).
   // Note: autolinkSlug may have updated some pages above; for the post-flush
@@ -2163,28 +2320,45 @@ function cmdIngest(args) {
     console.error(`# autolink failures: ${autolinkFailures.length}/${touched.length}`);
     for (const f of autolinkFailures) console.error(`  ${f.slug}: ${f.message}`);
   }
-  const dirty = Object.entries(auditResults).filter(([_, r]) => r.score > 0);
+  // C4: only medium+ severity blocks (exit 2). Low-severity issues (e.g. the
+  // by-design `multi-fact-observation` density flag) are advisory — they no
+  // longer force a non-zero exit nor pressure needless "fixes". The tree is
+  // already committed above (A1), so a low-only ingest exits 0 with a clean
+  // tree and no bless required.
+  const SEVERITY_RANK = { low: 1, medium: 2, high: 3 };
+  const isBlocking = (r) => Array.isArray(r.issues) && r.issues.some((i) => (SEVERITY_RANK[i.severity] || 0) >= 2);
+  const blocking = Object.entries(auditResults).filter(([_, r]) => isBlocking(r));
+  const lowOnly = Object.entries(auditResults).filter(([_, r]) => !isBlocking(r) && r.score > 0);
+  const lowCount = lowOnly.reduce((n, [, r]) => n + (r.issues ? r.issues.length : 0), 0);
+  // F3: batch audit summary by severity across the touched slugs.
+  const sevTally = { high: 0, medium: 0, low: 0 };
+  for (const [, r] of Object.entries(auditResults)) {
+    for (const i of (r.issues || [])) sevTally[i.severity] = (sevTally[i.severity] || 0) + 1;
+  }
+  console.log(`# audit summary: ${sevTally.high} high, ${sevTally.medium} medium, ${sevTally.low} low across ${touched.length} page(s)`);
   const autolinkRatio = touched.length ? autolinkFailures.length / touched.length : 0;
   const autolinkMaterial = autolinkRatio > 0.5;
   if (replayMsgId && !args.replay) {
     captureReplayResult(replayMsgId, {
-      exitCode: (dirty.length === 0 && !autolinkMaterial) ? 0 : 2,
+      exitCode: (blocking.length === 0 && !autolinkMaterial) ? 0 : 2,
       created, modified, skipped,
-      audit_dirty: dirty.length,
+      audit_dirty: blocking.length,
       autolink_failures: autolinkFailures.length,
       errors: [],
     });
   }
-  if (dirty.length === 0) {
-    console.log('audit: all touched pages clean');
+  if (blocking.length === 0) {
+    console.log(lowCount
+      ? `audit: clean (${lowCount} low-severity advisor${lowCount === 1 ? 'y' : 'ies'}, non-blocking)`
+      : 'audit: all touched pages clean');
   } else {
     console.error('');
-    console.error('# audit issues on ingested pages:');
-    for (const [slug, r] of dirty) {
+    console.error('# audit issues on ingested pages (medium+ blocks; low-severity is advisory):');
+    for (const [slug, r] of blocking) {
       console.error(`  ${slug} (score ${r.score}):`);
       for (const i of r.issues) console.error(`    [${i.severity}] ${i.rule}: ${i.detail}`);
     }
-    console.error(`  → fix via 'wiki patch <slug> ...' before next ingestion`);
+    console.error(`  → fix the medium/high issues via 'wiki patch <slug> ...' before next ingestion`);
     process.exit(2);
   }
   if (autolinkMaterial) {
@@ -2304,6 +2478,25 @@ function cmdAudit(args) {
   const slug = args._[0];
   if (args.all) {
     const { perPage, hotMentions } = auditAll();
+    // F2: machine-readable full result.
+    if (args.json) {
+      console.log(JSON.stringify({ pages: perPage, hotMentions }, null, 2));
+      process.exit(perPage.some((p) => p.score > 0) ? 2 : 0);
+    }
+    // F2: list EVERY page failing a specific rule (no truncation), with the
+    // per-page detail — replaces reverse-engineering the predicate by hand.
+    if (args.rule) {
+      const rule = String(args.rule);
+      const hits = perPage
+        .filter((p) => p.issues.some((i) => i.rule === rule))
+        .sort((a, b) => b.score - a.score);
+      console.log(`# pages failing rule "${rule}": ${hits.length}`);
+      for (const p of hits) {
+        const detail = (p.issues.find((i) => i.rule === rule) || {}).detail || '';
+        console.log(`  ${p.slug}\t${detail}`);
+      }
+      process.exit(hits.length ? 2 : 0);
+    }
     const dirty = perPage.filter((p) => p.score > 0).sort((a, b) => b.score - a.score);
     console.log(`# vault audit: ${perPage.length} pages, ${dirty.length} with issues`);
     if (dirty.length === 0) {
@@ -3198,12 +3391,23 @@ function cmdSql(args) {
   const query = args._.length ? args._.join(' ') : '';
   if (!query) {
     console.error('Usage:');
-    console.error('  wiki sql "<query>"     run query, print as table');
-    console.error('  wiki sql --schema      DESCRIBE all three tables (vault, observations, relations) + column gloss');
-    console.error('  wiki sql --explore     open the DuckDB REPL on the DB');
+    console.error('  wiki sql "<query>"            run query, print as table');
+    console.error('  wiki sql "<query>" --tsv      tab-separated (no box-drawing) — easy to parse');
+    console.error('  wiki sql "<query>" --csv      comma-separated');
+    console.error('  wiki sql "<query>" --json     JSON array of row objects');
+    console.error('  wiki sql --schema             DESCRIBE all three tables + column gloss');
+    console.error('  wiki sql --explore            open the DuckDB REPL on the DB');
     process.exit(1);
   }
-  const res = spawnSync(resolveDuckdbBin(), [dbPath, '-c', query], { stdio: 'inherit' });
+  // F1: machine-parseable output modes. The default box-drawing table has
+  // borders, a truncation footer ("40 shown") and `·` ellipsis rows that break
+  // naive grep/awk parsing of scalars. --tsv/--csv/--json stream all rows with
+  // no decoration.
+  let modeArgs = [];
+  if (args.json) modeArgs = ['-json'];
+  else if (args.csv) modeArgs = ['-csv'];
+  else if (args.tsv) modeArgs = ['-c', '.mode tabs'];
+  const res = spawnSync(resolveDuckdbBin(), [dbPath, ...modeArgs, '-c', query], { stdio: 'inherit' });
   process.exit(res.status || 0);
 }
 
@@ -4259,7 +4463,7 @@ const VERBS = [
   { name: 'process',  section: 'WRITE', lines: ['  process                                   START HERE for a process session: prints the card rubric + live hook vocabulary + gold-card exemplars (loads guidance into context)'] },
   {
     name: 'ingest', section: 'WRITE',
-    lines: ['  ingest --stdin | --file <path> [--allow-duplicates]   structured JSON-input compiler'],
+    lines: ['  ingest --stdin | --file <path> [--allow-duplicates] [--allow-duplicate-slug s] [--dry-run]   structured JSON-input compiler'],
     longHelp: [
       'wiki ingest — compile a JSON spec into vault writes.',
       '',
@@ -4288,14 +4492,15 @@ const VERBS = [
       'Never one fat `type: concept` entity with `##` sections — that is rejected',
       '(sectioned-idea-page); a deliberate overview is `type: synthesis`.',
       '',
-      'See docs/SCHEMA.md § JSON ingestion spec for the full field reference.',
+      'See docs/INGEST_SPEC.md for the full field reference (and docs/SCHEMA.md for types/tags/verbs).',
     ].join('\n'),
   },
   {
     name: 'write', section: 'WRITE',
     lines: [
-      '  write <slug> --title "..." --type <type> [--tags a,b]',
+      '  write <slug> --title "..." --type <type> [--tags a,b] [--hooks a,b,c]',
       '       [--content "..." | --stdin] [--append|--replace] [--no-anchor] [--soft]',
+      '       (--replace preserves existing hooks unless --hooks is given)',
       `       types: ${[...KNOWN_TYPES].join('|')}`,
       '       (strict by default: rejects mislabeled-event, uncategorized bullets, invented verbs,',
       '        missing provenance on entity/event/concept/synthesis; --soft to bypass)',
@@ -4335,6 +4540,7 @@ const VERBS = [
     name: 'patch', section: 'WRITE',
     lines: [
       '  patch <slug> [--observation "..."] [--relation "verb [[target]]"]',
+      '              [--remove-relation "verb [[target]]"]   drop relation + its inverse on the target',
       '              [--supersede "<substring>"]    strike-through old obs + [until today]',
       '              [--add-tag x] [--remove-tag x] [--alias name]',
       '              [--hooks a,b] [--remove-hooks a,b]   add / drop connective hooks',
@@ -4347,6 +4553,7 @@ const VERBS = [
       'Usage:',
       '  wiki patch <slug> --observation "[fact] <body> #tag"',
       '  wiki patch <slug> --relation "<verb> [[<target>]]"',
+      '  wiki patch <slug> --remove-relation "<verb> [[<target>]]"   removes it here AND the registered inverse on <target> (groom-safe)',
       '  wiki patch <slug> --supersede "<substring>"   strike old obs + add [until <today>]',
       '  wiki patch <slug> --add-tag <tag>',
       '  wiki patch <slug> --remove-tag <tag>',
@@ -4445,7 +4652,7 @@ const VERBS = [
   { name: 'groom',    section: 'HYGIENE', lines: ['  groom --mechanical [--dry-run]            auto-fix symmetric relations, bidirectional autolink, report stubs'] },
   {
     name: 'audit', section: 'HYGIENE',
-    lines: ['  audit <slug> | --all                      mechanical quality score per page or vault-wide'],
+    lines: ['  audit <slug> | --all [--rule <name>] [--json]   mechanical quality score per page or vault-wide'],
     longHelp: [
       'wiki audit — per-page quality + vault-wide cross-page rules.',
       '',
@@ -4480,7 +4687,7 @@ const VERBS = [
 
   // SQL
   { name: 'sql', section: 'SQL', lines: [
-    '  sql "<query>"                             run SQL against the three tables (DuckDB)',
+    '  sql "<query>" [--tsv|--csv|--json]        run SQL against the three tables (DuckDB); machine-parseable output modes',
     '  sql --schema                              DESCRIBE all three tables + column gloss',
     '  sql --explore                             open the DuckDB REPL on the DB',
     '  (DB at .cache/vault.duckdb; rebuilt lazily when any wiki/*.md is newer)',

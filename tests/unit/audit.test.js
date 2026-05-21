@@ -707,3 +707,30 @@ test('strictCrossPageErrors: fires registered rule and propagates fix?', () => {
     STRICT_CROSS_PAGE_RULES.pop();
   }
 });
+
+// ─── C1/C2/C3 ingestion-audit fixes ──────────────────────────────────────────
+
+test('mislabeled-event: exempt for type=concept (C1 — concepts are never events)', () => {
+  const r = findRule('mislabeled-event');
+  // "review" is in the test schema's eventKeywords; on a concept it must NOT flag.
+  assert.equal(r.check({ title: 'Literature review of policy gradients', type: 'concept' }, deps()), null);
+  assert.equal(r.check({ title: 'Quarterly review', type: 'synthesis' }, deps()), null);
+  // still fires on a note/entity title
+  assert.ok(r.check({ title: 'Monday review', type: 'note' }, deps()));
+});
+
+test('empty-page: stub exempt even when provenance contains a wikilink (C2)', () => {
+  const r = findRule('empty-page');
+  assert.equal(
+    r.check({ type: 'entity', body: 'Stub. ^[gmail:you@example.com:2026-05-20:[[alice]]-bob]' }, deps()),
+    null,
+  );
+});
+
+test('multi-fact-observation: silent on multi-sentence elaboration of ONE idea (C3)', () => {
+  const r = findRule('multi-fact-observation');
+  const elaborated = '- [fact] The estimator reweights particles toward future-compatible states. This is what makes the twist learnable. Therefore the variance shrinks. Such normalization removes the horizon offset ^[t:1]';
+  // 4 sentence segments, but 3 open with continuation words (This/Therefore/Such)
+  // → only 1 independent assertion → not flagged.
+  assert.equal(r.check({ body: elaborated }, deps()), null);
+});
