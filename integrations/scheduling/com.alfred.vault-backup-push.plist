@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd job: push the vault to its git `origin` remote (daily 22:00).
+  For a local (non-sync-service) vault, this IS the backup mechanism — without
+  it the remote silently falls behind and "git remote backup" is a lie.
+  Idempotent: tools/vault-backup-push.sh is a no-op when already in sync.
+  Install:
+    1. Edit the absolute paths below (the script path and the vault path arg).
+    2. cp to ~/Library/LaunchAgents/com.alfred.vault-backup-push.plist
+    3. launchctl load ~/Library/LaunchAgents/com.alfred.vault-backup-push.plist
+  PATH must include git (and your git credential helper must be configured so an
+  unattended push authenticates — e.g. macOS osxkeychain, or an SSH remote).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.alfred.vault-backup-push</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/ABSOLUTE/PATH/TO/alfred_assistant/tools/vault-backup-push.sh</string>
+    <string>/Users/YOU/my-vault</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>22</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key><string>/tmp/alfred-vault-backup-push.out</string>
+  <key>StandardErrorPath</key><string>/tmp/alfred-vault-backup-push.err</string>
+</dict>
+</plist>

@@ -13,7 +13,7 @@
 #   ALFRED_VAULT  vault path
 #   ENV_FILE      file exporting EMAIL_FROM + GMAIL_APP_PASSWORD
 set -euo pipefail
-ALFRED_VAULT="${ALFRED_VAULT:-$HOME/Library/CloudStorage/Dropbox/_AI_box}"
+ALFRED_VAULT="${ALFRED_VAULT:-$HOME/my-vault}"
 ENV_FILE="${ENV_FILE:-$HOME/nanoclaw/.env}"
 [ -f "$ENV_FILE" ] && set -a && . "$ENV_FILE" && set +a
 : "${EMAIL_FROM:?run-weekly-review: EMAIL_FROM not set (check ENV_FILE)}"

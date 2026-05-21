@@ -15,7 +15,7 @@
 #   ALFRED_VAULT  vault path (contains .bin/)
 #   ENV_FILE      a file exporting TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (sourced)
 set -euo pipefail
-ALFRED_VAULT="${ALFRED_VAULT:-$HOME/Library/CloudStorage/Dropbox/_AI_box}"
+ALFRED_VAULT="${ALFRED_VAULT:-$HOME/my-vault}"
 ENV_FILE="${ENV_FILE:-$HOME/nanoclaw/.env}"
 
 # Secrets are sourced from a file, never hardcoded here.

@@ -5,7 +5,7 @@
 # runs `claude`. Set ALFRED_VAULT to your vault path, or edit the default below.
 # Any extra args pass through to claude (e.g. `alfred-cc -p "..."`).
 set -euo pipefail
-VAULT="${ALFRED_VAULT:-$HOME/Library/CloudStorage/Dropbox/_AI_box}"
+VAULT="${ALFRED_VAULT:-$HOME/my-vault}"
 [ -f "$VAULT/AGENTS.md" ] || { echo "alfred-cc: no AGENTS.md in $VAULT (set ALFRED_VAULT)" >&2; exit 1; }
 # Put the deployed CLI on PATH so the persona's bare `wiki`/`inbox` resolve.
 [ -d "$VAULT/.bin" ] && export PATH="$VAULT/.bin:$PATH"
