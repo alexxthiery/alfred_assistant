@@ -974,6 +974,15 @@ function cmdPatch(args) {
     fm.aliases = aliases;
   }
 
+  // Remove-alias — drop an alias (symmetric to --remove-tag / --remove-hooks).
+  // The recovery path for a bad alias (previously removable only via git).
+  if (args['remove-alias'] !== undefined && args['remove-alias'] !== false) {
+    const a = String(args['remove-alias']);
+    const before = aliasesOf(fm);
+    const kept = before.filter((x) => x !== a);
+    if (kept.length !== before.length) { fm.aliases = kept; ops.push(`-alias:${a}`); }
+  }
+
   // Summary
   if (args.summary !== undefined && args.summary !== false) {
     fm.summary = String(args.summary);
@@ -2543,6 +2552,39 @@ function cmdAudit(args) {
   const result = auditSlug(slug);
   console.log(formatAuditPage(slug, result));
   process.exit(result.score > 0 ? 2 : 0);
+}
+
+// `wiki fix-links` — repair nested-wikilink corruption `[[A[[B]]C]]` (a link
+// injected inside an existing target by the old autolink bug, G1). Collapses to
+// `[[ABC]]`, but ONLY when the collapsed slug resolves to a real page — so it
+// never fabricates a wrong target (the case where autolink REPLACED text rather
+// than just bracketing it; those it reports and leaves for manual repair).
+// Read-only by default; --apply writes (single commit).
+function cmdFixLinks(args) {
+  const NEST = /\[\[([^[\]]*)\[\[([^[\]]*)\]\]([^[\]]*)\]\]/;
+  const fixable = [];
+  const skipped = [];
+  forEachPage(({ slug, fm, body }) => {
+    if (!NEST.test(body)) return;
+    let fixed = body;
+    const collapsed = [];
+    while (NEST.test(fixed)) {
+      fixed = fixed.replace(NEST, (_, a, b, c) => { const t = `${a}${b}${c}`; collapsed.push(t); return `[[${t}]]`; });
+    }
+    const bad = collapsed.filter((t) => !/^[a-z0-9][a-z0-9-]*$/.test(t) || !fs.existsSync(wikiPath(t)));
+    if (bad.length) { skipped.push({ slug, bad }); return; }
+    fixable.push({ slug, fm, fixed, collapsed });
+  });
+  if (!fixable.length && !skipped.length) { console.log('fix-links: no nested [[...]] corruption found.'); return; }
+  for (const h of fixable) console.log(`fixable  ${h.slug} → ${[...new Set(h.collapsed)].map((t) => `[[${t}]]`).join(', ')}`);
+  for (const s of skipped) console.error(`SKIP     ${s.slug}: collapsed target(s) resolve to no page (${s.bad.join(', ')}) — repair by hand (text was replaced, not just bracketed)`);
+  if (!args.apply) { console.log(`\n(dry-run; ${fixable.length} fixable, ${skipped.length} need manual repair. Re-run with --apply.)`); return; }
+  for (const h of fixable) {
+    h.fm.updated = nowISO();
+    fs.writeFileSync(wikiPath(h.slug), serializeFrontmatter(h.fm, h.fixed));
+  }
+  if (fixable.length) { regenerateIndex(); appendLog('fix-links', `repaired ${fixable.length} page(s)`); }
+  console.log(`fix-links: repaired ${fixable.length} page(s)${skipped.length ? `, ${skipped.length} skipped (manual)` : ''}.`);
 }
 
 function cmdGroom(args) {
@@ -4546,7 +4588,7 @@ const VERBS = [
       '  patch <slug> [--observation "..."] [--relation "verb [[target]]"]',
       '              [--remove-relation "verb [[target]]"]   drop relation + its inverse on the target',
       '              [--supersede "<substring>"]    strike-through old obs + [until today]',
-      '              [--add-tag x] [--remove-tag x] [--alias name]',
+      '              [--add-tag x] [--remove-tag x] [--alias name] [--remove-alias name]',
       '              [--hooks a,b] [--remove-hooks a,b]   add / drop connective hooks',
       '              [--summary "..."] [--title "..."] [--born YYYY-MM-DD | MM-DD]',
       '              [--visibility private|personal|public] [--sensitive true|false] [--confidence 0.0-1.0]',
@@ -4654,6 +4696,7 @@ const VERBS = [
   { name: 'reindex',  section: 'HYGIENE', lines: ['  reindex                                   regenerate index.md'] },
   { name: 'bless',    section: 'HYGIENE', lines: ['  bless                                     accept + commit out-of-band vault changes (clears a tamper-check block)'] },
   { name: 'groom',    section: 'HYGIENE', lines: ['  groom --mechanical [--dry-run]            auto-fix symmetric relations, bidirectional autolink, report stubs'] },
+  { name: 'fix-links', section: 'HYGIENE', lines: ['  fix-links [--apply]                       repair nested-wikilink corruption [[A[[B]]C]] -> [[ABC]] (only when target resolves)'] },
   {
     name: 'audit', section: 'HYGIENE',
     lines: ['  audit <slug> | --all [--rule <name>] [--json]   mechanical quality score per page or vault-wide'],
@@ -4830,6 +4873,7 @@ const cmds = {
   todo: cmdTodo,
   // hygiene
   lint: cmdLint, reindex: cmdReindex, 'sync-ids': cmdSyncIds, size: cmdSize, groom: cmdGroom, audit: cmdAudit,
+  'fix-links': cmdFixLinks,
   'persona-lint': cmdPersonaLint, migrate: cmdMigrate, preflight: cmdPreflight, bless: cmdBless,
   // measurements (tabular time-series)
   measure: cmdMeasure,

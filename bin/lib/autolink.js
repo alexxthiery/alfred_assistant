@@ -69,15 +69,26 @@ function autolinkBody(body, ownSlug, titleMap) {
     for (const { slug, pattern } of titleMap) {
       if (slug === ownSlug) continue;
       if (seenSlugs.has(slug)) continue;
+      // Recompute existing [[...]] spans each slug (a prior injection may have
+      // added one). A match inside any span must never be rewritten — doing so
+      // produced nested `[[a-[[b]]-c]]` corruption (P0). The old 2-char
+      // before/after check missed matches in the MIDDLE of a longer target.
+      const spans = wikilinkSpans(text);
       pattern.lastIndex = 0;
       let m;
       while ((m = pattern.exec(text)) !== null) {
         const idx = m.index;
-        const before = text.slice(Math.max(0, idx - 2), idx);
-        const after = text.slice(idx + m[0].length, idx + m[0].length + 2);
-        if (before.endsWith('[[') || after.startsWith(']]')) continue;
+        const end = idx + m[0].length;
+        // Inside an existing wikilink target → skip (no nested links).
+        if (spans.some(([s, e]) => idx >= s && idx < e)) continue;
+        // Hyphen-boundary guard: `\b` treats `-` as a boundary, so without this
+        // an alias like "value-function" would match the sub-phrase inside a
+        // longer slug "hjb-value-function-log-h". Only link a WHOLE token run,
+        // never a hyphen-delimited fragment of a longer one.
+        if (text[idx - 1] === '-' || text[end] === '-') continue;
+        // Inside a markdown link target [text](target) → skip.
         if (/\]\([^)]*$/.test(text.slice(0, idx))) continue;
-        text = text.slice(0, idx) + `[[${slug}]]` + text.slice(idx + m[0].length);
+        text = text.slice(0, idx) + `[[${slug}]]` + text.slice(end);
         injections++;
         seenSlugs.add(slug);
         break;
@@ -86,6 +97,16 @@ function autolinkBody(body, ownSlug, titleMap) {
     segments[i] = { kind: 'prose', text };
   }
   return { body: segments.map((s) => s.text).join(''), injections };
+}
+
+// Byte ranges [start, end) of every `[[...]]` span in `text`. Used to forbid
+// link injection inside an existing wikilink target.
+function wikilinkSpans(text) {
+  const spans = [];
+  const re = /\[\[[^\]]*\]\]/g;
+  let m;
+  while ((m = re.exec(text)) !== null) spans.push([m.index, m.index + m[0].length]);
+  return spans;
 }
 
 module.exports = { buildTitleEntries, autolinkBody };

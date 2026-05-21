@@ -195,3 +195,41 @@ test('autolinkBody: multi-line prose, multiple titles, single fence in middle', 
   assert.equal(out.injections, 2);
   assert.ok(out.body.includes('fence Alice Smith Bob Jones'), 'fence content preserved');
 });
+
+// ─── G1: no nested-link corruption (P0) ──────────────────────────────────────
+
+test('autolinkBody: alias matching a hyphen-fragment of a longer slug does NOT corrupt it', () => {
+  // Page "value-function-expected-discounted-return" has alias "value-function".
+  // A body citing the unrelated slug [[hjb-value-function-log-h]] must be left
+  // untouched — no nested [[hjb-[[...]]-log-h]].
+  const titleMap = buildTitleEntries([
+    { slug: 'value-function-expected-discounted-return', fm: { title: 'Value function', aliases: ['value-function'] } },
+  ]);
+  const body = '- instance_of [[hjb-value-function-log-h]]\n';
+  const out = autolinkBody(body, 'some-other-page', titleMap);
+  assert.equal(out.injections, 0, 'must not inject inside an existing wikilink target');
+  assert.ok(out.body.includes('[[hjb-value-function-log-h]]'), 'original link intact');
+  assert.equal(/\[\[[^\]]*\[\[/.test(out.body), false, 'no nested [[ pattern');
+});
+
+test('autolinkBody: a short alias is not injected into the middle of a longer hyphenated slug', () => {
+  // alias "alpha" must NOT match the "alpha" inside the slug [[one-alpha-two]].
+  const titleMap = buildTitleEntries([
+    { slug: 'alpha', fm: { title: 'Alpha', aliases: [] } },
+  ]);
+  const body = '- related_to [[one-alpha-two]]\n';
+  const out = autolinkBody(body, 'some-page', titleMap);
+  assert.equal(out.injections, 0);
+  assert.ok(out.body.includes('[[one-alpha-two]]'), 'original link intact');
+  assert.equal(/\[\[[^\]]*\[\[/.test(out.body), false, 'no nested [[ pattern');
+});
+
+test('autolinkBody: a legitimate whole-token mention is still linked (no over-correction)', () => {
+  const titleMap = buildTitleEntries([
+    { slug: 'value-function-expected-discounted-return', fm: { title: 'Value function', aliases: ['value-function'] } },
+  ]);
+  const body = 'The value-function is the discounted return.\n';
+  const out = autolinkBody(body, 'some-other-page', titleMap);
+  assert.equal(out.injections, 1, 'standalone whole-token mention links');
+  assert.ok(out.body.includes('[[value-function-expected-discounted-return]]'));
+});

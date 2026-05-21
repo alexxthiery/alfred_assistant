@@ -45,7 +45,7 @@ const WRITE_CORE_FLAGS = new Set([
   ...EXTRA_FIELDS,
   'add-tag', 'alias', 'allow-duplicates', 'allow-duplicate-slug', 'allow-secret', 'append', 'content',
   'file', 'force-alias', 'force-duplicate', 'no-alias', 'no-anchor', 'observation',
-  'provenance', 'relation', 'remove-relation', 'remove-tag', 'remove-hooks', 'replace', 'replay',
+  'provenance', 'relation', 'remove-relation', 'remove-tag', 'remove-hooks', 'remove-alias', 'replace', 'replay',
   'soft', 'stdin', 'summary', 'supersede', 'tags', 'title', 'type', 'dry-run',
   'today', 'on',
 ]);
@@ -105,7 +105,7 @@ function knownFlags(verb, helpText) {
 const VALUE_REQUIRED_FLAGS = new Set([
   // identity / content
   'title', 'summary', 'content', 'type', 'tags', 'alias', 'add-tag', 'remove-tag',
-  'hooks', 'remove-hooks',
+  'hooks', 'remove-hooks', 'remove-alias',
   // observations / relations
   'observation', 'relation', 'remove-relation', 'supersede', 'provenance',
   // typed frontmatter + external links
