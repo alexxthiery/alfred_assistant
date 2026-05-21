@@ -39,6 +39,7 @@ const {
   extractProvenanceMarkers,
   parseObservations,
   parseRelations,
+  parseRelationLine,
   levenshtein,
   scoreSlugCandidates,
 } = require('./lib/graph.js');
@@ -47,7 +48,7 @@ const { mintIdsForBody } = require('./lib/obsid.js');
 const { isISODate } = require('./lib/date.js');
 const { buildPredictionLine, buildHypothesisLine, defaultProvenance, stampOnDate } = require('./lib/epistemic-verbs.js');
 const { classifyUtterance } = require('./lib/capture-classifier.js');
-const { auditPage, auditVault, STRICT_CROSS_PAGE_RULES, strictCrossPageErrors, ironcladRuleErrors } = require('./lib/audit.js');
+const { auditPage, auditVault, STRICT_CROSS_PAGE_RULES, strictCrossPageErrors, ironcladRuleErrors, severityScore } = require('./lib/audit.js');
 const { redactSecrets } = require('./lib/secrets.js');
 const { applyFlagAliases } = require('./lib/flag-aliases.js');
 const { flushStaged } = require('./lib/staged-writes.js');
@@ -932,9 +933,11 @@ function cmdPatch(args) {
       console.error(`error: invalid --remove-relation: ${args['remove-relation']}; use 'verb [[target]]' or 'verb=target'`);
       process.exit(1);
     }
+    // Reuse the canonical relation-line parser (graph.js) so removal matches
+    // exactly what the read path treats as a relation — no bespoke regex drift.
     const matchesRel = (ln, verb, target) => {
-      const r = ln.match(/^- ("?[^"[]+?"?)\s+\[\[([^\]]+)\]\]\s*$/);
-      return !!r && r[1].trim().replace(/^"|"$/g, '') === verb && r[2].trim() === target;
+      const r = parseRelationLine(ln);
+      return !!r && r.verb === verb && r.target === target;
     };
     const lines = newBody.split('\n');
     const kept = lines.filter((ln) => !matchesRel(ln, rmVerb, rmTarget));
@@ -2174,7 +2177,7 @@ function cmdIngest(args) {
       );
       for (const i of (res.issues || [])) {
         sev[i.severity] = (sev[i.severity] || 0) + 1;
-        if (i.severity === 'medium' || i.severity === 'high') blockers.push(`[${i.severity}] ${s}: ${i.rule}: ${i.detail}`);
+        if (severityScore(i.severity) >= 2) blockers.push(`[${i.severity}] ${s}: ${i.rule}: ${i.detail}`);
       }
     }
     if (dangling.length) {
@@ -2325,8 +2328,9 @@ function cmdIngest(args) {
   // longer force a non-zero exit nor pressure needless "fixes". The tree is
   // already committed above (A1), so a low-only ingest exits 0 with a clean
   // tree and no bless required.
-  const SEVERITY_RANK = { low: 1, medium: 2, high: 3 };
-  const isBlocking = (r) => Array.isArray(r.issues) && r.issues.some((i) => (SEVERITY_RANK[i.severity] || 0) >= 2);
+  // Blocking threshold = medium+ (severityScore >= 2), using the shared
+  // severity scale from audit.js so "what blocks" has one definition.
+  const isBlocking = (r) => Array.isArray(r.issues) && r.issues.some((i) => severityScore(i.severity) >= 2);
   const blocking = Object.entries(auditResults).filter(([_, r]) => isBlocking(r));
   const lowOnly = Object.entries(auditResults).filter(([_, r]) => !isBlocking(r) && r.score > 0);
   const lowCount = lowOnly.reduce((n, [, r]) => n + (r.issues ? r.issues.length : 0), 0);

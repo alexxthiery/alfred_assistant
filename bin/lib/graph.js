@@ -107,13 +107,25 @@ function parseObservations(body) {
 
 // Parse relations: list items of the form `- relation_verb [[slug]]`
 // or `- "multi word" [[slug]]`.
+// Parse a SINGLE body line as a typed relation `- verb [[target]]` (bare or
+// quoted multi-word verb). Returns {verb, target} or null. The one canonical
+// relation-line parser — reused by parseRelations and by callers that need to
+// match/remove a specific relation line (e.g. `wiki patch --remove-relation`),
+// so the accepted shape never drifts between read and write paths.
+function parseRelationLine(line) {
+  let m = /^- ([a-z][a-z_]+) \[\[([a-z0-9][a-z0-9-]*)\]\]/.exec(line);
+  if (m) return { verb: m[1], target: m[2] };
+  m = /^- "([^"]+)" \[\[([a-z0-9][a-z0-9-]*)\]\]/.exec(line);
+  if (m) return { verb: m[1], target: m[2] };
+  return null;
+}
+
 function parseRelations(body) {
   const out = [];
-  const re1 = /^- ([a-z][a-z_]+) \[\[([a-z0-9][a-z0-9-]*)\]\]/gm;
-  const re2 = /^- "([^"]+)" \[\[([a-z0-9][a-z0-9-]*)\]\]/gm;
-  let m;
-  while ((m = re1.exec(body)) !== null) out.push({ verb: m[1], target: m[2] });
-  while ((m = re2.exec(body)) !== null) out.push({ verb: m[1], target: m[2] });
+  for (const line of String(body || '').split('\n')) {
+    const r = parseRelationLine(line);
+    if (r) out.push(r);
+  }
   return out;
 }
 
@@ -222,6 +234,7 @@ module.exports = {
   extractProvenanceMarkers,
   parseObservations,
   parseRelations,
+  parseRelationLine,
   levenshtein,
   scoreSlugCandidates,
 };
