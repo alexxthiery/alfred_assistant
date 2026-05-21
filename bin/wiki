@@ -1252,7 +1252,17 @@ function todoAdd(args) {
 }
 
 function todoList(args) {
-  const today = nowISO().slice(0, 10);
+  // --asof YYYY-MM-DD overrides "today" for --overdue/--due-today, so callers
+  // (e.g. bin/daily-brief --date) get deterministic classification independent
+  // of the wall clock. Defaults to the real today.
+  let today = nowISO().slice(0, 10);
+  if (args.asof !== undefined) {
+    if (!isISODate(String(args.asof))) {
+      console.error(`error: --asof must be YYYY-MM-DD (got "${args.asof}")`);
+      process.exit(1);
+    }
+    today = String(args.asof);
+  }
   const rows = [];
   forEachPage(({ slug: fileSlug, fm }) => {
     if (fm.type !== 'todo') return;
@@ -1604,6 +1614,56 @@ function cmdHooks(args) {
     const promoted = fs.existsSync(wikiPath(hook)) ? 'concept' : '—';
     console.log(`${n}\t${promoted}\t${hook}\t(${samples.get(hook).join(', ')})`);
   }
+}
+
+// Process-session preamble. Run this BEFORE turning raw items into atoms: it
+// loads the guidance into context so a cold agent doesn't wing the ingestion.
+// Assembles three things: (1) the canonical rubric/procedure (persona/pipeline.md),
+// (2) the LIVE hook vocabulary (so reuse-first is concrete, not a memory test),
+// (3) one or two gold-standard cards to match. Read-only.
+function cmdProcess(args) {
+  console.log('# Process-session guide — run this BEFORE decomposing raw items into atoms.');
+  console.log('# The rubric below + the live hook vocabulary + the gold cards are your context.\n');
+
+  // (1) Canonical rubric / procedure.
+  const pipelinePath = path.join(VAULT_ROOT, 'persona', 'pipeline.md');
+  if (fs.existsSync(pipelinePath)) {
+    console.log(fs.readFileSync(pipelinePath, 'utf-8').trim());
+  } else {
+    console.log('(persona/pipeline.md not found in this vault — see the persona for the full procedure.)');
+  }
+
+  // (2) Live hook vocabulary — reuse an existing hook before minting a new one.
+  console.log('\n---\n\n## Live hook vocabulary (REUSE the closest existing hook; do not coin a near-duplicate)\n');
+  const counts = new Map();
+  forEachPage(({ fm }) => {
+    const hooks = Array.isArray(fm.hooks) ? fm.hooks : [];
+    for (const h of hooks) if (typeof h === 'string' && h) counts.set(h, (counts.get(h) || 0) + 1);
+  });
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  if (ranked.length) {
+    for (const [h, n] of ranked) console.log(`  ${String(n).padStart(3)}  ${h}`);
+  } else {
+    console.log('  (no hooks in use yet — you are seeding the vocabulary; choose short standard concept names)');
+  }
+
+  // (3) Gold-standard cards — match this shape (declarative title, self-contained
+  // claims with provenance, sparse hooks, no `##` sections).
+  console.log('\n---\n\n## Gold-standard cards — MATCH THIS SHAPE (one self-contained idea per card)\n');
+  const exemplars = ['fivo-monte-carlo-objective', 'sixo-twist-density-ratio', 'normalized-prior-reference-twist', 'static-schrodinger-bridge'];
+  let shown = 0;
+  for (const slug of exemplars) {
+    if (shown >= 2) break;
+    const p = wikiPath(slug);
+    if (fs.existsSync(p)) {
+      console.log(`### ${slug}\n`);
+      console.log('```');
+      console.log(fs.readFileSync(p, 'utf-8').trim());
+      console.log('```\n');
+      shown++;
+    }
+  }
+  if (!shown) console.log('  (no exemplar cards in this vault yet)');
 }
 
 function cmdTimeline(args) {
@@ -4128,6 +4188,7 @@ const VERBS = [
   ].join('\n') },
 
   // WRITE
+  { name: 'process',  section: 'WRITE', lines: ['  process                                   START HERE for a process session: prints the card rubric + live hook vocabulary + gold-card exemplars (loads guidance into context)'] },
   {
     name: 'ingest', section: 'WRITE',
     lines: ['  ingest --stdin | --file <path> [--allow-duplicates]   structured JSON-input compiler'],
@@ -4153,6 +4214,11 @@ const VERBS = [
       'bidirectional autolink runs on touched slugs, then `wiki audit` reports issues.',
       '',
       'Exit codes: 0 clean | 2 IO/parse error | 3 validation failed.',
+      '',
+      'ATOMIC IDEAS: a paper/note with multiple ideas becomes MULTIPLE entities,',
+      'one self-contained concept each (match the fivo-* / sixo-* / actsmc cards).',
+      'Never one fat `type: concept` entity with `##` sections — that is rejected',
+      '(sectioned-idea-page); a deliberate overview is `type: synthesis`.',
       '',
       'See docs/SCHEMA.md § JSON ingestion spec for the full field reference.',
     ].join('\n'),
@@ -4262,7 +4328,7 @@ const VERBS = [
 
   // TODO
   { name: 'todo', section: 'TODO', lines: [
-    '  todo add "title" [--due] [--priority]     todo list [--open|--due-today|--overdue|--done]',
+    '  todo add "title" [--due] [--priority]     todo list [--open|--due-today|--overdue|--done] [--asof YYYY-MM-DD]',
     '  todo done <slug>                          todo defer <slug> --to YYYY-MM-DD',
   ] },
 
@@ -4477,7 +4543,7 @@ const cmds = {
   relations: cmdRelations, observations: cmdObservations,
   autolink: cmdAutolink,
   resolve: cmdResolve, path: cmdPath, hubs: cmdHubs, place: cmdPlace, stubs: cmdStubs,
-  hooks: cmdHooks,
+  hooks: cmdHooks, process: cmdProcess,
   timeline: cmdTimeline,
   // todo
   todo: cmdTodo,

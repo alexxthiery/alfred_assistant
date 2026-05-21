@@ -99,8 +99,10 @@ function main() {
     }
   }
 
-  const overdueOut = runWiki(wikiBin, ['todo', 'list', '--overdue']);
-  const dueTodayOut = runWiki(wikiBin, ['todo', 'list', '--due-today']);
+  // Pass --asof so todo classification uses the brief's date, not the wall
+  // clock (keeps the brief deterministic for any explicit --date).
+  const overdueOut = runWiki(wikiBin, ['todo', 'list', '--overdue', '--asof', date]);
+  const dueTodayOut = runWiki(wikiBin, ['todo', 'list', '--due-today', '--asof', date]);
   const agendaOut = runWiki(wikiBin, ['agenda', '--on', date]);
 
   const overdue = parseTodoOutput(overdueOut);

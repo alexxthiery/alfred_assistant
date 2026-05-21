@@ -114,7 +114,7 @@ const VALUE_REQUIRED_FLAGS = new Set([
   'twitter', 'arxiv', 'email', 'status', 'due', 'priority',
   // dates / numbers / selectors
   'on', 'by', 'since', 'until', 'days', 'limit', 'max-hops', 'threshold',
-  'only', 'date', 'birth', 'window', 'month-day', 'to',
+  'only', 'date', 'birth', 'window', 'month-day', 'to', 'asof',
 ]);
 
 // Value-required flags that were passed with no value (boolean `true`).

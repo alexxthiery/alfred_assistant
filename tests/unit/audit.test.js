@@ -324,6 +324,30 @@ test('multi-fact-observation: silent on short observations', () => {
   assert.equal(r.check({ body: '- [fact] short' }, deps()), null);
 });
 
+test('sectioned-idea-page: fires on a concept page with ## sub-headers (fat page)', () => {
+  const r = findRule('sectioned-idea-page');
+  const fat = '## Static\n- [claim] a ^[t:1]\n## Dynamic\n- [claim] b ^[t:1]';
+  const out = r.check({ type: 'concept', body: fat }, deps());
+  assert.ok(out, 'a sectioned concept page should be flagged for decomposition');
+  assert.match(out.message, /atomic instance cards/);
+});
+
+test('sectioned-idea-page: is strict (blocks writes)', () => {
+  assert.equal(findRule('sectioned-idea-page').strict, true);
+});
+
+test('sectioned-idea-page: exempts type=synthesis (overviews may have sections)', () => {
+  const r = findRule('sectioned-idea-page');
+  const overview = '## Part one\n- [claim] a ^[t:1]\n## Part two\n- [claim] b ^[t:1]';
+  assert.equal(r.check({ type: 'synthesis', body: overview }, deps()), null);
+});
+
+test('sectioned-idea-page: silent on a flat atomic concept card', () => {
+  const r = findRule('sectioned-idea-page');
+  const flat = '- about [[x]]\n- [claim] one self-contained idea ^[t:1]';
+  assert.equal(r.check({ type: 'concept', body: flat }, deps()), null);
+});
+
 test('empty-page: fires on substantive type with no obs or relations', () => {
   const r = findRule('empty-page');
   const out = r.check({ type: 'entity', body: 'just prose, no bullets' }, deps());

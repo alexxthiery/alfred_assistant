@@ -1,0 +1,4 @@
+{
+  "_comment": "wiki process is the process-session preamble: it must always emit the three guidance sections (rubric, live hook vocabulary, gold-card exemplars) so a cold agent loads the guidance into context before decomposing. Content beyond the headers is environment-dependent (this minimal test vault has no pipeline.md/exemplars), so we assert the structural headers.",
+  "cmd": ["process"]
+}

@@ -90,6 +90,27 @@ const AUDIT_RULES = [
   },
 
   {
+    name: 'sectioned-idea-page',
+    severity: 'high',
+    strict: true,
+    // Forces atomic decomposition of IDEA cards. An idea card (`type: concept`)
+    // is ONE self-contained idea: a flat list of categorized observations +
+    // relations. Markdown `##` sub-headers mean it bundles several ideas (the
+    // fat-page / source-anchored anti-pattern, e.g. a "Topic" page with Static /
+    // Dynamic / ... sections). A deliberate multi-section overview is
+    // `type: synthesis`, which is exempt. Only `concept` is targeted; person/org
+    // entities have their own (sectioned) conventions and are out of scope.
+    check: ({ type, body }) => {
+      if (type !== 'concept') return null;
+      if (!body || !/^\s{0,3}#{2,}\s+\S/m.test(body)) return null;
+      return {
+        detail: `concept page has '##' sub-headers (article-shaped — bundles multiple ideas)`,
+        message: `This concept page is article-shaped (## sub-headers): it bundles multiple ideas into one page. Decompose it into atomic instance cards via \`wiki ingest\` — one concept per card, each self-contained (use the fivo-* / sixo-* / actsmc cards as the template). If it is a deliberate cross-cutting overview, use --type synthesis instead. (Override with --soft only if you are certain.)`,
+      };
+    },
+  },
+
+  {
     name: 'mislabeled-entity',
     severity: 'high',
     strict: false,
