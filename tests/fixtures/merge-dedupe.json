@@ -1,0 +1,8 @@
+{
+  "_comment": "wiki merge --dedupe (V2): the source is a near-duplicate IDEA, not extra content. Keep the target body as-is (no '## Merged from' section, so the target stays a single atomic card and is NOT flagged sectioned-idea-page), redirect backlinks, carry the source's relations over deduped, and delete the source. Also exercises V3: the source's comma-bearing declarative title is skipped as an alias with a warning, not an error.",
+  "setup": [
+    ["write", "keep-card", "--title", "Keep, the canonical card", "--type", "concept", "--tags", "research", "--content", "- [claim] the canonical idea ^[t:1]", "--soft"],
+    ["write", "dup-card", "--title", "Dup, a near identical idea", "--type", "concept", "--tags", "research", "--content", "- [claim] same idea restated ^[t:1]\n- cites [[keep-card]]", "--soft"]
+  ],
+  "cmd": ["merge", "dup-card", "keep-card", "--dedupe"]
+}

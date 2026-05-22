@@ -233,3 +233,41 @@ test('autolinkBody: a legitimate whole-token mention is still linked (no over-co
   assert.equal(out.injections, 1, 'standalone whole-token mention links');
   assert.ok(out.body.includes('[[value-function-expected-discounted-return]]'));
 });
+
+// ─── V1: over-linking — generic-alias exclusion + self-subject guard ─────────
+
+test('buildTitleEntries: a generic alias is NOT an autolink anchor; the title still is', () => {
+  const tm = buildTitleEntries([
+    { slug: 'bellman-optimality-control', fm: { title: 'Bellman optimality control problem', aliases: ['optimal policy'] } },
+  ]);
+  // No entry whose title is the generic alias "optimal policy".
+  assert.equal(tm.some((e) => e.title === 'optimal policy'), false);
+  // The canonical title is still an anchor.
+  assert.ok(tm.some((e) => e.title === 'Bellman optimality control problem'));
+});
+
+test('autolinkBody: generic-alias phrase in prose is left untouched (V1)', () => {
+  const tm = buildTitleEntries([
+    { slug: 'bellman-optimality-control', fm: { title: 'Bellman optimality control problem', aliases: ['optimal policy'] } },
+  ]);
+  const out = autolinkBody('the optimal policy obeys the equation.\n', 'some-card', tm);
+  assert.equal(out.injections, 0, 'generic phrase must not be linked');
+});
+
+test('autolinkBody: a phrase naming THIS page is not linked to another card (V1 self-subject)', () => {
+  const tm = buildTitleEntries([
+    { slug: 'sibling-card', fm: { title: 'Sibling card', aliases: ['successor-measure-gamma'] } },
+  ]);
+  // Processing a card whose OWN subject term is "successor-measure-gamma".
+  const out = autolinkBody('the successor-measure-gamma is the object.\n', 'my-card', tm, ['successor-measure-gamma']);
+  assert.equal(out.injections, 0, 'own subject term must not be linked away');
+});
+
+test('autolinkBody: a distinctive alias still links on a NON-own card (no over-correction)', () => {
+  const tm = buildTitleEntries([
+    { slug: 'sibling-card', fm: { title: 'Sibling card', aliases: ['successor-measure-gamma'] } },
+  ]);
+  const out = autolinkBody('we use successor-measure-gamma here.\n', 'unrelated', tm, ['unrelated terms']);
+  assert.equal(out.injections, 1);
+  assert.ok(out.body.includes('[[sibling-card]]'));
+});

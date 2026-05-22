@@ -29,12 +29,20 @@
 
 'use strict';
 
+const { isGenericAlias } = require('./maintenance.js');
+
 function buildTitleEntries(pages) {
   const map = [];
   for (const { slug, fm } of pages) {
     const title = (fm.title || '').trim();
     const aliases = Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []);
-    const variants = [title, ...aliases].filter((v) => v && v.length >= 4 && !/^\s*$/.test(v));
+    // V1: the canonical TITLE is always an anchor, but a GENERIC alias ("optimal
+    // policy", "successor measure") is NOT — autolink would splice it wherever
+    // the common phrase appears in prose, often linking to the wrong card. Only
+    // distinctive aliases earn an anchor; generic ones are excluded here so they
+    // never enter the matcher set. (Genericness predicate shared with V6.)
+    const variants = [title, ...aliases.filter((a) => !isGenericAlias(a))]
+      .filter((v) => v && v.length >= 4 && !/^\s*$/.test(v));
     for (const v of variants) {
       const escaped = v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       map.push({ slug, pattern: new RegExp(`\\b${escaped}\\b`, 'g'), title: v });
@@ -43,7 +51,14 @@ function buildTitleEntries(pages) {
   return map;
 }
 
-function autolinkBody(body, ownSlug, titleMap) {
+function autolinkBody(body, ownSlug, titleMap, ownTerms = []) {
+  // V1 self-subject guard: phrases that NAME the page being processed (its own
+  // title + aliases, lowercased) must never be turned into a link to ANOTHER
+  // card. Without this, a sibling card's alias that happens to be this card's
+  // subject term ("successor measure") overwrote this card's own opening with a
+  // link elsewhere. Compared case-insensitively against the matched text.
+  const ownSet = new Set((Array.isArray(ownTerms) ? ownTerms : [])
+    .map((t) => String(t).trim().toLowerCase()).filter(Boolean));
   const segments = [];
   let buf = '';
   let inFence = false;
@@ -88,6 +103,8 @@ function autolinkBody(body, ownSlug, titleMap) {
         if (text[idx - 1] === '-' || text[end] === '-') continue;
         // Inside a markdown link target [text](target) → skip.
         if (/\]\([^)]*$/.test(text.slice(0, idx))) continue;
+        // Self-subject guard: don't link a phrase that names THIS page.
+        if (ownSet.has(m[0].toLowerCase())) continue;
         text = text.slice(0, idx) + `[[${slug}]]` + text.slice(end);
         injections++;
         seenSlugs.add(slug);

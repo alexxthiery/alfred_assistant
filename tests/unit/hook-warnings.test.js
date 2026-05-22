@@ -7,7 +7,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { hookWarnings } = require('../../bin/lib/maintenance.js');
+const { hookWarnings, aliasWarnings } = require('../../bin/lib/maintenance.js');
 
 test('hookWarnings: short standard-name hooks pass clean', () => {
   assert.deepEqual(
@@ -36,4 +36,26 @@ test('hookWarnings: a 3-hyphen / short hook is allowed (boundary)', () => {
 
 test('hookWarnings: non-strings and empties are ignored', () => {
   assert.deepEqual(hookWarnings(['ok-hook', '', null, 42, undefined]), []);
+});
+
+// ─── V6: aliasWarnings — generic aliases are unsafe autolink anchors ──────────
+
+test('aliasWarnings: generic 1-2 word aliases are flagged (drive V1 over-linking)', () => {
+  assert.equal(aliasWarnings('optimal policy').length, 1);
+  assert.equal(aliasWarnings('successor measure').length, 1);
+  assert.equal(aliasWarnings('entropy').length, 1);
+});
+
+test('aliasWarnings: distinctive aliases pass clean', () => {
+  assert.deepEqual(aliasWarnings('gamma-model'), []);        // hyphenated
+  assert.deepEqual(aliasWarnings('DPO'), []);                // acronym/caps
+  assert.deepEqual(aliasWarnings('variational-bound'), []);  // hyphenated
+  assert.deepEqual(aliasWarnings('Bellman optimality equation'), []); // >2 words
+  assert.deepEqual(aliasWarnings('ddpm-snr-2'), []);         // digits/hyphen
+});
+
+test('aliasWarnings: accepts a string or array; empty/blank ignored', () => {
+  assert.deepEqual(aliasWarnings([]), []);
+  assert.deepEqual(aliasWarnings(['', '  ']), []);
+  assert.equal(aliasWarnings(['optimal policy', 'gamma-model']).length, 1);
 });

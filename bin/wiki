@@ -54,7 +54,7 @@ const { applyFlagAliases } = require('./lib/flag-aliases.js');
 const { flushStaged } = require('./lib/staged-writes.js');
 const { buildTitleEntries, autolinkBody } = require('./lib/autolink.js');
 const { computeMissingInverses, groupByTarget } = require('./lib/inverse-closure.js');
-const { formatIndex, formatLogLine, applyExtraFrontmatter, validateExtraFieldValue, validateAliasArg, aliasValueError, hookWarnings } = require('./lib/maintenance.js');
+const { formatIndex, formatLogLine, applyExtraFrontmatter, validateExtraFieldValue, validateAliasArg, aliasValueError, hookWarnings, aliasWarnings } = require('./lib/maintenance.js');
 const { knownFlags, unknownFlags, valuelessFlags, GLOBAL_FLAGS } = require('./lib/flag-spec.js');
 const {
   VAULT_ROOT, WIKI_DIR, SCHEMA_PATH, INDEX_PATH, LOG_PATH,
@@ -538,6 +538,7 @@ function cmdWrite(args) {
     try { applyExtraFrontmatter(fm, args); }
     catch (e) { console.error(`error: ${e.message}`); process.exit(3); }
     if (args.hooks) warnHooks(args.hooks);
+    if (args.alias) for (const w of aliasWarnings(args.alias)) console.error(`[hint] ${w}`); // V6
   };
 
   let op = 'create';
@@ -760,11 +761,36 @@ function cmdMerge(args) {
   if (isReserved(source) || isReserved(target)) { console.error('error: cannot merge reserved pages'); process.exit(1); }
 
   const dry = !!args['dry-run'];
+  const dedupe = !!args.dedupe;
   const srcParsed = readPageForWrite(srcPath);
   const tgtParsed = readPageForWrite(tgtPath);
 
-  // 1. Compose merged body for target
-  const mergedBody = tgtParsed.body.trimEnd() + '\n\n## Merged from ' + source + '\n\n' + srcParsed.body.trimEnd() + '\n';
+  // 1. Compose merged body for target.
+  // Default (same-entity merge): concatenate the source body under a heading.
+  // --dedupe (V2): the source is a near-DUPLICATE idea, not extra content —
+  // keep the target body AS-IS (no `## Merged from` section, so the target
+  // stays a single atomic card and is not flagged sectioned-idea-page) and just
+  // redirect backlinks + delete the source. Source relations/hooks are still
+  // carried over (deduped) so no edges are lost.
+  const mergedBody = dedupe
+    ? tgtParsed.body
+    : tgtParsed.body.trimEnd() + '\n\n## Merged from ' + source + '\n\n' + srcParsed.body.trimEnd() + '\n';
+
+  // --dedupe: carry over the source's RELATIONS (deduped against the target's)
+  // so collapsing a duplicate never drops an edge — without importing the
+  // source's prose. Hooks are unioned into frontmatter below.
+  let dedupeBody = mergedBody;
+  if (dedupe) {
+    const tgtRelKeys = new Set(parseRelations(tgtParsed.body).map((r) => `${r.verb} ${r.target}`));
+    const carried = [];
+    for (const r of parseRelations(srcParsed.body)) {
+      const key = `${r.verb} ${r.target}`;
+      if (r.target === target || tgtRelKeys.has(key)) continue;
+      tgtRelKeys.add(key);
+      carried.push(`- ${r.verb} [[${r.target}]]`);
+    }
+    if (carried.length) dedupeBody = dedupeBody.trimEnd() + '\n' + carried.join('\n') + '\n';
+  }
 
   // 2. Compose merged frontmatter
   const newFm = { ...tgtParsed.fm };
@@ -780,13 +806,23 @@ function cmdMerge(args) {
   const newAliases = [...tgtAliases];
   for (const a of [source, srcParsed.fm.title, ...srcAliases]) {
     if (!a || newAliases.includes(a)) continue;
-    // HR07: refuse to promote a comma/]-bearing value (could happen if source
-    // was written pre-HR07). User must fix the source page first.
+    // V3: a comma/]-bearing value can't be an alias (HR07). The card-quality
+    // standard mandates declarative, comma-bearing titles, so erroring here
+    // blocked merging essentially any two well-formed cards. Mirror the
+    // patch --title fix: SKIP the invalid alias with a warning and continue
+    // (the merge — backlink redirect + body — still proceeds).
     const aliasErr = aliasValueError(a);
-    if (aliasErr) { console.error(`error: ${aliasErr} (would be promoted to target alias on merge)`); process.exit(3); }
+    if (aliasErr) { console.error(`warning: not promoting "${a}" to an alias on merge (${aliasErr}); skipped.`); continue; }
     newAliases.push(a);
   }
   if (newAliases.length) newFm.aliases = newAliases;
+  // --dedupe: union the source's hooks into the target (deduped) so connective
+  // join-keys survive the collapse.
+  if (dedupe && Array.isArray(srcParsed.fm.hooks) && srcParsed.fm.hooks.length) {
+    const merged = Array.isArray(newFm.hooks) ? [...newFm.hooks] : [];
+    for (const h of srcParsed.fm.hooks) if (typeof h === 'string' && h && !merged.includes(h)) merged.push(h);
+    if (merged.length) newFm.hooks = merged;
+  }
   newFm.updated = nowISO();
 
   // 3. Rewrite [[source]] → [[target]] across all wiki pages, dedup if both appear.
@@ -802,8 +838,10 @@ function cmdMerge(args) {
 
   // 4. Dry-run report
   if (dry) {
-    console.log(`--- dry-run: merge ${source} -> ${target} ---`);
-    console.log(`  target body grows by ${srcParsed.body.length} chars`);
+    console.log(`--- dry-run: merge ${source} -> ${target}${dedupe ? ' (--dedupe)' : ''} ---`);
+    console.log(dedupe
+      ? `  target body kept as-is (dedupe); source relations/hooks carried over deduped`
+      : `  target body grows by ${srcParsed.body.length} chars`);
     console.log(`  new aliases on target: ${newAliases.join(', ')}`);
     console.log(`  merged tags: [${mergedTags.join(', ')}]`);
     console.log(`  pages with [[${source}]] to rewrite: ${filesToRewrite.length}`);
@@ -823,7 +861,7 @@ function cmdMerge(args) {
 
   try {
     // 5. Target with merged content + frontmatter.
-    staged.set(tgtPath, serializeFrontmatter(newFm, mergedBody));
+    staged.set(tgtPath, serializeFrontmatter(newFm, dedupeBody));
 
     // 6. Each backlink page: substitute [[source]] -> [[target]], dedup
     //    microsyntax lines that may now collide with target's existing ones.
@@ -930,8 +968,17 @@ function cmdPatch(args) {
       console.error(`error: invalid --relation: ${rel}; use 'verb [[target]]' or 'verb=target'`);
       process.exit(1);
     }
-    newBody = newBody.trimEnd() + '\n' + line + '\n';
-    ops.push(`rel:${line.slice(0, 50)}`);
+    // V4: idempotent add — skip if the (verb, target) edge already exists, so
+    // re-running a patch/spec never doubles an edge (mirrors add_hooks dedup).
+    const parsedRel = parseRelationLine(line);
+    const dupRel = parsedRel && parseRelations(newBody)
+      .some((r) => r.verb === parsedRel.verb && r.target === parsedRel.target);
+    if (dupRel) {
+      ops.push(`rel:(exists) ${line.slice(0, 40)}`);
+    } else {
+      newBody = newBody.trimEnd() + '\n' + line + '\n';
+      ops.push(`rel:${line.slice(0, 50)}`);
+    }
   }
 
   // Remove-relation — drop a typed relation from this page AND its registered
@@ -987,6 +1034,7 @@ function cmdPatch(args) {
     const a = String(args.alias);
     const aliasErr = aliasValueError(a);
     if (aliasErr) { console.error(`error: ${aliasErr}`); process.exit(3); }
+    for (const w of aliasWarnings(a)) console.error(`[hint] ${w}`); // V6
     const aliases = [...aliasesOf(fm)];
     if (!aliases.includes(a)) { aliases.push(a); ops.push(`+alias:${a}`); }
     fm.aliases = aliases;
@@ -1577,7 +1625,10 @@ function autolinkSlug(slug, { direction = 'both', dryRun = false, verbose = true
     // safe even if no write follows (the read+refuse-malformed is
     // independent of whether we ultimately serialize).
     const { fm, body } = readPageForWrite(p);
-    const { body: newBody, injections } = autolinkBody(body, slug, tmap);
+    // V1: pass this page's own subject terms so autolink never links a phrase
+    // that names this very page to a different card.
+    const ownTerms = [fm.title, ...aliasesOf(fm)].filter(Boolean);
+    const { body: newBody, injections } = autolinkBody(body, slug, tmap, ownTerms);
     if (injections > 0) {
       outCount = injections;
       if (!dryRun) {
@@ -1594,7 +1645,9 @@ function autolinkSlug(slug, { direction = 'both', dryRun = false, verbose = true
       forEachPage(({ slug: fromSlug, absPath, fm: ffm, body: fbody }) => {
         if (fromSlug === slug) return;
         // Pretend titleMap contains only my entries (so we link FROM this page TO `slug`)
-        const { body: newBody, injections } = autolinkBody(fbody, fromSlug, myEntry);
+        // V1: guard fromSlug's own subject terms from being linked away.
+        const fromOwnTerms = [ffm.title, ...aliasesOf(ffm)].filter(Boolean);
+        const { body: newBody, injections } = autolinkBody(fbody, fromSlug, myEntry, fromOwnTerms);
         if (injections > 0) {
           inCount += injections;
           if (!dryRun) {
@@ -2146,9 +2199,18 @@ function cmdIngest(args) {
       }
     }
     if (Array.isArray(p.add_relations)) {
+      // V4: dedup against the page's existing relations AND within this batch,
+      // so re-running a spec never doubles an edge (mirrors add_hooks below).
+      const existingRels = parseRelations(newBody);
+      const seenRel = new Set(existingRels.map((r) => `${r.verb} ${r.target}`));
       for (const r of p.add_relations) {
         const line = formatRelation(r);
-        if (line) additions.push(line);
+        if (!line) continue;
+        const pr = parseRelationLine(line);
+        const key = pr ? `${pr.verb} ${pr.target}` : null;
+        if (key && seenRel.has(key)) continue;
+        if (key) seenRel.add(key);
+        additions.push(line);
       }
     }
     if (additions.length) {
@@ -2711,7 +2773,16 @@ function cmdGroom(args) {
   console.log('## remaining lint');
   console.log('(run `wiki lint` for details)');
 
-  if (!dryRun) regenerateIndex();
+  // V5: commit ONCE at the end (regenerated index + PASS-1 inverse writes +
+  // PASS-2 autolink edits). The inverse-closure branch used to be the only
+  // committer, so a groom that added no inverses (balanced vault) but did
+  // regen the index / inject links left wiki/index.md (and autolinked pages)
+  // uncommitted → tamper-block on the next command. Same fix shape as A1
+  // (cmdIngest). appendLog runs autoCommit, which stages only wiki/ + raw/.
+  if (!dryRun) {
+    regenerateIndex();
+    appendLog('groom', 'mechanical: inverse-closure + autolink + index');
+  }
 }
 
 function cmdPlace(args) {
@@ -4534,7 +4605,9 @@ const VERBS = [
       'Usage:',
       '  wiki ingest --stdin              (read spec JSON from stdin)',
       '  wiki ingest --file <path.json>   (read spec JSON from file)',
-      '  wiki ingest ... --allow-duplicates   (bypass fuzzy duplicate check)',
+      '  wiki ingest ... --dry-run            (validate + simulate audit + report plan; writes NOTHING)',
+      '  wiki ingest ... --allow-duplicates   (bypass fuzzy duplicate check, whole batch)',
+      '  wiki ingest ... --allow-duplicate-slug <slug>   (bypass dup check for ONE slug)',
       '',
       'Spec shape (all sections optional, but at least one is required):',
       '  {',
@@ -4644,7 +4717,7 @@ const VERBS = [
   { name: 'link',   section: 'WRITE', lines: ['  link <from> <to>                          append [[to]] under ## Links'] },
   { name: 'mv',     section: 'WRITE', lines: ['  mv <old> <new>                            rename, rewrite backlinks (adds alias)'] },
   { name: 'delete', section: 'WRITE', lines: ['  delete <slug> [--force]                   remove (refuses if backlinks)'] },
-  { name: 'merge',  section: 'WRITE', lines: ['  merge <source> <target> [--dry-run]       resolve identity: fold source into target'] },
+  { name: 'merge',  section: 'WRITE', lines: ['  merge <source> <target> [--dedupe] [--dry-run]   fold source into target (--dedupe: source is a duplicate idea — keep target body, just redirect+delete)'] },
 
   // GRAPH + NAVIGATION
   { name: 'links',         section: 'GRAPH + NAVIGATION', lines: ['  links <slug>                              outbound wikilinks'] },

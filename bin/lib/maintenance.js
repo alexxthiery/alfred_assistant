@@ -169,6 +169,41 @@ function hookWarnings(hooks) {
   return out;
 }
 
+// Soft-warn on aliases that look too GENERIC to be safe autolink anchors.
+// Autolink splices `[[slug]]` wherever an alias phrase appears in prose, so a
+// common 1-2 word phrase ("optimal policy", "successor measure") as an alias
+// rewrites that phrase across the whole vault — often to the wrong card (V1).
+// A distinctive alias (long, hyphenated, capitalized acronym, or with digits)
+// is a safe anchor; a short all-lowercase 1-2 word phrase is a smell. Soft by
+// design (a hint, never a block) — mirrors hookWarnings.
+const ALIAS_GENERIC_MAX_WORDS = 2;
+// True for an alias too generic to be a safe autolink anchor: a short
+// all-lowercase 1-2 word phrase with no distinctive marker (capital/acronym,
+// digit, or hyphen). Distinctive aliases ("gamma-model", "DPO", >2 words) are
+// safe. Shared by aliasWarnings (creation-time hint, V6) and buildTitleEntries
+// (which excludes generic aliases from the autolink anchor set, V1).
+function isGenericAlias(v) {
+  if (typeof v !== 'string' || !v.trim()) return false;
+  const s = v.trim();
+  const words = s.split(/\s+/);
+  const distinctive = /[A-Z]/.test(s) || /\d/.test(s) || s.includes('-') || words.length > ALIAS_GENERIC_MAX_WORDS;
+  return !distinctive;
+}
+
+function aliasWarnings(aliases) {
+  const out = [];
+  const list = Array.isArray(aliases) ? aliases : (aliases ? [aliases] : []);
+  for (const a of list) {
+    if (typeof a !== 'string' || !a.trim()) continue;
+    const v = a.trim();
+    if (isGenericAlias(v)) {
+      const n = v.split(/\s+/).length;
+      out.push(`alias "${v}" looks generic (${n} common word${n === 1 ? '' : 's'}); autolink will link this phrase wherever it appears in prose, possibly to the wrong card. Prefer a distinctive term, or skip the alias.`);
+    }
+  }
+  return out;
+}
+
 function applyExtraFrontmatter(fm, args) {
   for (const f of EXTRA_FIELDS) {
     if (args[f] === undefined || args[f] === false) continue;
@@ -190,6 +225,8 @@ module.exports = {
   validateAliasArg,
   aliasValueError,
   hookWarnings,
+  aliasWarnings,
+  isGenericAlias,
   EXTRA_FIELDS,
   LIST_FIELDS,
 };

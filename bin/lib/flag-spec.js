@@ -47,7 +47,7 @@ const WRITE_CORE_FLAGS = new Set([
   'file', 'force-alias', 'force-duplicate', 'no-alias', 'no-anchor', 'observation',
   'provenance', 'relation', 'remove-relation', 'remove-tag', 'remove-hooks', 'remove-alias', 'replace', 'replay',
   'soft', 'stdin', 'summary', 'supersede', 'tags', 'title', 'type', 'dry-run',
-  'today', 'on',
+  'today', 'on', 'dedupe',
 ]);
 
 // Verbs that thread args through the shared write core and so accept the whole

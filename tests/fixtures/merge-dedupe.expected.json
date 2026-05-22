@@ -1,0 +1,13 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["merged: dup-card -> keep-card"],
+  "wikiAssertions": {
+    "keep-card": {
+      "bodyContains": ["the canonical idea"],
+      "bodyMissing": ["## Merged from", "same idea restated"]
+    },
+    "dup-card": {
+      "fileExists": false
+    }
+  }
+}
