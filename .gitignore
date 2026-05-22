@@ -30,3 +30,5 @@ __pycache__/
 
 # Audit notes — gitignored, not part of the published repo
 audit/
+# Local dev tool that reads the private audit/ workplan (keep local, not published)
+tools/audit-status.sh
