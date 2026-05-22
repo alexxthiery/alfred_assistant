@@ -67,12 +67,22 @@ Same `EMAIL_FROM` + `GMAIL_APP_PASSWORD` as the [weekly digest](WEEKLY-DIGEST.md
 
 **Legacy: nanoclaw `schedule_task`.** Alternatively, ask Alfred via Telegram to bootstrap it (`recurrence: "0 7 * * *"`, the "Daily routine" prompt). Works, but the task table can drop on a nanoclaw upgrade (then re-bootstrap). Prefer the OS-cron path.
 
+### Timezone
+
+The brief's "today" is computed in your local zone, resolved as `--tz` flag >
+`$TZ` env > runtime default. **Pass `--tz <IANA-zone>` (or set `$TZ`) whenever
+the runtime might be UTC** — notably the nanoclaw agent container, which does
+not inherit `TZ`. Firing at 07:00 local is the previous calendar day in UTC, so
+without a correct zone the brief lists *yesterday's* due todos and events. The
+host wrapper (`run-daily-brief.sh`) sources `$TZ` from the env file and passes
+`--tz` automatically.
+
 ### 3. Verify
 
 Run the composer once by hand to confirm wiring:
 
 ```sh
-bin/daily-brief --no-log
+bin/daily-brief --tz Asia/Singapore --no-log
 ```
 
 Empty output is fine; clean-slate days are a valid output. If you see an error about `wiki` not found, check that `.bin/` is in your `$PATH` or that `daily-brief` is co-located with `wiki` (the resolver walks the sibling directory).

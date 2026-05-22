@@ -496,10 +496,12 @@ To **bootstrap** this routine (one-time, when {{USER_NAME}} asks): call `schedul
 When the scheduler fires a task with prompt "Run the daily morning brief …", execute this **one** command — do not compose the body yourself:
 
 ```
-/workspace/extra/vault/.bin/daily-brief | /workspace/extra/vault/.bin/email-digest \
-   --subject "Daily brief — $(date +%Y-%m-%d)" \
+/workspace/extra/vault/.bin/daily-brief --tz <your-IANA-tz> | /workspace/extra/vault/.bin/email-digest \
+   --subject "Daily brief — $(TZ=<your-IANA-tz> date +%Y-%m-%d)" \
    --to "{{USER_EMAIL}}"
 ```
+
+Replace `<your-IANA-tz>` with your zone (e.g. `Asia/Singapore`, `America/New_York`). `--tz` is REQUIRED if the agent container runs in UTC (the default unless `TZ` is in the container env): firing at 07:00 local is the previous day in UTC, so without `--tz` the brief lists *yesterday's* todos/events. `bin/daily-brief` falls back to `$TZ` then the runtime zone when `--tz` is omitted.
 
 `bin/daily-brief` runs `wiki sync-ids` (step 0 — defensive obs-id backfill against deployment-sync timing), then `wiki todo list --overdue`, `wiki todo list --due-today`, and `wiki agenda --on $(today)`, then emits a deterministic four-section body (overdue / due today / today's events / birthdays). Spec lives in `docs/DAILY-BRIEF.md`; format is unit-tested. **Do not** add a `wiki day` recap, audit summary, or editorial commentary — the daily is for *action*, not reflection. If a section is missing data, fix the vault (`wiki patch <slug> --born MM-DD`, `wiki todo add ...`), not the script.
 

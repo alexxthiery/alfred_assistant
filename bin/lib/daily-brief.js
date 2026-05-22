@@ -115,4 +115,16 @@ function formatBrief({ date, overdue = [], dueToday = [], events = [], birthdays
   return `Daily brief — ${date}\n\n${sections.join('\n\n')}\n`;
 }
 
-module.exports = { parseTodoLine, parseTodoOutput, parseAgendaOnThisDayOutput, formatBrief, MAX_PER_SECTION };
+// "Today" (YYYY-MM-DD) in an IANA timezone. Uses Intl.formatToParts rather than
+// Date#toISOString (which is ALWAYS UTC) so the brief's date is correct in the
+// user's zone — firing at 07:00 SGT is 23:00 UTC the day before, and the UTC
+// date would list yesterday's todos/events. `tz` undefined → runtime default.
+function localDate(d, tz) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(d);
+  const get = (t) => parts.find((p) => p.type === t).value;
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+module.exports = { parseTodoLine, parseTodoOutput, parseAgendaOnThisDayOutput, formatBrief, localDate, MAX_PER_SECTION };

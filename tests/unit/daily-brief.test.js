@@ -13,6 +13,7 @@ const {
   parseTodoOutput,
   parseAgendaOnThisDayOutput,
   formatBrief,
+  localDate,
   MAX_PER_SECTION,
 } = require(path.resolve(__dirname, '..', '..', 'bin', 'lib', 'daily-brief.js'));
 
@@ -122,4 +123,25 @@ test('formatBrief: empty sections are omitted (no "Birthdays today (0)" lines)',
 
 test('formatBrief: rejects bad date shape', () => {
   assert.throws(() => formatBrief({ date: 'tomorrow' }), /YYYY-MM-DD/);
+});
+
+// ─── localDate: timezone-correct "today" (not UTC) ───────────────────────────
+
+test('localDate: 07:30 SGT is "today" in Asia/Singapore, not yesterday (UTC bug)', () => {
+  // 2026-05-21T23:30:00Z == 2026-05-22 07:30 in Singapore (UTC+8).
+  const instant = new Date('2026-05-21T23:30:00Z');
+  assert.equal(localDate(instant, 'Asia/Singapore'), '2026-05-22', 'must be the local date');
+  // The old toISOString().slice(0,10) would have returned the UTC date:
+  assert.equal(instant.toISOString().slice(0, 10), '2026-05-21', 'documents the old buggy value');
+});
+
+test('localDate: honors the given zone (UTC vs SGT differ across midnight)', () => {
+  const instant = new Date('2026-05-22T16:00:00Z'); // 2026-05-23 00:00 SGT
+  assert.equal(localDate(instant, 'UTC'), '2026-05-22');
+  assert.equal(localDate(instant, 'Asia/Singapore'), '2026-05-23');
+});
+
+test('localDate: returns zero-padded YYYY-MM-DD', () => {
+  assert.match(localDate(new Date('2026-01-05T12:00:00Z'), 'UTC'), /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(localDate(new Date('2026-01-05T12:00:00Z'), 'UTC'), '2026-01-05');
 });

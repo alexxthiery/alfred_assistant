@@ -17,7 +17,10 @@ ENV_FILE="${ENV_FILE:-$HOME/nanoclaw/.env}"
 [ -f "$ENV_FILE" ] && set -a && . "$ENV_FILE" && set +a
 : "${EMAIL_FROM:?run-daily-brief: EMAIL_FROM not set (check ENV_FILE)}"
 
-"$ALFRED_VAULT/.bin/daily-brief" \
+# Pass --tz explicitly so "today" is the user's local date even if the runtime
+# zone differs from $TZ (e.g. a UTC container). Falls back to $TZ inside the bin.
+TZ_ARG=""; [ -n "${TZ:-}" ] && TZ_ARG="--tz $TZ"
+"$ALFRED_VAULT/.bin/daily-brief" $TZ_ARG \
   | "$ALFRED_VAULT/.bin/email-digest" \
       --subject "Daily brief — $(date +%F)" \
       --to "$EMAIL_FROM"

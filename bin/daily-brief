@@ -10,7 +10,8 @@
 // just orchestration: spawn the three subprocesses, parse, format, log.
 //
 // Usage:
-//   bin/daily-brief                        emit body for today (system clock)
+//   bin/daily-brief                        emit body for today (in $TZ / system zone)
+//   bin/daily-brief --tz Asia/Singapore    emit "today" in an explicit IANA zone
 //   bin/daily-brief --date 2026-05-19      emit body for a specific date
 //   bin/daily-brief --no-log               skip cache log write
 //   bin/daily-brief --no-sync              skip the defensive sync-ids step
@@ -36,6 +37,7 @@ const {
   parseTodoOutput,
   parseAgendaOnThisDayOutput,
   formatBrief,
+  localDate,
 } = require('./lib/daily-brief.js');
 
 // Parse minimal --flag / --flag=value / --flag value form. Mirrors the
@@ -82,7 +84,12 @@ function runWiki(wikiBin, args) {
 
 function main() {
   const args = parseArgv(process.argv.slice(2));
-  const date = args.date || new Date().toISOString().slice(0, 10);
+  // The brief's date must be "today" in the USER's timezone, not UTC. Firing at
+  // 07:00 SGT is 23:00 UTC the previous day, so `new Date().toISOString()` gave
+  // yesterday's date — the brief then listed yesterday's due todos/events.
+  // Resolve TZ: --tz flag > $TZ env (set in ~/nanoclaw/.env) > runtime default.
+  const tz = args.tz || process.env.TZ || undefined;
+  const date = args.date || localDate(new Date(), tz);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     console.error(`daily-brief: --date must be YYYY-MM-DD (got "${date}")`);
     process.exit(1);
