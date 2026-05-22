@@ -20,6 +20,19 @@ const { strictRuleErrors, strictCrossPageErrors, STRICT_CROSS_PAGE_RULES } = req
 
 const FUZZY_DUP_THRESHOLD = 0.7;
 
+// Types accepted in a spec's `entities[]`: the idea/knowledge-card subset of
+// KNOWN_TYPES. Excludes the types with a dedicated path — `event` (use the
+// `events[]` array), `todo` (use `wiki todo`), and `source`/`view` (auto-
+// managed from raw_path / measurements). Kept in sync with `wiki write`, which
+// accepts these same card types.
+const INGEST_ENTITY_TYPES = new Set(['entity', 'concept', 'decision', 'question', 'synthesis', 'note']);
+
+// Observation-array fields an entity may carry, matching the categories
+// buildBodyFromSpec renders in bin/wiki (fact/hypothesis/opinion/claim/quote/
+// question/decision/idea). The validator must recognize ALL of them as content,
+// or a card built only from e.g. `questions` would be wrongly rejected as empty.
+const OBSERVATION_FIELDS = ['facts', 'hypotheses', 'opinions', 'claims', 'quotes', 'questions', 'decisions', 'ideas'];
+
 // Date format the validator accepts on event.when: YYYY, YYYY-MM, YYYY-MM-DD,
 // or full ISO-8601 with optional time zone.
 const WHEN_RE = /^\d{4}(-\d{2}(-\d{2}(T\d{2}:\d{2}(:\d{2})?(Z|[+-]\d{2}:?\d{2})?)?)?)?$/;
@@ -140,8 +153,8 @@ function validateIngestSpec(spec, deps) {
     if (!e || typeof e !== 'object') { errors.push(`${ctx}: must be object`); continue; }
     if (!e.slug || !validateSlugStrict(e.slug)) errors.push(`${ctx}: invalid slug`);
     if (!e.title) errors.push(`${ctx}: title required`);
-    if (e.type && e.type !== 'entity' && e.type !== 'concept' && e.type !== 'decision') {
-      errors.push(`${ctx}: type must be entity/concept/decision (or omit for entity)`);
+    if (e.type && !INGEST_ENTITY_TYPES.has(e.type)) {
+      errors.push(`${ctx}: type must be one of ${[...INGEST_ENTITY_TYPES].join('/')} (or omit for entity); use the events[] array for events and \`wiki todo\` for todos`);
     }
     validateTags(e.tags || [], ctx);
     const type = e.type || 'entity';
@@ -149,10 +162,9 @@ function validateIngestSpec(spec, deps) {
       const ek = (e.tags || []).find((t) => ENTITY_KIND_TAGS.has(t));
       if (!ek) errors.push(`${ctx}: type=entity requires one of tags: ${[...ENTITY_KIND_TAGS].join('/')}`);
     }
-    const hasContent = (e.facts && e.facts.length) || (e.hypotheses && e.hypotheses.length)
-      || (e.opinions && e.opinions.length) || (e.claims && e.claims.length)
+    const hasContent = OBSERVATION_FIELDS.some((f) => Array.isArray(e[f]) && e[f].length)
       || (e.relations && e.relations.length);
-    if (!hasContent) errors.push(`${ctx}: entity needs ≥1 fact/hypothesis/opinion/claim/relation`);
+    if (!hasContent) errors.push(`${ctx}: entity needs ≥1 observation (${OBSERVATION_FIELDS.join('/')}) or relation`);
     validateRelations(e.relations || [], ctx, e.slug);
   }
 

@@ -1,0 +1,15 @@
+{
+  "_comment": "wiki ingest accepts a type:question entity built from a questions[] array. Previously the entity validator allowed only entity/concept/decision and hasContent ignored questions/quotes/decisions/ideas — even though buildBodyFromSpec renders all of them — so a question card was rejected (write/ingest asymmetry). This asserts the question card is created with a [question] body line. Provenance auto-stamps from the top-level source (no inline ^[...] needed).",
+  "source": "telegram:2026-05-22",
+  "entities": [
+    {
+      "slug": "q-offline-rl-distribution-shift",
+      "title": "Is offline RL safe under distribution shift?",
+      "type": "question",
+      "tags": ["research"],
+      "questions": [
+        { "body": "Does offline RL stay safe when the deployment distribution shifts away from the logged behavior data?" }
+      ]
+    }
+  ]
+}

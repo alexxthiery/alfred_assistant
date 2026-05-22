@@ -139,7 +139,7 @@ test('validateIngestSpec: entity with no facts/hypotheses/relations rejected', (
     entities: [{ slug: 'alice', title: 'Alice', tags: ['person'] }],
   };
   const out = validateIngestSpec(spec, defaultDeps());
-  assert.ok(out.errors.some((e) => /entity needs ≥1 fact/.test(e)));
+  assert.ok(out.errors.some((e) => /entity needs ≥1 observation/.test(e)));
 });
 
 test('validateIngestSpec: entity with bad type rejected', () => {
@@ -148,7 +148,7 @@ test('validateIngestSpec: entity with bad type rejected', () => {
     entities: [{ slug: 'alice', title: 'Alice', type: 'event', tags: ['person'], facts: [{ body: 'x' }] }],
   };
   const out = validateIngestSpec(spec, defaultDeps());
-  assert.ok(out.errors.some((e) => /type must be entity\/concept\/decision/.test(e)));
+  assert.ok(out.errors.some((e) => /type must be one of/.test(e)));
 });
 
 // ─── relation rules ────────────────────────────────────────────────────────
@@ -481,4 +481,41 @@ test('validateIngestSpec: B2 allow_duplicate / allowDuplicateSlugs wave through 
   assert.equal(dupErrs(validateIngestSpec(mk({ allow_duplicate: true }), deps)).length, 0);
   // --allow-duplicate-slug opt-out: not flagged
   assert.equal(dupErrs(validateIngestSpec(mk({}), { ...deps, allowDuplicateSlugs: new Set(['gadget-concept']) })).length, 0);
+});
+
+// ─── ingest entity types + content fields aligned with the body-builder ──────
+
+test('validateIngestSpec: a type:question entity built from questions[] is valid', () => {
+  const spec = {
+    source: 'telegram:1',
+    entities: [{ slug: 'q-x', title: 'An open question?', type: 'question', tags: ['work'],
+      questions: [{ body: 'why does X happen?' }] }],
+  };
+  const out = validateIngestSpec(spec, defaultDeps());
+  assert.deepEqual(out.errors, [], `should be clean: ${out.errors.join(' | ')}`);
+});
+
+test('validateIngestSpec: synthesis/note types are accepted; event/todo are not (own paths)', () => {
+  const mk = (type) => validateIngestSpec(
+    { source: 't:1', entities: [{ slug: 's-x', title: 'T', type, tags: ['research'], claims: [{ body: 'c' }] }] },
+    defaultDeps(),
+  ).errors.filter((e) => /type must be/.test(e));
+  assert.equal(mk('synthesis').length, 0);
+  assert.equal(mk('note').length, 0);
+  assert.equal(mk('event').length, 1, 'event belongs in events[]');
+  assert.equal(mk('todo').length, 1, 'todo belongs in wiki todo');
+});
+
+test('validateIngestSpec: quote/decision/idea-only entities count as content (not "empty")', () => {
+  for (const field of ['quotes', 'decisions', 'ideas', 'questions']) {
+    const spec = { source: 't:1', entities: [{ slug: 'c-x', title: 'T', type: 'concept', tags: ['research'], [field]: [{ body: 'something' }] }] };
+    const errs = validateIngestSpec(spec, defaultDeps()).errors.filter((e) => /needs ≥1/.test(e));
+    assert.equal(errs.length, 0, `${field}-only entity should not be flagged empty`);
+  }
+});
+
+test('validateIngestSpec: a genuinely empty entity is still rejected', () => {
+  const spec = { source: 't:1', entities: [{ slug: 'e-x', title: 'T', type: 'concept', tags: ['research'] }] };
+  const errs = validateIngestSpec(spec, defaultDeps()).errors.filter((e) => /needs ≥1/.test(e));
+  assert.equal(errs.length, 1);
 });
