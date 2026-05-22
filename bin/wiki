@@ -43,7 +43,7 @@ const {
   levenshtein,
   scoreSlugCandidates,
 } = require('./lib/graph.js');
-const { validateIngestSpec, validateBody: _validateBody } = require('./lib/ingest.js');
+const { validateIngestSpec, validateBody: _validateBody, OBSERVATION_CATEGORIES } = require('./lib/ingest.js');
 const { mintIdsForBody } = require('./lib/obsid.js');
 const { isISODate } = require('./lib/date.js');
 const { buildPredictionLine, buildHypothesisLine, defaultProvenance, stampOnDate } = require('./lib/epistemic-verbs.js');
@@ -1990,17 +1990,10 @@ function formatRelation(rel) {
 function buildBodyFromSpec(spec, defaultSource) {
   const lines = [];
   if (spec.summary) { lines.push(spec.summary.trim()); lines.push(''); }
-  const cats = [
-    ['fact', spec.facts],
-    ['hypothesis', spec.hypotheses],
-    ['opinion', spec.opinions],
-    ['claim', spec.claims],
-    ['quote', spec.quotes],
-    ['question', spec.questions],
-    ['decision', spec.decisions],
-    ['idea', spec.ideas],
-  ];
-  for (const [cat, arr] of cats) {
+  // Categories come from the single source of truth in lib/ingest.js, so the
+  // renderer and the ingest validator's hasContent check never drift.
+  for (const [cat, field] of OBSERVATION_CATEGORIES) {
+    const arr = spec[field];
     if (!Array.isArray(arr)) continue;
     for (const obs of arr) {
       const line = formatObservation(obs, cat, defaultSource);

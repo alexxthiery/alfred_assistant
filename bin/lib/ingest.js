@@ -27,11 +27,23 @@ const FUZZY_DUP_THRESHOLD = 0.7;
 // accepts these same card types.
 const INGEST_ENTITY_TYPES = new Set(['entity', 'concept', 'decision', 'question', 'synthesis', 'note']);
 
-// Observation-array fields an entity may carry, matching the categories
-// buildBodyFromSpec renders in bin/wiki (fact/hypothesis/opinion/claim/quote/
-// question/decision/idea). The validator must recognize ALL of them as content,
-// or a card built only from e.g. `questions` would be wrongly rejected as empty.
-const OBSERVATION_FIELDS = ['facts', 'hypotheses', 'opinions', 'claims', 'quotes', 'questions', 'decisions', 'ideas'];
+// The observation categories a spec entity/patch may carry, as
+// [categoryTag, specField] pairs (e.g. a `facts` array renders `- [fact] ...`).
+// SINGLE SOURCE OF TRUTH for this mapping: bin/wiki's buildBodyFromSpec renders
+// from it, and the validator's hasContent check below recognizes the same set.
+// Keeping both off one list prevents the drift that let a `questions`-only card
+// render but be rejected as "empty" (and a question type be forbidden).
+const OBSERVATION_CATEGORIES = [
+  ['fact', 'facts'],
+  ['hypothesis', 'hypotheses'],
+  ['opinion', 'opinions'],
+  ['claim', 'claims'],
+  ['quote', 'quotes'],
+  ['question', 'questions'],
+  ['decision', 'decisions'],
+  ['idea', 'ideas'],
+];
+const OBSERVATION_FIELDS = OBSERVATION_CATEGORIES.map(([, field]) => field);
 
 // Date format the validator accepts on event.when: YYYY, YYYY-MM, YYYY-MM-DD,
 // or full ISO-8601 with optional time zone.
@@ -235,4 +247,5 @@ module.exports = {
   validateBody,
   STRICT_CROSS_PAGE_RULES,
   FUZZY_DUP_THRESHOLD,
+  OBSERVATION_CATEGORIES,
 };

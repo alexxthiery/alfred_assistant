@@ -56,8 +56,10 @@ Entities and events carry observations under these keys, each an array:
 }
 ```
 
-- `slug`, `title`, `type`, `tags` (**required**) — `type` ∈ the closed SCHEMA set;
-  `tags` ⊆ the SCHEMA taxonomy.
+- `slug`, `title`, `type`, `tags` (**required**) — `type` ∈
+  `entity` / `concept` / `decision` / `question` / `synthesis` / `note`
+  (the idea-card types; use the `events[]` array for events, `wiki todo` for
+  todos, and the source/measurement flows for those). `tags` ⊆ the SCHEMA taxonomy.
 - Plus **≥1** of the observation arrays above, or `relations`.
 - `hooks` — string array of short connective concept names (1-3). See the
   intellectual-pipeline persona docs for what makes a good hook.
