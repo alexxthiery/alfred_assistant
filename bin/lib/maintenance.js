@@ -204,6 +204,31 @@ function aliasWarnings(aliases) {
   return out;
 }
 
+// C2: warn when one hook is over-applied across a single batch — a topic
+// anchor splattered onto most cards is an instant stopword (it bridges
+// everything, so it bridges nothing). `hooksPerCard` is an array of per-card
+// hook arrays. Flags any hook on more than `fraction` of the cards (default
+// 40%), once the batch is big enough to be meaningful (>= minCards). Returns
+// human-readable warning strings (empty = fine). Soft: a creation-time hint,
+// caught here instead of at a later `wiki review` dilution pass.
+function batchHookWarnings(hooksPerCard, { fraction = 0.4, minCards = 5 } = {}) {
+  const cards = Array.isArray(hooksPerCard) ? hooksPerCard : [];
+  if (cards.length < minCards) return [];
+  const count = new Map();
+  for (const hooks of cards) {
+    for (const h of new Set(Array.isArray(hooks) ? hooks : [])) {
+      if (typeof h === 'string' && h) count.set(h, (count.get(h) || 0) + 1);
+    }
+  }
+  const out = [];
+  for (const [h, n] of count) {
+    if (n > fraction * cards.length) {
+      out.push(`hook "${h}" is on ${n}/${cards.length} cards in this batch (>${Math.round(fraction * 100)}%) — likely an over-applied topic anchor (a stopword that bridges everything). Reserve it for cards it genuinely instantiates.`);
+    }
+  }
+  return out.sort();
+}
+
 function applyExtraFrontmatter(fm, args) {
   for (const f of EXTRA_FIELDS) {
     if (args[f] === undefined || args[f] === false) continue;
@@ -227,6 +252,7 @@ module.exports = {
   hookWarnings,
   aliasWarnings,
   isGenericAlias,
+  batchHookWarnings,
   EXTRA_FIELDS,
   LIST_FIELDS,
 };

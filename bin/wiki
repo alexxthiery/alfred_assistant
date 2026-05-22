@@ -54,7 +54,7 @@ const { applyFlagAliases } = require('./lib/flag-aliases.js');
 const { flushStaged } = require('./lib/staged-writes.js');
 const { buildTitleEntries, autolinkBody } = require('./lib/autolink.js');
 const { computeMissingInverses, groupByTarget } = require('./lib/inverse-closure.js');
-const { formatIndex, formatLogLine, applyExtraFrontmatter, validateExtraFieldValue, validateAliasArg, aliasValueError, hookWarnings, aliasWarnings } = require('./lib/maintenance.js');
+const { formatIndex, formatLogLine, applyExtraFrontmatter, validateExtraFieldValue, validateAliasArg, aliasValueError, hookWarnings, aliasWarnings, batchHookWarnings } = require('./lib/maintenance.js');
 const { knownFlags, unknownFlags, valuelessFlags, GLOBAL_FLAGS } = require('./lib/flag-spec.js');
 const {
   VAULT_ROOT, WIKI_DIR, SCHEMA_PATH, INDEX_PATH, LOG_PATH,
@@ -685,9 +685,14 @@ function cmdMv(args) {
     const { fm, body } = readPageForWrite(oldPath);
     fm.id = newSlug;
     fm.updated = nowISO();
-    const aliases = [...aliasesOf(fm)];
-    if (!aliases.includes(oldSlug)) aliases.push(oldSlug);
-    fm.aliases = aliases;
+    // The old slug normally becomes an alias so existing [[old]] links and
+    // searches keep resolving. C3: --no-alias skips that — for a TYPO fix you
+    // don't want the garbled old slug living on as a resolvable alias.
+    if (!args['no-alias']) {
+      const aliases = [...aliasesOf(fm)];
+      if (!aliases.includes(oldSlug)) aliases.push(oldSlug);
+      fm.aliases = aliases;
+    }
     staged.set(newPath, serializeFrontmatter(fm, body));
 
     // 2. Backlink rewrites. Two regexes: a non-global one for `.test()`
@@ -717,7 +722,7 @@ function cmdMv(args) {
 
   regenerateIndex();
   appendLog('mv', `${oldSlug} -> ${newSlug} (rewrote ${touched} backlinks)`);
-  console.log(`renamed: ${oldSlug} -> ${newSlug} (${touched} backlinks rewritten, ${oldSlug} added to aliases)`);
+  console.log(`renamed: ${oldSlug} -> ${newSlug} (${touched} backlinks rewritten${args['no-alias'] ? ', old slug NOT aliased (--no-alias)' : `, ${oldSlug} added to aliases`})`);
 }
 
 function cmdDelete(args) {
@@ -2425,6 +2430,9 @@ function cmdIngest(args) {
     for (const i of (r.issues || [])) sevTally[i.severity] = (sevTally[i.severity] || 0) + 1;
   }
   console.log(`# audit summary: ${sevTally.high} high, ${sevTally.medium} medium, ${sevTally.low} low across ${touched.length} page(s)`);
+  // C2: warn if one hook is over-applied across this batch (a stopword anchor).
+  const batchHooks = touched.map((s) => { const p = postFlushBySlug.get(s); return p && Array.isArray(p.fm.hooks) ? p.fm.hooks : []; });
+  for (const w of batchHookWarnings(batchHooks)) console.error(`[hint] ${w}`);
   const autolinkRatio = touched.length ? autolinkFailures.length / touched.length : 0;
   const autolinkMaterial = autolinkRatio > 0.5;
   if (replayMsgId && !args.replay) {
@@ -2592,10 +2600,15 @@ function cmdAudit(args) {
       console.log('clean');
     } else {
       console.log('');
-      // Per-rule histogram
+      // Per-rule histogram. Skip 'advisory'-severity issues (e.g. edge-aptness)
+      // — they are non-scoring, query-only nets surfaced via --rule, kept out of
+      // the default view so they don't raise the noise floor.
       const ruleCounts = {};
       for (const p of perPage) {
-        for (const i of p.issues) ruleCounts[i.rule] = (ruleCounts[i.rule] || 0) + 1;
+        for (const i of p.issues) {
+          if (i.severity === 'advisory') continue;
+          ruleCounts[i.rule] = (ruleCounts[i.rule] || 0) + 1;
+        }
       }
       console.log('## by rule');
       for (const [rule, count] of Object.entries(ruleCounts).sort((a, b) => b[1] - a[1])) {
@@ -4711,7 +4724,7 @@ const VERBS = [
   { name: 'hypothesize', section: 'WRITE', lines: ['  hypothesize <slug> "body" [--confidence 0.0-1.0]              add a [hypothesis] line; --confidence defaults to 0.5'] },
   { name: 'capture',     section: 'WRITE', lines: ['  capture <slug> "<utterance>" [--as CATEGORY] [--by YYYY-MM-DD]  classify utterance shape → observation category; routes via cmdPatch'] },
   { name: 'link',   section: 'WRITE', lines: ['  link <from> <to>                          append [[to]] under ## Links'] },
-  { name: 'mv',     section: 'WRITE', lines: ['  mv <old> <new>                            rename, rewrite backlinks (adds alias)'] },
+  { name: 'mv',     section: 'WRITE', lines: ['  mv <old> <new> [--no-alias]               rename + rewrite backlinks (old slug becomes an alias unless --no-alias, e.g. a typo fix)'] },
   { name: 'delete', section: 'WRITE', lines: ['  delete <slug> [--force]                   remove (refuses if backlinks)'] },
   { name: 'merge',  section: 'WRITE', lines: ['  merge <source> <target> [--dedupe] [--dry-run]   fold source into target (--dedupe: source is a duplicate idea — keep target body, just redirect+delete)'] },
 

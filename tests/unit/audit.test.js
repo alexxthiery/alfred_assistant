@@ -734,3 +734,39 @@ test('multi-fact-observation: silent on multi-sentence elaboration of ONE idea (
   // → only 1 independent assertion → not flagged.
   assert.equal(r.check({ body: elaborated }, deps()), null);
 });
+
+// ─── C1: edge-aptness (lineage edge between cards sharing no hook) ────────────
+
+test('auditVault: edge-aptness flags a lineage edge whose endpoints share no hook', () => {
+  const pages = [
+    mkPage('a', '- [claim] x ^[t:1]\n- extends [[b]]', { type: 'concept', fm: { hooks: ['alpha'] } }),
+    mkPage('b', '- [claim] y ^[t:1]', { type: 'concept', fm: { hooks: ['beta'] } }),
+  ];
+  const { perPage } = auditVault({ pages, ...deps() });
+  const a = perPage.find((p) => p.slug === 'a');
+  assert.ok(a.issues.some((i) => i.rule === 'edge-aptness'), 'extends to a no-shared-hook card should flag');
+});
+
+test('auditVault: edge-aptness is silent when endpoints share a hook', () => {
+  const pages = [
+    mkPage('a', '- [claim] x ^[t:1]\n- extends [[b]]', { type: 'concept', fm: { hooks: ['shared', 'alpha'] } }),
+    mkPage('b', '- [claim] y ^[t:1]', { type: 'concept', fm: { hooks: ['shared'] } }),
+  ];
+  const { perPage } = auditVault({ pages, ...deps() });
+  const a = perPage.find((p) => p.slug === 'a');
+  assert.equal(a.issues.some((i) => i.rule === 'edge-aptness'), false);
+});
+
+test('auditVault: edge-aptness does not judge a hookless endpoint or a non-lineage verb', () => {
+  const pages = [
+    // target hookless → not judged
+    mkPage('a', '- [claim] x ^[t:1]\n- extends [[b]]', { type: 'concept', fm: { hooks: ['alpha'] } }),
+    mkPage('b', '- [claim] y ^[t:1]', { type: 'concept', fm: {} }),
+    // cites (not a lineage verb) with disjoint hooks → not judged
+    mkPage('c', '- [claim] z ^[t:1]\n- cites [[d]]', { type: 'concept', fm: { hooks: ['gamma'] } }),
+    mkPage('d', '- [claim] w ^[t:1]', { type: 'concept', fm: { hooks: ['delta'] } }),
+  ];
+  const { perPage } = auditVault({ pages, ...deps() });
+  assert.equal(perPage.find((p) => p.slug === 'a').issues.some((i) => i.rule === 'edge-aptness'), false);
+  assert.equal(perPage.find((p) => p.slug === 'c').issues.some((i) => i.rule === 'edge-aptness'), false);
+});

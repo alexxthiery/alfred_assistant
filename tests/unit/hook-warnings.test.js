@@ -7,7 +7,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { hookWarnings, aliasWarnings } = require('../../bin/lib/maintenance.js');
+const { hookWarnings, aliasWarnings, batchHookWarnings } = require('../../bin/lib/maintenance.js');
 
 test('hookWarnings: short standard-name hooks pass clean', () => {
   assert.deepEqual(
@@ -58,4 +58,26 @@ test('aliasWarnings: accepts a string or array; empty/blank ignored', () => {
   assert.deepEqual(aliasWarnings([]), []);
   assert.deepEqual(aliasWarnings(['', '  ']), []);
   assert.equal(aliasWarnings(['optimal policy', 'gamma-model']).length, 1);
+});
+
+// ─── C2: batchHookWarnings — over-applied topic anchor in one ingest batch ────
+
+test('batchHookWarnings: a hook on >40% of a batch is flagged (stopword anchor)', () => {
+  const cards = [['treatment-effect', 'a'], ['treatment-effect'], ['treatment-effect', 'b'], ['treatment-effect'], ['c'], ['d']];
+  const w = batchHookWarnings(cards);
+  assert.equal(w.length, 1);
+  assert.match(w[0], /treatment-effect/);
+});
+
+test('batchHookWarnings: well-spread hooks pass clean', () => {
+  assert.deepEqual(batchHookWarnings([['a'], ['b'], ['c'], ['d'], ['e']]), []);
+});
+
+test('batchHookWarnings: small batches (< minCards) are not judged', () => {
+  assert.deepEqual(batchHookWarnings([['x'], ['x'], ['x']]), []);
+});
+
+test('batchHookWarnings: dedups within a card (a repeated hook on one card counts once)', () => {
+  // 5 cards; "h" appears twice on one card but on only 2 of 5 cards → not >40%.
+  assert.deepEqual(batchHookWarnings([['h', 'h'], ['h'], ['a'], ['b'], ['c']]), []);
 });

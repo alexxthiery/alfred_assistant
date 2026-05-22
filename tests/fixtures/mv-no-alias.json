@@ -1,0 +1,7 @@
+{
+  "_comment": "C3: wiki mv --no-alias does NOT preserve the old (garbled/typo) slug as an alias. For a correction rename you don't want the bad string living on as a resolvable alias. Default mv still aliases (covered elsewhere); this asserts the opt-out.",
+  "setup": [
+    ["write", "typo-srewithin-strata", "--title", "Typo card", "--type", "concept", "--tags", "research", "--content", "- [claim] x ^[t:1]", "--soft"]
+  ],
+  "cmd": ["mv", "typo-srewithin-strata", "within-strata", "--no-alias"]
+}

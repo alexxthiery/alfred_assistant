@@ -1,0 +1,11 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "within-strata": {
+      "bodyMissing": ["typo-srewithin-strata"]
+    },
+    "typo-srewithin-strata": {
+      "fileExists": false
+    }
+  }
+}

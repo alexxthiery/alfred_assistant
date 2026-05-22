@@ -633,6 +633,49 @@ function auditVault({ pages, schema, knownVerbs }) {
     }
   }
 
+  // C1: edge-aptness — a NON-SCORING, query-only advisory. A LINEAGE relation
+  // (extends / instance_of / depends_on / refines) asserts a strong semantic
+  // claim, and a wrong one is a valid wikilink nothing else flags (the
+  // relation-level analogue of the silent autolink/alias over-linking).
+  // Heuristic: a lineage edge where both endpoints carry hooks but share NONE
+  // is *possibly* loose. But hooks are sparse (1-3/card), so genuinely-related
+  // cards often share none too — this fires on ~1/4 of real lineage edges, far
+  // too noisy to SCORE (it would drown the audit like multi-fact once did).
+  // So it does NOT add to r.score and is NOT shown in the default audit; it is
+  // surfaced ONLY via `wiki audit --all --rule edge-aptness` as a deliberate
+  // "show me suspect lineage edges to eyeball" review pass. The durable fix for
+  // wrong edges is the persona guidance (default cross-domain links to cites);
+  // this rule is a coarse net for a manual sweep, nothing more.
+  const LINEAGE_VERBS = new Set(['extends', 'instance_of', 'depends_on', 'refines']);
+  const hooksOf = (slug) => {
+    const p = pageBySlug.get(slug);
+    const h = p && p.fm && Array.isArray(p.fm.hooks) ? p.fm.hooks : [];
+    return new Set(h.filter((x) => typeof x === 'string' && x));
+  };
+  for (const r of perPage) {
+    const myHooks = hooksOf(r.slug);
+    if (myHooks.size === 0) continue;
+    const p = pageBySlug.get(r.slug);
+    const suspect = [];
+    for (const rel of parseRelations(p.body)) {
+      if (!LINEAGE_VERBS.has(rel.verb)) continue;
+      if (!slugSet.has(rel.target)) continue; // stub target → can't judge
+      const tHooks = hooksOf(rel.target);
+      if (tHooks.size === 0) continue; // target hookless → don't judge
+      if (![...myHooks].some((h) => tHooks.has(h))) suspect.push(`${rel.verb} [[${rel.target}]]`);
+    }
+    if (suspect.length) {
+      // Advisory only: recorded as an issue (so --rule edge-aptness can list it)
+      // but NOT added to r.score, so it never affects blocking, top-offenders,
+      // or the default audit noise floor.
+      r.issues.push({
+        rule: 'edge-aptness',
+        severity: 'advisory',
+        detail: `${suspect.length} lineage edge(s) to a card sharing no hook (loose? prefer cites): ${suspect.slice(0, 3).join('; ')}`,
+      });
+    }
+  }
+
   // HR-OOB-C: duplicate-fact (advisory). For each non-superseded fact line
   // on each page, look for a normalized-equal match on a different page.
   // Threshold ≥ 40 chars (normalized) keeps trivia (years, single words)
