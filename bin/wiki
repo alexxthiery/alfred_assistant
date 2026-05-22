@@ -765,21 +765,15 @@ function cmdMerge(args) {
   const srcParsed = readPageForWrite(srcPath);
   const tgtParsed = readPageForWrite(tgtPath);
 
-  // 1. Compose merged body for target.
+  // 1. Compose the target's new body.
   // Default (same-entity merge): concatenate the source body under a heading.
-  // --dedupe (V2): the source is a near-DUPLICATE idea, not extra content —
-  // keep the target body AS-IS (no `## Merged from` section, so the target
-  // stays a single atomic card and is not flagged sectioned-idea-page) and just
-  // redirect backlinks + delete the source. Source relations/hooks are still
-  // carried over (deduped) so no edges are lost.
-  const mergedBody = dedupe
-    ? tgtParsed.body
-    : tgtParsed.body.trimEnd() + '\n\n## Merged from ' + source + '\n\n' + srcParsed.body.trimEnd() + '\n';
-
-  // --dedupe: carry over the source's RELATIONS (deduped against the target's)
-  // so collapsing a duplicate never drops an edge — without importing the
-  // source's prose. Hooks are unioned into frontmatter below.
-  let dedupeBody = mergedBody;
+  // --dedupe (V2): the source is a near-DUPLICATE idea, not extra content — keep
+  // the target body AS-IS (no `## Merged from` section, so the target stays a
+  // single atomic card and is not flagged sectioned-idea-page); just carry the
+  // source's RELATIONS over (deduped against the target's, so no edge is lost),
+  // then redirect backlinks + delete the source. Hooks are unioned into the
+  // frontmatter below.
+  let mergedBody;
   if (dedupe) {
     const tgtRelKeys = new Set(parseRelations(tgtParsed.body).map((r) => `${r.verb} ${r.target}`));
     const carried = [];
@@ -789,7 +783,9 @@ function cmdMerge(args) {
       tgtRelKeys.add(key);
       carried.push(`- ${r.verb} [[${r.target}]]`);
     }
-    if (carried.length) dedupeBody = dedupeBody.trimEnd() + '\n' + carried.join('\n') + '\n';
+    mergedBody = carried.length ? tgtParsed.body.trimEnd() + '\n' + carried.join('\n') + '\n' : tgtParsed.body;
+  } else {
+    mergedBody = tgtParsed.body.trimEnd() + '\n\n## Merged from ' + source + '\n\n' + srcParsed.body.trimEnd() + '\n';
   }
 
   // 2. Compose merged frontmatter
@@ -861,7 +857,7 @@ function cmdMerge(args) {
 
   try {
     // 5. Target with merged content + frontmatter.
-    staged.set(tgtPath, serializeFrontmatter(newFm, dedupeBody));
+    staged.set(tgtPath, serializeFrontmatter(newFm, mergedBody));
 
     // 6. Each backlink page: substitute [[source]] -> [[target]], dedup
     //    microsyntax lines that may now collide with target's existing ones.

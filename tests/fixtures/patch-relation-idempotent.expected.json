@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "ri-a": {
+      "bodyMatchCount": { "about [[ri-b]]": 1 }
+    }
+  }
+}

@@ -70,6 +70,13 @@ function checkWikiAssertions(tmp, wikiAssertions, name) {
     for (const needle of (asserts.bodyMissing || [])) {
       if (content.includes(needle)) return { name, ok: false, reason: `wikiAssertions ${slug}: unexpected "${needle.slice(0, 60)}"` };
     }
+    // bodyMatchCount: { "<substring>": N } — assert the substring appears
+    // exactly N times. Needed for idempotency checks (e.g. a relation edge must
+    // appear once, not twice, after a repeated add).
+    for (const [needle, want] of Object.entries(asserts.bodyMatchCount || {})) {
+      const got = content.split(needle).length - 1;
+      if (got !== want) return { name, ok: false, reason: `wikiAssertions ${slug}: "${needle.slice(0, 40)}" appears ${got}x (expected ${want})` };
+    }
   }
   return null;
 }

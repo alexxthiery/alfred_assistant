@@ -1,0 +1,9 @@
+{
+  "_comment": "V4: patch --relation is idempotent — adding the same (verb, target) edge twice must leave exactly ONE relation line, not two. Setup adds it once; cmd adds it again; the assertion counts occurrences.",
+  "setup": [
+    ["write", "ri-a", "--title", "RI A", "--type", "concept", "--tags", "research", "--content", "- [claim] a ^[t:1]", "--soft"],
+    ["write", "ri-b", "--title", "RI B", "--type", "concept", "--tags", "research", "--content", "- [claim] b ^[t:1]", "--soft"],
+    ["patch", "ri-a", "--relation", "about [[ri-b]]"]
+  ],
+  "cmd": ["patch", "ri-a", "--relation", "about [[ri-b]]"]
+}

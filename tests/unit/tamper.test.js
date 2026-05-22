@@ -89,6 +89,27 @@ test('tamper-check blocks a write after an out-of-band edit; escape hatches clea
   }
 });
 
+test('groom --mechanical commits cleanly — no leftover dirty index.md (V5)', () => {
+  const v = freshVault();
+  try {
+    // A write through wiki leaves a clean tree.
+    const w = wiki(v, ['write', 'groom-host', '--title', 'Groom host', '--type', 'concept',
+      '--tags', 'meta', '--content', '- [fact] seed ^[t:1]', '--soft']);
+    assert.equal(w.status, 0, `seed write should succeed: ${w.stderr}`);
+    assert.equal(git(v, ['status', '--porcelain']).stdout.trim(), '', 'clean after seed write');
+    // groom regenerates the index (+ maybe autolinks); it must commit its own
+    // output, not leave index.md dirty for the next command to trip on.
+    const g = wiki(v, ['groom', '--mechanical']);
+    assert.equal(g.status, 0, `groom should succeed: ${g.stderr}`);
+    assert.equal(git(v, ['status', '--porcelain']).stdout.trim(), '', 'tree clean after groom (V5)');
+    // The next write-class verb must NOT be tamper-blocked.
+    const after = wiki(v, ['patch', 'groom-host', '--observation', '[fact] post-groom ^[t:1]']);
+    assert.equal(after.status, 0, `write after groom should proceed (not tamper-blocked): ${after.stderr}`);
+  } finally {
+    fs.rmSync(v, { recursive: true, force: true });
+  }
+});
+
 test('tamper-check is a no-op when the vault is not a git repo', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vault-nogit-'));
   cpDir(TEMPLATE, tmp);
