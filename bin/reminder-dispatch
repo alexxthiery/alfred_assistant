@@ -73,6 +73,13 @@ function runWiki(wikiBin, args) {
   return r.stdout || '';
 }
 
+// Non-fatal wiki call: returns {ok, stderr} instead of exiting. Used for the
+// per-reminder stamp, where one failure must NOT abort the whole dispatch.
+function tryWiki(wikiBin, args) {
+  const r = spawnSync(wikiBin, args, { encoding: 'utf-8' });
+  return { ok: r.status === 0, stderr: (r.stderr || '').split('\n').slice(0, 3).join(' | ') };
+}
+
 // ISO datetime without milliseconds, matching the ISO_DATETIME_RE the wiki
 // CLI validates `reminded_at` against (which rejects the `.123` millis that
 // Date#toISOString emits).
@@ -91,19 +98,30 @@ function main() {
 
   const stdout = runWiki(wikiBin, ['todo', 'list', '--reminders']);
   const due = filterDue(parseReminderRows(stdout), now);
-  const payload = formatTelegram(due);
 
-  if (payload) process.stdout.write(payload + '\n');
-
-  // Stamp AFTER emitting: a crash mid-emit must not mark a reminder sent. The
-  // residual risk is a downstream telegram-send failure after we stamp (that
-  // one reminder is then not re-sent) — acceptable for v1, and the email half
-  // still surfaced it that morning. Skipped under --dry-run.
+  // STAMP-BEFORE-SEND: stamp each due reminder, and emit ONLY the ones that
+  // stamped successfully. This is the duplicate-reminder fix. The stamp is the
+  // idempotency record; if it can't land, sending anyway means the reminder is
+  // still "due, unstamped" next cron tick → it re-fires every 15 min (what the
+  // user hit). By gating the send on a successful stamp, a stamp failure HOLDS
+  // the reminder (retries next tick) instead of spamming. The email half still
+  // surfaces it that morning, so a held reminder is not lost.
+  //   --soft: `reminded_at` is a machine-written frontmatter marker, but patch
+  //   runs full strict body validation — a pre-existing body-audit issue on the
+  //   page (e.g. a `mislabeled-event` "Zoom meeting" title on a type:todo) would
+  //   otherwise reject the stamp. --soft bypasses body rules; the stamp doesn't
+  //   touch the body, so it is safe. (A dirty-vault tamper-block can still hold
+  //   the stamp — correctly; the reminder then waits rather than spamming.)
+  const toSend = args['dry-run'] ? due : [];
   if (!args['dry-run']) {
     for (const r of due) {
-      runWiki(wikiBin, ['patch', r.slug, '--reminded_at', now]);
+      const res = tryWiki(wikiBin, ['patch', r.slug, '--reminded_at', now, '--soft']);
+      if (res.ok) toSend.push(r);
+      else console.error(`reminder-dispatch: could not stamp ${r.slug} (${res.stderr}); HELD — not sending to avoid duplicates, will retry next run`);
     }
   }
+  const payload = formatTelegram(toSend);
+  if (payload) process.stdout.write(payload + '\n');
 
   // Cache log: a copy of every dispatch so "did a reminder fire on day X" is
   // answerable with `ls`. Cheap; opt-out via --no-log. Failure is non-fatal so

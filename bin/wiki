@@ -5063,7 +5063,12 @@ if (args['no-auto-commit']) {
 // Tamper check: run BEFORE write-class verbs so users see bypass writes
 // before they're folded into the next auto-commit.
 const WRITE_VERBS = new Set(['write', 'patch', 'ingest', 'mv', 'delete', 'merge', 'link', 'autolink', 'groom', 'todo']);
-if (WRITE_VERBS.has(verb)) tamperCheck({ accept: !!args['accept-tamper'] });
+// `todo` is write-class, but its `list` subcommand is read-only — tamper-
+// checking it would block a pure read on a dirty vault (e.g. the reminder
+// dispatcher's `todo list --reminders` failing → reminders silently don't
+// fire). Exempt the read-only subcommand; todo add/done/defer still check.
+const isReadOnlyTodo = (verb === 'todo' && args._[0] === 'list');
+if (WRITE_VERBS.has(verb) && !isReadOnlyTodo) tamperCheck({ accept: !!args['accept-tamper'] });
 // --accept-tamper means "fold the accepted out-of-band edit into this write's
 // commit" — so this invocation's auto-commit must stage everything, not just
 // the scoped wiki/raw paths (the edit may be a stray root file).
