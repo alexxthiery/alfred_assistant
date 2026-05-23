@@ -81,3 +81,32 @@ test('batchHookWarnings: dedups within a card (a repeated hook on one card count
   // 5 cards; "h" appears twice on one card but on only 2 of 5 cards → not >40%.
   assert.deepEqual(batchHookWarnings([['h', 'h'], ['h'], ['a'], ['b'], ['c']]), []);
 });
+
+// ─── near-duplicate hook hint (vocab-aware) ──────────────────────────────────
+
+test('hookWarnings: flags a hyphen-extension near-duplicate of a vocab hook', () => {
+  const vocab = new Set(['density-ratio', 'framing']);
+  const w = hookWarnings(['density-ratio-estimation'], vocab).filter((x) => /near-duplicate/.test(x));
+  assert.equal(w.length, 1);
+  assert.match(w[0], /reuse "density-ratio"/);
+  // shorter side is also a near-dup of a longer vocab entry
+  assert.equal(hookWarnings(['framing'], new Set(['framing-effect'])).filter((x) => /near-duplicate/.test(x)).length, 1);
+});
+
+test('hookWarnings: a genuinely new hook is not flagged as near-duplicate', () => {
+  const vocab = new Set(['density-ratio', 'systems-thinking']);
+  assert.deepEqual(hookWarnings(['schelling-point'], vocab).filter((x) => /near-duplicate/.test(x)), []);
+});
+
+test('hookWarnings: exact reuse of a vocab hook is not flagged (the desired behavior)', () => {
+  assert.deepEqual(hookWarnings(['density-ratio'], new Set(['density-ratio'])).filter((x) => /near-duplicate/.test(x)), []);
+});
+
+test('hookWarnings: a substring that is NOT a hyphen-boundary extension is not flagged', () => {
+  // "ratio" is a substring of "density-ratio" but not a hyphen-prefix → not a near-dup.
+  assert.deepEqual(hookWarnings(['ratio'], new Set(['density-ratio'])).filter((x) => /near-duplicate/.test(x)), []);
+});
+
+test('hookWarnings: no vocab (write/patch path) → near-duplicate check is inert', () => {
+  assert.deepEqual(hookWarnings(['density-ratio-estimation']).filter((x) => /near-duplicate/.test(x)), []);
+});

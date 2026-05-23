@@ -397,11 +397,11 @@ function buildAllPagesSnapshot() {
 
 // Print soft hints (stderr, non-blocking) for sentence-like hooks. Accepts a
 // comma-string (from --hooks) or an array (from ingest specs).
-function warnHooks(hooks) {
+function warnHooks(hooks, vocab) {
   const list = typeof hooks === 'string'
     ? hooks.split(',').map((s) => s.trim()).filter(Boolean)
     : (Array.isArray(hooks) ? hooks : []);
-  for (const w of hookWarnings(list)) console.error(`[hint] ${w}`);
+  for (const w of hookWarnings(list, vocab)) console.error(`[hint] ${w}`);
 }
 
 function cmdWrite(args) {
@@ -2076,6 +2076,15 @@ function cmdIngest(args) {
   // and the vault is unchanged. Flush itself uses temp-file + renameSync per
   // page for filesystem-level atomicity of each write.
   const source = spec.source;
+  // Hook vocabulary for the near-duplicate hint (warnHooks): existing vault
+  // hooks ∪ every hook this spec declares. The batch union matters because the
+  // common case is one ingest minting both `density-ratio` and
+  // `density-ratio-estimation` (neither pre-existing) — vault-only vocab would
+  // miss it. Built once here; passed to the entity + patch warnHooks calls.
+  const hookVocab = new Set();
+  forEachPage(({ fm }) => { for (const h of (Array.isArray(fm.hooks) ? fm.hooks : [])) if (typeof h === 'string' && h) hookVocab.add(h); });
+  for (const e of entities) for (const h of (Array.isArray(e.hooks) ? e.hooks : [])) if (typeof h === 'string' && h) hookVocab.add(h);
+  for (const p of patches) for (const h of (Array.isArray(p.add_hooks) ? p.add_hooks : [])) if (typeof h === 'string' && h) hookVocab.add(h);
   const created = [], modified = [], skipped = [];
   /** @type {Map<string,string>} absolute-path -> file content */
   const stagedWrites = new Map();
@@ -2114,7 +2123,7 @@ function cmdIngest(args) {
     };
     // Optional extras
     if (e.aliases) fm.aliases = Array.isArray(e.aliases) ? e.aliases : [e.aliases];
-    if (e.hooks) { fm.hooks = Array.isArray(e.hooks) ? e.hooks : [e.hooks]; warnHooks(fm.hooks); }
+    if (e.hooks) { fm.hooks = Array.isArray(e.hooks) ? e.hooks : [e.hooks]; warnHooks(fm.hooks, hookVocab); }
     if (e.summary) fm.summary = e.summary;
     for (const k of ['homepage', 'scholar', 'orcid', 'github', 'linkedin', 'twitter', 'arxiv', 'email']) {
       if (e[k]) fm[k] = e[k];
@@ -2217,7 +2226,7 @@ function cmdIngest(args) {
         if (typeof h === 'string' && h && !merged.includes(h)) merged.push(h);
       }
       fm.hooks = merged;
-      warnHooks(p.add_hooks);
+      warnHooks(p.add_hooks, hookVocab);
     }
     fm.updated = nowISO();
     stagePage(wikiPath(p.slug), serializeFrontmatter(fm, mintIdsForBody(newBody)));

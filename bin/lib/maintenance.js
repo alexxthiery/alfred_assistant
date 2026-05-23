@@ -156,7 +156,20 @@ function validateExtraFieldValue(name, raw) {
 // Soft by design: callers print these as hints; they never block a write.
 const HOOK_MAX_CHARS = 32;
 const HOOK_MAX_HYPHENS = 3;
-function hookWarnings(hooks) {
+// True iff `a` is a hyphen-prefix of `b` on a token boundary
+// (density-ratio → density-ratio-estimation). The cheap, precise signal for a
+// near-duplicate hook: one is the other plus a `-suffix`.
+function isHyphenExt(a, b) {
+  return b.length > a.length && b.startsWith(a + '-');
+}
+
+// `vocab` (optional Set<string>): the hook vocabulary this hook should reuse —
+// existing vault hooks plus the rest of the batch. When given, flag an incoming
+// hook that is a hyphen-extension of (or is hyphen-extended by) a known hook.
+// A hook is a shared join key, so a near-variant ("density-ratio" vs
+// "density-ratio-estimation") silently splits the cluster instead of joining
+// it. Advisory only (like the sentence-like check) — never blocks.
+function hookWarnings(hooks, vocab) {
   const out = [];
   const list = Array.isArray(hooks) ? hooks : [];
   for (const h of list) {
@@ -164,6 +177,15 @@ function hookWarnings(hooks) {
     const hyphens = (h.match(/-/g) || []).length;
     if (h.length > HOOK_MAX_CHARS || hyphens > HOOK_MAX_HYPHENS) {
       out.push(`hook "${h}" looks sentence-like (${h.length} chars, ${hyphens} hyphens); prefer a short standard concept name (e.g. advantage-baseline, control-variate, two-timescale)`);
+    }
+    if (vocab) {
+      for (const e of vocab) {
+        if (e === h) continue;
+        if (isHyphenExt(e, h) || isHyphenExt(h, e)) {
+          out.push(`hook "${h}" is a near-duplicate of "${e}" (one hyphen-extends the other). A hook is a shared join key, so a near-variant silently splits the cluster — reuse "${e}" unless genuinely distinct.`);
+          break; // one near-duplicate hint per incoming hook
+        }
+      }
     }
   }
   return out;
