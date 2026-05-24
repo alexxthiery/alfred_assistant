@@ -1481,6 +1481,12 @@ function todoList(args) {
     const status = fm.status || 'open';
     if (args.open && status !== 'open') return;
     if (args.done && status !== 'done') return;
+    // --overdue / --due-today are ACTIONABLE views (they drive the morning
+    // brief): only OPEN todos belong. Without this a done/retired todo with a
+    // past or today due date leaked into the brief as "overdue" — the exact
+    // bug reported. Requiring open also auto-excludes any future retired/
+    // cancelled status, not just done.
+    if ((args.overdue || args['due-today']) && status !== 'open') return;
     if (args['due-today'] && fm.due !== today) return;
     if (args.overdue && (!fm.due || fm.due >= today)) return;
     if (args.reminders && !fm.remind_at) return;

@@ -1,0 +1,9 @@
+{
+  "_comment": "todo list --overdue (and --due-today) are actionable views that drive the morning brief — they must list only OPEN todos. A done todo with a past due date used to leak in as 'overdue' (reported bug: done/retired reminders shown in the email). Setup creates one open + one done, both overdue; the listing must show only the open one.",
+  "setup": [
+    ["todo", "add", "Open overdue task", "--due", "2026-05-01"],
+    ["todo", "add", "Done overdue task", "--due", "2026-05-01"],
+    ["todo", "done", "todo-done-overdue-task"]
+  ],
+  "cmd": ["todo", "list", "--overdue", "--asof", "2026-05-24"]
+}

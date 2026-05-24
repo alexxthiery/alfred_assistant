@@ -1,0 +1,5 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["todo-open-overdue-task"],
+  "stdoutNotContains": ["todo-done-overdue-task"]
+}
