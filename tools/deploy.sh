@@ -78,6 +78,34 @@ else
 fi
 echo ""
 
+# 1b. .gitignore — seed if absent so a fresh vault starts clean. Without this a
+# new vault tracks runtime artifacts (the cache/ logs the cron jobs append to,
+# the DuckDB .cache/, tamper.log, the AGENTS.local.md render), which dirty the
+# tree on every run and trip the tamper-check. Idempotent: never clobber an
+# existing .gitignore.
+if [ ! -f "$TARGET/.gitignore" ]; then
+  echo "[config] WOULD CREATE $TARGET/.gitignore"
+  if $APPLY; then
+    cat > "$TARGET/.gitignore" <<'GITIGNORE'
+# Runtime + derived artifacts — not vault content. Tracking them dirties the
+# tree on every CLI/cron run (auto-commit is scoped to wiki/ + raw/).
+.cache/                  # DuckDB analytical view (rebuilt lazily)
+cache/                   # daily-brief / reminder-dispatch run logs
+.DS_Store
+alfred/tamper.log        # appended by the tamper watcher
+alfred/log/
+alfred/scratchpad.md
+AGENTS.local.md          # persona render artifact (canonical is AGENTS.md)
+__pycache__/
+*.pyc
+GITIGNORE
+    echo "[config] wrote $TARGET/.gitignore"
+  fi
+else
+  echo "[config] OK (.gitignore present)"
+fi
+echo ""
+
 # 2. Render the template to AGENTS.local.md (a comparison artifact). We do NOT
 # overwrite the canonical AGENTS.md — it is hand-personalized (the worked-example
 # cast and tuning replaced with the user's actual content). The side-by-side

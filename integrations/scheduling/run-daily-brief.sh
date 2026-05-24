@@ -9,32 +9,45 @@
 # Sends the brief to email, and (if Telegram creds are set) the same brief as a
 # Telegram message — both deterministically from one composition, no agent.
 #
+# Delivers the brief to whichever channels are configured: email (if EMAIL_FROM
+# is set) and/or Telegram (if TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID are set).
+# A Telegram-only assistant (e.g. a kid's, no email account) just omits
+# EMAIL_FROM. Errors only if NEITHER channel is configured.
+#
 # Config (edit or set in the environment / launchd plist):
 #   ALFRED_VAULT      vault path (contains .bin/)
-#   ENV_FILE          a file exporting EMAIL_FROM + GMAIL_APP_PASSWORD, and
-#                     optionally TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (sourced)
+#   ENV_FILE          a file (sourced) exporting any of: EMAIL_FROM +
+#                     GMAIL_APP_PASSWORD (email), TELEGRAM_BOT_TOKEN +
+#                     TELEGRAM_CHAT_ID (Telegram)
 set -euo pipefail
 ALFRED_VAULT="${ALFRED_VAULT:-$HOME/my-vault}"
 ENV_FILE="${ENV_FILE:-$HOME/nanoclaw/.env}"
 
 # Secrets are sourced from a file, never hardcoded here.
 [ -f "$ENV_FILE" ] && set -a && . "$ENV_FILE" && set +a
-: "${EMAIL_FROM:?run-daily-brief: EMAIL_FROM not set (check ENV_FILE)}"
 
-# Compose the brief ONCE, then fan out to both channels. --tz makes "today" the
-# user's local date even if the runtime zone differs (e.g. a UTC container).
+want_email=0; [ -n "${EMAIL_FROM:-}" ] && want_email=1
+want_telegram=0; [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ] && want_telegram=1
+if [ "$want_email" -eq 0 ] && [ "$want_telegram" -eq 0 ]; then
+  echo "run-daily-brief: no channel configured — set EMAIL_FROM (email) and/or TELEGRAM_BOT_TOKEN+TELEGRAM_CHAT_ID (Telegram) in $ENV_FILE" >&2
+  exit 1
+fi
+
+# Compose the brief ONCE, then fan out to the configured channel(s). --tz makes
+# "today" the user's local date even if the runtime zone differs (UTC container).
 TZ_ARG=""; [ -n "${TZ:-}" ] && TZ_ARG="--tz $TZ"
 BRIEF="$("$ALFRED_VAULT/.bin/daily-brief" $TZ_ARG)"
 
-# Email (primary).
-printf '%s\n' "$BRIEF" | "$ALFRED_VAULT/.bin/email-digest" \
-  --subject "Daily brief — $(date +%F)" \
-  --to "$EMAIL_FROM"
+if [ "$want_email" -eq 1 ]; then
+  printf '%s\n' "$BRIEF" | "$ALFRED_VAULT/.bin/email-digest" \
+    --subject "Daily brief — $(date +%F)" \
+    --to "$EMAIL_FROM"
+fi
 
-# Telegram note (best-effort; only if creds are configured). Same brief body,
-# lands in the same chat the agent uses. Non-fatal: a Telegram failure must not
-# fail the job after the email already went.
-if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+# Telegram is best-effort + non-fatal: a Telegram failure must not fail the job
+# (when email is also configured, it already went). Same brief body, lands in
+# the assistant's chat.
+if [ "$want_telegram" -eq 1 ]; then
   printf '%s\n' "$BRIEF" | "$ALFRED_VAULT/.bin/telegram-send" \
-    || echo "run-daily-brief: Telegram note failed (non-fatal; email already sent)" >&2
+    || echo "run-daily-brief: Telegram note failed (non-fatal)" >&2
 fi
