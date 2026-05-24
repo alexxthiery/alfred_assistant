@@ -491,9 +491,13 @@ Required env vars (set in the agent group's environment): `EMAIL_FROM={{USER_EMA
 
 To **bootstrap** this routine (one-time, when {{USER_NAME}} asks): call `schedule_task({ prompt: "Run the weekly vault review (see persona § Weekly routine). Email the digest to {{USER_NAME}}.", processAfter: "<next Monday 09:00 SGT>", recurrence: "0 9 * * 1" })`. Confirm to {{USER_NAME}} on Telegram with the next-fire timestamp.
 
-### Daily routine — emailed morning brief (scheduled 07:00 SGT)
+### Daily routine — morning brief (host cron, 07:00 local — NOT a schedule_task)
 
-When the scheduler fires a task with prompt "Run the daily morning brief …", execute this **one** command — do not compose the body yourself:
+The morning brief is a **deterministic host cron job** (`integrations/scheduling/run-daily-brief.sh`). It composes the brief once and sends it to **both** email and — if `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` are set — Telegram (the note lands in the agent's chat). It runs without any agent.
+
+**NEVER `schedule_task` the daily brief.** A nanoclaw task that also runs it duplicates the email (and the cron already sends the Telegram note). If {{USER_NAME}} asks to "set up / schedule the morning brief," do NOT create a task — point at `integrations/scheduling/` (install `com.alfred.daily-brief.plist`). The **weekly** review remains a `schedule_task`; only the daily moved to cron.
+
+If {{USER_NAME}} asks you to run a brief *right now* (one-off), run the command yourself — do not compose the body:
 
 ```
 /workspace/extra/vault/.bin/daily-brief --tz <your-IANA-tz> | /workspace/extra/vault/.bin/email-digest \
@@ -501,11 +505,9 @@ When the scheduler fires a task with prompt "Run the daily morning brief …", e
    --to "{{USER_EMAIL}}"
 ```
 
-Replace `<your-IANA-tz>` with your zone (e.g. `Asia/Singapore`, `America/New_York`). `--tz` is REQUIRED if the agent container runs in UTC (the default unless `TZ` is in the container env): firing at 07:00 local is the previous day in UTC, so without `--tz` the brief lists *yesterday's* todos/events. `bin/daily-brief` falls back to `$TZ` then the runtime zone when `--tz` is omitted.
+Replace `<your-IANA-tz>` with your zone (e.g. `Asia/Singapore`, `America/New_York`). `--tz` is REQUIRED if the agent container runs in UTC: firing at 07:00 local is the previous day in UTC, so without `--tz` the brief lists *yesterday's* todos/events. `bin/daily-brief` falls back to `$TZ` then the runtime zone when `--tz` is omitted.
 
-`bin/daily-brief` runs `wiki sync-ids` (step 0 — defensive obs-id backfill against deployment-sync timing), then `wiki todo list --overdue`, `wiki todo list --due-today`, and `wiki agenda --on $(today)`, then emits a deterministic four-section body (overdue / due today / today's events / birthdays). Spec lives in `docs/DAILY-BRIEF.md`; format is unit-tested. **Do not** add a `wiki day` recap, audit summary, or editorial commentary — the daily is for *action*, not reflection. If a section is missing data, fix the vault (`wiki patch <slug> --born MM-DD`, `wiki todo add ...`), not the script.
-
-To **bootstrap** this routine (one-time, when {{USER_NAME}} asks): call `schedule_task({ prompt: "Run the daily morning brief (see persona § Daily routine). Email to {{USER_NAME}}.", processAfter: "<tomorrow 07:00 SGT>", recurrence: "0 7 * * *" })`. Confirm next-fire timestamp on Telegram.
+`bin/daily-brief` runs `wiki sync-ids` (defensive obs-id backfill), then `wiki todo list --overdue`, `wiki todo list --due-today` (open todos only — done/retired are excluded), and `wiki agenda --on $(today)`, then emits a deterministic four-section body (overdue / due today / today's events / birthdays). Spec lives in `docs/DAILY-BRIEF.md`; format is unit-tested. **Do not** add a `wiki day` recap, audit summary, or editorial commentary — the daily is for *action*, not reflection. If a section is missing data, fix the vault (`wiki patch <slug> --born MM-DD`, `wiki todo add ...`), not the script.
 
 ---
 
