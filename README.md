@@ -90,7 +90,7 @@ alfred_assistant/
       vault.js            #   forEachPage, listWikiPages, wikiPath, readPage, vault paths
     verbs/
       read.js             # read-only verbs split out of bin/wiki (list, search, recent, preview, print, sources, related, unlinked-mentions, agenda, day, context, challenge, render)
-    commands/             # verb handlers (cmdXxx) split out of bin/wiki, one file per group; migration in progress
+    commands/             # verb handlers (cmdXxx), one file per group; all verbs live here (see AGENTS.md verb-module index)
   schemas/
     wiki-ingest.schema.json   # JSON Schema for the ingest spec
   docs/

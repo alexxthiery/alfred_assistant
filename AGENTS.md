@@ -23,7 +23,7 @@ Match your task to one of these and jump to the linked section:
 - Adding a fixture or smoke test → **Runbook 3** below.
 - Extracting a pure helper into `bin/lib/` → **Runbook 4** below.
 - Adding an audit rule → **Runbook 5** below.
-- Moving a verb group out of `bin/wiki` into `bin/commands/` → **Runbook 6** below.
+- Adding or re-splitting a verb group in `bin/commands/` → **Runbook 6** below.
 
 If your task does not fit any of these, read the file map next.
 
@@ -35,7 +35,7 @@ No file sizes here on purpose: they rot. The durable signal is *which file owns 
 |-------------------------------------|-----------------------------------------------------------|
 | `AGENTS.md`                         | First. Always. (this file)                                |
 | `bin/wiki`                          | The CLI entrypoint: argv parse, the `VERBS` help table, the `cmds` dispatch map, tamper/auto-commit gating. Read to wire a verb, not to read a verb's logic. |
-| `bin/commands/<group>.js`           | A verb's actual handler (`cmdXxx`). This is where verb logic lives once migrated; open the group that owns the verb. |
+| `bin/commands/<group>.js`           | A verb's actual handler (`cmdXxx`). **All** verb logic lives here now; open the group that owns the verb (see the verb→module index below). The one exception is `persona-lint`, which stays inline in `bin/wiki` because it reads the live `cmds` map. |
 | `bin/verbs/read.js`                 | Read-only verbs (`list`, `print`, `context`, ...).        |
 | `bin/lib/*.js`                      | Pure / shared logic, unit-tested. `frontmatter` (parse/serialize/migration), `schema` (SCHEMA.md parsing + closed-set constants), `graph` (wikilink/observation/relation/fuzzy), `ingest` (JSON-ingest validation), `audit` (`AUDIT_RULES`), `vault` (constants + `forEachPage`), `autolink`, `flag-aliases`, `flag-spec`, `config`, plus the write-side helpers. Open the one whose name matches your concern. |
 | `bin/inbox`                         | Raw-content triage.                                       |
@@ -52,7 +52,30 @@ No file sizes here on purpose: they rot. The durable signal is *which file owns 
 | `tests/vault/`                      | Seed vault, **copied fresh per fixture** (hidden coupling). |
 | `audit/*.md` (gitignored)           | Local audit findings; not in the published tree.          |
 
-**Token-economics rule of thumb.** `bin/wiki` is large; reading it whole is the most expensive mistake you can make. Grep for the verb you care about, read its handler in `bin/commands/`, and read a sibling verb that already does something similar.
+### Verb → module index
+
+Every verb's handler lives in exactly one module. To change a verb's behavior, open its module directly; `bin/wiki` only wires the dispatch, so grepping it for the logic is a dead end.
+
+| Module | Verbs |
+|--------|-------|
+| `bin/verbs/read.js` | list, search, recent, print, preview, sources, related, unlinked-mentions, render, context, agenda, day, challenge |
+| `bin/commands/write.js` | write |
+| `bin/commands/edit.js` | link, mv, delete, merge |
+| `bin/commands/patch.js` | patch |
+| `bin/commands/ingest.js` | ingest |
+| `bin/commands/epistemic.js` | predict, hypothesize, capture |
+| `bin/commands/todo.js` | todo |
+| `bin/commands/graph.js` | links, backlinks, relations, observations, autolink, resolve, path, hubs, hooks, process, timeline, stubs, place |
+| `bin/commands/measure.js` | measure |
+| `bin/commands/replay.js` | replay |
+| `bin/commands/sql.js` | sql |
+| `bin/commands/lint.js` | lint |
+| `bin/commands/review.js` | review |
+| `bin/commands/git.js` | diff, revert |
+| `bin/commands/hygiene.js` | bless, audit, fix-links, groom, size, sync-ids, reindex, preflight, migrate |
+| `bin/wiki` (inline) | persona-lint |
+
+**Token-economics rule of thumb.** `bin/wiki` is now the ~690-line dispatch/help/gating layer (down from ~5,000); even so, to change a verb you open its command module above, not `bin/wiki`. Read the handler plus a sibling verb that already does something similar.
 
 ## Hard rules (never violate)
 
@@ -71,11 +94,11 @@ These aren't rules that bite you with an error — they're contracts that other 
 
 - **SCHEMA.md closed-set taxonomy.** `loadSchema()` in `bin/lib/schema.js` parses the tag/type/forbidden/verb lists out of SCHEMA.md at every CLI invocation. Adding a tag = edit SCHEMA.md, done. Adding a *kind* of taxonomy = also touch the parser in `bin/lib/schema.js`.
 - **Frontmatter serialization chokepoint.** All page-write call-sites in `bin/wiki` funnel through `serializeFrontmatter` in `bin/lib/frontmatter.js`. Adding a new always-stamped FM field (like `schema_version` was in H07) means editing exactly one function. Don't write FM by hand at call-sites.
-- **Write-validation triad.** All write verbs route through `validateForWrite` in `bin/wiki` (for slug/type/tag/derived_from) + `validateBody` in `bin/lib/ingest.js` (body-level rules, delegates to `strictRuleErrors` in `bin/lib/audit.js`) + `postWriteAudit` in `bin/wiki` (per-page audit afterward). New write paths should follow the same sequence or document why they don't.
+- **Write-validation triad.** All write verbs route through `validateForWrite` in `bin/lib/write-validate.js` (for slug/type/tag/derived_from) + `validateBody` in `bin/lib/ingest.js` (body-level rules, delegates to `strictRuleErrors` in `bin/lib/audit.js`) + `postWriteAudit` in `bin/lib/audit-runtime.js` (per-page audit afterward, invoked by the write/patch/ingest handlers). New write paths should follow the same sequence or document why they don't.
 - **Auto-commit + auto-audit + auto-autolink.** Every successful write triggers (a) an auto-commit (atomic per write), (b) a post-write audit hook, and (c) bidirectional autolink resolution. `wiki revert <sha>` undoes one. Don't try to batch writes; the system is designed for one-write-one-commit. Opt out per invocation with `--no-auto-commit` or globally with `WIKI_NO_AUTO_COMMIT=1` — useful for CI runs and for "stage many edits, then commit by hand." Auto-commit failures print a loud multi-line stderr block but never crash the verb.
 - **Tamper-detection race (known limitation).** `tamperCheck()` runs *before* the verb writes and flags any pre-existing uncommitted vault state. But there's a small window between that check and `git add -A` inside `autoCommit()`. If a concurrent process modifies the vault during that window, those changes get folded into the verb's commit indistinguishably from the verb's own writes. Mitigation: don't run the CLI concurrently against the same vault. Detection: a `wiki revert` of an auto-commit will undo more than just the verb's writes if this race fires. Real fix is a vault-level lock — deferred until the race is observed in practice.
 - **`schema_version` stamping.** Every page write stamps `schema_version: <current>` via the serializer. Pages without the field are treated as v1 by `wiki migrate`. Bumping the schema version means: define the migration in `SCHEMA_MIGRATIONS` in `bin/lib/frontmatter.js`, run `wiki migrate`, ship.
-- **Replay-spec versioning.** `captureReplaySpec` (`bin/wiki`) stamps `spec_version` onto every captured Telegram-driven ingest spec. `wiki replay` dispatches through `REPLAY_SPEC_MIGRATIONS`. Symmetric with the page-schema versioning.
+- **Replay-spec versioning.** `captureReplaySpec` (`bin/lib/replay-capture.js`) stamps `spec_version` onto every captured Telegram-driven ingest spec. `wiki replay` dispatches through `REPLAY_SPEC_MIGRATIONS`. Symmetric with the page-schema versioning.
 - **Persona-lint catches verb drift.** `wiki persona-lint` greps `SCHEMA.md`, `docs/PERSONA.template.md`, `docs/SCHEMA.md`, `docs/NANOCLAW-PATCHES.md`, `docs/WEEKLY-DIGEST.md`, `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md` for backtick-wrapped `` `wiki <verb>` `` and refuses verbs not in the dispatch map. If you rename a verb, run persona-lint or expect doc drift.
 
 ## Tests
@@ -92,7 +115,7 @@ Unit tests live in `tests/unit/*.test.js` and exercise pure helpers from `bin/li
 
 The audit has been substantially worked down. Tracker in `audit/WORKPLAN.md` (gitignored — local only): all BLOCKER, HIGH, NIT cleared; MEDIUM at 18/19 (only M13 deferred — DuckDB incremental rebuild, revisit at 1K+ pages); LOW tier (7 items) open. Concrete state that affects daily work:
 
-- Pure helpers extracted under `bin/lib/` (`frontmatter`, `schema`, `graph`, `ingest`, `audit`, `vault`, `autolink`, `flag-aliases`, `flag-spec`, `config`, and the write-side helpers); unit-tested. Verb handlers are migrating from `bin/wiki` into `bin/commands/<group>.js`.
+- Pure/shared helpers live under `bin/lib/` (31 modules: `frontmatter`, `schema`, `graph`, `ingest`, `audit`, `vault`, `autolink`, `flag-aliases`, `flag-spec`, `config`, plus the write-side helpers `page-io`, `write-validate`, `audit-runtime`, `autolink-runtime`, `ingest-body`, `resolve`, `replay-capture`); unit-tested. **The verb-handler split is complete**: every handler lives in `bin/commands/<group>.js` (14 modules) or `bin/verbs/read.js`, and `bin/wiki` is now ~690 lines (from ~5,000) holding only the `VERBS`/`cmds` tables + argv parse + flag validation + tamper/auto-commit gating. `persona-lint` is the sole inline handler. `tests/unit/dispatch-parity.test.js` fails loudly if a verb, its `cmds` entry, or its exported handler drifts out of sync.
 - `wiki persona-lint` (H09) — catches verb drift in docs (scans 9 docs).
 - `wiki migrate` (H07) — frontmatter schema versioning. Every page write stamps `schema_version`.
 - `wiki preflight` (M12) — one-shot env/dependency check. Run first when dropping into an unfamiliar vault.
@@ -112,8 +135,8 @@ If you find yourself reading code that the audit has already analysed, check `au
 Worked example: a hypothetical `next-up` verb that lists `type=event` pages with `when` in the next 7 days. (The verb doesn't exist; we're walking through adding it. The full invocation would be **wiki next-up** — written without backticks here so `wiki persona-lint` doesn't flag a doc-vs-dispatch-map mismatch.)
 
 1. **Confirm the verb name is free.** Grep `bin/wiki` for `const cmds = {`. The dispatch map is the canonical list.
-2. **Read the closest sibling verb.** For `next-up`, that's `cmdAgenda` — grep the repo for `function cmdAgenda` (it lives in its `bin/commands/<group>.js`, or still in `bin/wiki` if that group hasn't been migrated yet). Read it end-to-end; it's the template you'll copy.
-3. **Add `cmdNextUp(args)`** in the `bin/commands/` module that owns its group (alongside the sibling), and `module.exports` it. If that group is still inline in `bin/wiki`, add it next to the sibling there. Pattern for this example: walk pages via `forEachPage` (from `bin/lib/vault.js`), filter for `fm.type === 'event'` with `fm.when` within today + 7 days, sort by `when`, print one line per event.
+2. **Read the closest sibling verb.** For `next-up`, that's `cmdAgenda` — grep the repo for `function cmdAgenda` (read verbs live in `bin/verbs/read.js`; every other verb lives in its `bin/commands/<group>.js` — see the verb→module index). Read it end-to-end; it's the template you'll copy.
+3. **Add `cmdNextUp(args)`** in the `bin/commands/` module that owns its group (alongside the sibling), and `module.exports` it. Pattern for this example: walk pages via `forEachPage` (from `bin/lib/vault.js`), filter for `fm.type === 'event'` with `fm.when` within today + 7 days, sort by `when`, print one line per event.
 4. **Register in the dispatch map.** Grep `const cmds = {` in `bin/wiki`; `require` the handler from its command module and add the entry. Match the existing comment-cluster convention (read, write, graph, todo, hygiene, etc.). Kebab-case verbs use string keys (`'sync-ids': cmdSyncIds`); single-word verbs use bare identifiers. The parity test (`tests/unit/dispatch-parity.test.js`) will fail loudly if a `VERBS` entry, a `cmds` entry, or an exported `cmd` is missing its counterpart.
 5. **Add an entry to the VERBS table** (grep `bin/wiki` for `const VERBS = [`). Each entry has `{ name, section, lines: ['  <synopsis>'] }` and optionally `longHelp: '...'` for the most-complex verbs. The table feeds both the global help banner and `wiki <verb> --help`.
 6. **Update `docs/PERSONA.template.md`** if the persona should know to invoke it. Grep for the closest existing verb in that doc (`` `wiki agenda` ``, `` `wiki audit` ``, etc.) and add yours nearby.
@@ -197,9 +220,9 @@ For cross-page rules (hot-text-mention, lonely), extend `auditVault` in `bin/lib
 
 After landing, the rule shows up automatically in `wiki audit` (which iterates AUDIT_RULES) and — if `strict: true` — in `wiki write` strict mode. No dispatch wiring; the table is the dispatch.
 
-### Runbook 6: Move a verb group into `bin/commands/`
+### Runbook 6: Add or re-split a verb group in `bin/commands/`
 
-`bin/wiki` is being decomposed: verb handlers move into `bin/commands/<group>.js`, shared inline helpers move into `bin/lib/`, and `bin/wiki` keeps only argv-parse + the `VERBS` table + the `cmds` dispatch map + tamper/auto-commit gating. The migration is incremental and behavior-preserving; each move ships green.
+`bin/wiki` has been fully decomposed: every verb handler lives in `bin/commands/<group>.js` (read-only verbs in `bin/verbs/read.js`), shared helpers in `bin/lib/`, and `bin/wiki` keeps only argv-parse + the `VERBS` table + the `cmds` dispatch map + tamper/auto-commit gating. This runbook records the pattern for adding a brand-new verb group (or re-splitting an oversized one). It is behavior-preserving; each move ships green.
 
 1. **Pick a group** (e.g. read-only analysis: `sql`, `lint`, `review`). Confirm none of its handlers call another `cmdXxx` directly — they shouldn't; coupling is only via shared helpers.
 2. **Create `bin/commands/<group>.js`.** `'use strict';`, `require` the libs and shared helpers the handlers need, define the `cmdXxx` functions, `module.exports` each.

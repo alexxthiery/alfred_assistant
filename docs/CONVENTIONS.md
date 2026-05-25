@@ -11,7 +11,7 @@ Project-wide conventions for `bin/wiki` and the `bin/lib/*.js` modules. Read thi
 | Loaders (fs -> structured) | `loadX` | `loadSchema`, `loadConfig`, `loadVaultDb` |
 | Extractors (text -> tokens) | `extractX` | `extractWikilinks`, `extractProvenanceMarkers` |
 | Validators (input -> errors) | `validateX` | `validateSlug`, `validateBody`, `validateIngestSpec` |
-| Closed-set constants | `UPPERCASE_SNAKE`, defined once at the top of `bin/wiki` | `KNOWN_TYPES`, `ENTITY_KIND_TAGS`, `WRITE_VERBS`, `FLAG_ALIASES` |
+| Closed-set constants | `UPPERCASE_SNAKE`, defined once in their owning module | `WRITE_VERBS` (in `bin/wiki`); `KNOWN_TYPES` / `ENTITY_KIND_TAGS` (in `bin/lib/schema.js`); `FLAG_ALIASES` (in `bin/lib/flag-aliases.js`) |
 | Verbs (CLI surface) | kebab-case for multi-word | `sync-ids`, `persona-lint`, `email-digest` |
 
 Counterexamples to avoid: don't define a closed-set inline at the call site (the audit-flagged `EXTERNAL_LINK_FIELDS` was the prior anti-pattern). Hoist once to the top of the file or to `bin/lib/<area>.js`.
@@ -56,7 +56,7 @@ Closed sets live in `docs/SCHEMA.md` and are parsed at runtime by `bin/lib/schem
 
 - Tag taxonomy, relation-verb verb set, symmetric verbs, inverse-pair verbs, and forbidden aggregator slugs: all live in `SCHEMA.md` and are loaded by `loadSchema()` on every invocation.
 - Never hardcode a tag/relation-verb list in code. If a CLI feature needs to know "which tags are entity-kind tags," that list belongs in `SCHEMA.md` and is read at runtime.
-- The `KNOWN_TYPES` constant in `bin/wiki` is the one exception: page-type names are stable and reading them from `SCHEMA.md` would create a cold-start chicken-and-egg. `wiki persona-lint` cross-checks types vs `SCHEMA.md` headings to catch drift.
+- The `KNOWN_TYPES` constant in `bin/lib/schema.js` is the one exception: page-type names are stable and reading them from `SCHEMA.md` would create a cold-start chicken-and-egg. `wiki persona-lint` cross-checks types vs `SCHEMA.md` headings to catch drift.
 
 ## Where things live
 
@@ -70,7 +70,7 @@ Closed sets live in `docs/SCHEMA.md` and are parsed at runtime by `bin/lib/schem
 | Vault constants + page iteration | `bin/lib/vault.js` | `VAULT_ROOT`, `WIKI_DIR`, `forEachPage`. The controlled fs boundary. |
 | CLI flag-rename / removal policy | `bin/lib/flag-aliases.js` | Pure; consulted at dispatch. |
 | Read-only verbs (`list`, `print`, `search`, ...) | `bin/verbs/read.js` | Extracted from `bin/wiki`. |
-| Verb handlers (write, edit, ingest, hygiene, sql, review, ...) | `bin/commands/<group>.js` | Thin handlers exporting `cmdXxx`; migrating out of `bin/wiki`, one group at a time. |
+| Verb handlers (write, edit, ingest, hygiene, sql, review, ...) | `bin/commands/<group>.js` | Thin handlers exporting `cmdXxx`. All verbs now live here; `persona-lint` is the lone inline exception in `bin/wiki`. |
 | Dispatch, argv parse, `VERBS` help table, tamper/auto-commit gating | `bin/wiki` | Top-level CLI; imports handlers from `bin/commands/*` + `bin/verbs/*` and helpers from `bin/lib/*`. |
 
 Iteration of every page goes through `forEachPage` (from `bin/lib/vault.js`), not raw `for (const f of listWikiPages())`. The single helper is the spot to add per-process caching later, once mutation-during-iteration sites are audited.
@@ -80,7 +80,7 @@ Iteration of every page goes through `forEachPage` (from `bin/lib/vault.js`), no
 There are two layers of validation, distinguished by when they fire.
 
 - Write-time strict subset (`validateBody` / `strictRuleErrors` in `bin/lib/ingest.js` and `bin/lib/audit.js`): runs before a `wiki write` / `wiki patch` / `wiki ingest` writes to disk. Blocks the write on any rule whose `strict: true` flag is set. Bypassable with `--soft` (write) or by editing the file directly. Strict rules are a minimal subset of all audit rules.
-- Audit-time scored set (`auditPage` / `auditSlug` / `auditAll`): runs after a write (`bin/wiki` calls `auditSlug` on touched pages and prints a score) and on demand (`wiki audit <slug>` / `wiki audit --all`). Reports all rules with severity, never blocks. The full set is the source of truth for "what counts as quality".
+- Audit-time scored set (`auditPage` / `auditSlug` / `auditAll`): runs after a write (the write/patch/ingest handlers call `postWriteAudit` -> `auditSlug` in `bin/lib/audit-runtime.js` on touched pages and print a score) and on demand (`wiki audit <slug>` / `wiki audit --all`). Reports all rules with severity, never blocks. The full set is the source of truth for "what counts as quality".
 
 The two share one rule table (`AUDIT_RULES` in `bin/lib/audit.js`). Adding a new rule means adding one entry with `{name, severity, strict, check}`; both call sites pick it up automatically.
 
