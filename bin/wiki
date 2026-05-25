@@ -13,54 +13,14 @@
 
 const fs = require('fs');
 const path = require('path');
-const {
-  parseFrontmatter,
-  serializeFrontmatter,
-  migratePage,
-  CURRENT_SCHEMA_VERSION,
-  SCHEMA_MIGRATIONS,
-} = require('./lib/frontmatter.js');
-const {
-  KNOWN_TYPES,
-  ENTITY_KIND_TAGS,
-  STALE_THRESHOLDS,
-  STALE_DEFAULT_DAYS,
-  SLUG_RE,
-  validSlug,
-  isReserved,
-  loadSchema: _loadSchema,
-  knownRelationVerbs,
-} = require('./lib/schema.js');
-const {
-  aliasesOf,
-  backlinkRegex,
-  firstBodyLine,
-  extractWikilinks,
-  extractProvenanceMarkers,
-  parseObservations,
-  parseRelations,
-  parseRelationLine,
-  levenshtein,
-  scoreSlugCandidates,
-} = require('./lib/graph.js');
-const { validateIngestSpec, validateBody: _validateBody, OBSERVATION_CATEGORIES } = require('./lib/ingest.js');
-const { mintIdsForBody } = require('./lib/obsid.js');
-const { isISODate } = require('./lib/date.js');
-const { buildPredictionLine, buildHypothesisLine, defaultProvenance, stampOnDate } = require('./lib/epistemic-verbs.js');
-const { classifyUtterance } = require('./lib/capture-classifier.js');
-const { auditPage, auditVault, STRICT_CROSS_PAGE_RULES, strictCrossPageErrors, ironcladRuleErrors, severityScore } = require('./lib/audit.js');
-const { redactSecrets } = require('./lib/secrets.js');
+const { SCHEMA_MIGRATIONS } = require('./lib/frontmatter.js');
+const { KNOWN_TYPES } = require('./lib/schema.js');
+
 const { applyFlagAliases } = require('./lib/flag-aliases.js');
-const { flushStaged } = require('./lib/staged-writes.js');
-const { buildTitleEntries, autolinkBody } = require('./lib/autolink.js');
-const { computeMissingInverses, groupByTarget } = require('./lib/inverse-closure.js');
-const { formatIndex, formatLogLine, applyExtraFrontmatter, validateExtraFieldValue, validateAliasArg, aliasValueError, hookWarnings, aliasWarnings, batchHookWarnings } = require('./lib/maintenance.js');
+
 const { knownFlags, unknownFlags, valuelessFlags, GLOBAL_FLAGS } = require('./lib/flag-spec.js');
-const {
-  VAULT_ROOT, WIKI_DIR, SCHEMA_PATH, INDEX_PATH, LOG_PATH,
-  nowISO, wikiPath, listWikiPages, readPage, forEachPage, invalidatePageCache,
-} = require('./lib/vault.js');
-const { loadVaultDb, ensureDuckdbAvailable, resolveDuckdbBin } = require('./lib/duckdb.js');
+const { VAULT_ROOT } = require('./lib/vault.js');
+
 const {
   cmdList, cmdSearch, cmdRecent, cmdPreview, cmdPrint,
   cmdSources, cmdRelated, cmdUnlinkedMentions, cmdAgenda, cmdDay, cmdContext, cmdChallenge, cmdRender,
@@ -79,132 +39,8 @@ const { cmdReplay } = require('./commands/replay.js');
 const { cmdDiff, cmdRevert } = require('./commands/git.js');
 const { cmdBless, cmdAudit, cmdFixLinks, cmdGroom, cmdSize, cmdSyncIds, cmdReindex, cmdPreflight, cmdMigrate } = require('./commands/hygiene.js');
 const { cmdLinks, cmdBacklinks, cmdRelations, cmdObservations, cmdAutolink, cmdResolve, cmdPath, cmdHubs, cmdHooks, cmdProcess, cmdTimeline, cmdStubs, cmdPlace } = require('./commands/graph.js');
-const { formatObservation, formatRelation, buildBodyFromSpec } = require('./lib/ingest-body.js');
-const { resolveSlugCandidates } = require('./lib/resolve.js');
-const { REPLAY_DIR, CURRENT_SPEC_VERSION, REPLAY_SPEC_MIGRATIONS, replayPathFor, captureReplaySpec, captureReplayResult } = require('./lib/replay-capture.js');
-const { buildTitleMap, autolinkSlug } = require('./lib/autolink-runtime.js');
-const { readPageForWrite, regenerateIndex, appendLog, autoCommit, autoCommitDisabled, tamperCheck } = require('./lib/page-io.js');
-const { validateForWrite, validateBody, buildAllPagesSnapshot, warnHooks } = require('./lib/write-validate.js');
-const { auditSlug, postWriteAudit } = require('./lib/audit-runtime.js');
 
-// VAULT_ROOT detection + WIKI_DIR/SCHEMA_PATH/INDEX_PATH/LOG_PATH constants +
-// wikiPath/listWikiPages/readPage/nowISO live in ./lib/vault.js (imported above).
-// SLUG_RE, validSlug, isReserved, KNOWN_TYPES, ENTITY_KIND_TAGS, STALE_THRESHOLDS,
-// STALE_DEFAULT_DAYS live in ./lib/schema.js (imported above).
-
-// Thin path-binding wrapper. The actual memoization (with mtime invalidation)
-// lives in `bin/lib/schema.js::loadSchema` per HR22 / audit/14 §
-// schema-load-redundancy. A single CLI invocation parses SCHEMA.md once even
-// when validateForWrite + validateBody + postWriteAudit each call this.
-const loadSchema = () => _loadSchema(SCHEMA_PATH);
-
-// ─── frontmatter ───────────────────────────────────────────────────────────
-// parseFrontmatter, serializeFrontmatter, migratePage and the schema-version
-// constants live in ./lib/frontmatter.js (require()-able from unit tests).
-
-// ─── vault iteration ──────────────────────────────────────────────────────
-// listWikiPages, readPage, wikiPath live in ./lib/vault.js (imported above).
-
-// Pure body-parsing helpers (firstBodyLine, extractWikilinks,
-// extractProvenanceMarkers, parseObservations, parseRelations, levenshtein,
-// scoreSlugCandidates) live in ./lib/graph.js (imported above).
-
-// ─── schema loading ────────────────────────────────────────────────────────
-// loadSchema and knownRelationVerbs live in ./lib/schema.js (imported at the
-// top). loadSchema is wrapped at the top so existing call-sites still work
-// with no-arg invocation; the underlying function takes a path.
-
-
-
-
-// ─── read verbs ────────────────────────────────────────────────────────────
-// cmdList, cmdSearch, cmdRecent, cmdPreview, cmdPrint, cmdSources, cmdRelated,
-// cmdAgenda, cmdContext live in ./verbs/read.js (imported above).
-
-
-// ─── write verbs ───────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-// ─── graph verbs ───────────────────────────────────────────────────────────
-
-
-
-// ─── autolink ──────────────────────────────────────────────────────────────
-
-
-
-// ─── navigation / placement verbs ──────────────────────────────────────────
-
-
-
-
-
-// List every connective hook in use across the vault with its page count and
-// whether it has already been promoted to a concept page (slug==hook). This is
-// the live vocabulary Alfred reads at the start of a process session so he
-// reuses an existing hook instead of minting a near-duplicate (the solo-vault
-// convergence guard). Sorted by frequency; `--min N` filters to recurring hooks.
-
-// Process-session preamble. Run this BEFORE turning raw items into atoms: it
-// loads the guidance into context so a cold agent doesn't wing the ingestion.
-// Assembles three things: (1) the canonical rubric/procedure (persona/pipeline.md),
-// (2) the LIVE hook vocabulary (so reuse-first is concrete, not a memory test),
-// (3) one or two gold-standard cards to match. Read-only.
-
-
-
-// ─── ingest ────────────────────────────────────────────────────────────────
-
-
-
-// ─── audit ─────────────────────────────────────────────────────────────────
-
-// Audit a single page. Returns { score, issues: [{rule, severity, detail}] }.
-// Excludes auto-files (index, log) — they return { score: 0, issues: [] }.
-// Per-page audit: read page from disk, build input, delegate to ./lib/audit.js's
-// auditPage which iterates the shared AUDIT_RULES table. Cross-page rules
-// (hot-text-mention, lonely) live in auditAll below since they need vault-wide
-// context.
-
-
-
-
-
-
-
-
-// ─── hygiene verbs ─────────────────────────────────────────────────────────
-
-
-
-
-// ─── replay (B2 — persona/CLI regression catching) ───────────────────────
-// Captures real Telegram-driven ingest inputs + outputs to raw/telegram-replay/,
-// then `wiki replay <msg-id>` re-runs through the current pipeline and diffs.
-
-
-
-// ─── DuckDB analytical view ───────────────────────────────────────────────
-// Cache bootstrap (buildVaultNdjson, loadVaultDb, paths, schema version)
-// lives in ./lib/duckdb.js so `wiki sql`, `wiki search` (BM25), and future
-// verbs like `wiki render` all share the same lazy-rebuild path.
-
-// ─── measurements (tabular series) ────────────────────────────────────────
-// Time-series numerical data (growth, blood pressure, fitness, lab results)
-// lives in raw/measurements/<series>.tsv as the source of truth. The matching
-// wiki page is auto-rendered from the TSV; `wiki patch` / `wiki write` refuse
-// to touch pages whose frontmatter declares a `source_file:`.
-
+const { tamperCheck } = require('./lib/page-io.js');
 
 // ─── persona-lint: catch verb drift between docs and the dispatch map ─────
 //
@@ -219,14 +55,6 @@ const loadSchema = () => _loadSchema(SCHEMA_PATH);
 //   - README.md, CONTRIBUTING.md, CHANGELOG.md
 //
 // Exits 0 if clean, 2 if any unknown verb was found.
-
-// ─── preflight ─────────────────────────────────────────────────────────────
-// Pre-use smoke test. Reports PASS/WARN/FAIL/SKIP per check + recovery hints.
-// Exits 0 if every check is PASS/WARN/SKIP; 1 if anything FAILed. Designed
-// to be the first command a forker runs after install.sh — answers
-// "does my install actually work?" in one shot.
-
-
 function cmdPersonaLint(args) {
   const candidates = [
     'CLAUDE.md',
@@ -298,8 +126,6 @@ function cmdPersonaLint(args) {
   console.error('Fix: either rename the doc reference to a real verb, OR add the verb to the dispatch map.');
   process.exit(2);
 }
-
-
 
 // ─── argparse + dispatch ───────────────────────────────────────────────────
 
@@ -837,7 +663,7 @@ const FLAG_ALIASES = {
 }
 
 // Global flag: --no-auto-commit. Honored across every write verb by setting
-// the env var that autoCommitDisabled() reads. Equivalent to invoking with
+// the env var the page-io auto-commit path reads. Equivalent to invoking with
 // WIKI_NO_AUTO_COMMIT=1 in the shell. Removed from args before dispatch so
 // per-verb arg parsers don't see it.
 if (args['no-auto-commit']) {
