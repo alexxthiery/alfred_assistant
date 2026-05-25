@@ -39,8 +39,13 @@ TZ_ARG=""; [ -n "${TZ:-}" ] && TZ_ARG="--tz $TZ"
 BRIEF="$("$ALFRED_VAULT/.bin/daily-brief" $TZ_ARG)"
 
 if [ "$want_email" -eq 1 ]; then
+  # Subject reflects the actual counts (e.g. "Daily brief: 2 overdue, 1 due
+  # (Mon 25 May)"). Computed in a second, cheap pass (--no-sync/--no-log) that
+  # reuses the same composer; falls back to a plain subject if it fails.
+  SUBJECT="$("$ALFRED_VAULT/.bin/daily-brief" $TZ_ARG --print-subject --no-sync --no-log 2>/dev/null)"
+  [ -n "$SUBJECT" ] || SUBJECT="Daily brief, $(date +%F)"
   printf '%s\n' "$BRIEF" | "$ALFRED_VAULT/.bin/email-digest" \
-    --subject "Daily brief — $(date +%F)" \
+    --subject "$SUBJECT" \
     --to "$EMAIL_FROM"
 fi
 

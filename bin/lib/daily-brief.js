@@ -65,18 +65,59 @@ function parseAgendaOnThisDayOutput(stdout) {
   return { events, birthdays };
 }
 
-function fmtTodoRow(t) {
-  const parts = [t.slug, t.title];
-  if (t.due) parts.push(`due ${t.due}`);
-  if (t.priority) parts.push(`[${t.priority}]`);
-  return `  ${parts.join(' — ')}`;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// Parse an ISO date (YYYY-MM-DD) as UTC midnight. We format in UTC throughout
+// so a pure date never drifts by a day under a local timezone.
+function isoToUTC(iso) { return new Date(`${iso}T00:00:00Z`); }
+function fmtDayMon(iso) { const d = isoToUTC(iso); return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`; }
+function fmtNiceDate(iso) {
+  const d = isoToUTC(iso);
+  return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+function daysBetween(fromIso, toIso) {
+  return Math.round((isoToUTC(toIso) - isoToUTC(fromIso)) / 86400000);
 }
 
-function fmtEventRow(e) { return `  ${e.when} — [[${e.slug}]]`; }
+// Slugs are internal keys; an email reader wants a name. Strip the dashes and
+// capitalize the first letter. Lossy but far more readable than a raw slug,
+// and we don't have a title for event/birthday pages at this layer.
+function prettifySlug(slug) {
+  const s = String(slug).replace(/-/g, ' ');
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+// Title-first todo line. The slug is omitted (it is noise in a human email);
+// priority, when present, trails as a small tag.
+function fmtTodoTitle(t) {
+  return `- ${t.title}${t.priority ? ` [${t.priority}]` : ''}`;
+}
+
+// Overdue row: title, then an aging line ("3 days overdue (was 22 May)") so the
+// urgency is legible at a glance rather than as a bare ISO due date.
+function fmtOverdueRow(t, asof) {
+  const title = fmtTodoTitle(t);
+  if (!t.due) return title;
+  const n = daysBetween(t.due, asof);
+  const aging = n > 0
+    ? `  ${n} day${n === 1 ? '' : 's'} overdue (was ${fmtDayMon(t.due)})`
+    : `  was due ${fmtDayMon(t.due)}`;
+  return `${title}\n${aging}`;
+}
+
+function fmtEventRow(e) { return `- ${prettifySlug(e.slug)}`; }
 
 function fmtBirthdayRow(b) {
-  const age = b.age != null ? ` (turns ${b.age})` : '';
-  return `  ${b.born} — [[${b.slug}]]${age}`;
+  return `- ${prettifySlug(b.slug)}${b.age != null ? ` (turns ${b.age})` : ''}`;
+}
+
+// Background ("ongoing") todo: open work that is neither overdue nor due today
+// (future-dated, undated, or scheduled reminders). Title-first, with the due
+// date as a small trailing tag so the horizon is legible at a glance.
+function fmtBackgroundRow(t) {
+  const tag = t.priority ? ` [${t.priority}]` : '';
+  return `- ${t.title}${tag}${t.due ? ` (due ${fmtDayMon(t.due)})` : ''}`;
 }
 
 function capSection(rows, max = MAX_PER_SECTION) {
@@ -84,35 +125,76 @@ function capSection(rows, max = MAX_PER_SECTION) {
   return { shown: rows.slice(0, max), omitted: rows.length - max };
 }
 
-// Compose the email body. All four data lists may be empty; if all are
-// empty we return the "clean slate" line so the channel keeps being
-// trustworthy (an absent email is indistinguishable from a broken cron).
-function formatBrief({ date, overdue = [], dueToday = [], events = [], birthdays = [] }) {
+// Compose the email body. The two action sections (overdue, due today) always
+// render, even when empty, so the channel stays trustworthy: a structured
+// "nothing" still proves the cron fired. Events and birthdays are
+// informational and shown only when present. A fully empty day collapses to a
+// single clean-slate line.
+function formatBrief({ date, overdue = [], dueToday = [], events = [], birthdays = [], background = [] }) {
   if (!isISODate(date)) {
     throw new Error('formatBrief: date must be YYYY-MM-DD');
   }
-  const total = overdue.length + dueToday.length + events.length + birthdays.length;
+  const header = `Daily brief, ${fmtNiceDate(date)}`;
+  const total = overdue.length + dueToday.length + events.length + birthdays.length + background.length;
   if (total === 0) {
-    return `Daily brief — ${date}\n\nClean slate today. Nothing overdue, nothing due, no events, no birthdays.\n`;
+    return `${header}\n\nClean slate. Nothing overdue, nothing due, no events, no birthdays.\n`;
   }
   const sections = [];
-  if (overdue.length) {
-    const { shown, omitted } = capSection(overdue.slice().sort((a, b) => (a.due || '').localeCompare(b.due || '')));
-    sections.push(`Overdue (${overdue.length})${omitted ? `, showing ${shown.length}` : ''}:\n${shown.map(fmtTodoRow).join('\n')}`);
-  }
-  if (dueToday.length) {
-    const { shown, omitted } = capSection(dueToday);
-    sections.push(`Due today (${dueToday.length})${omitted ? `, showing ${shown.length}` : ''}:\n${shown.map(fmtTodoRow).join('\n')}`);
-  }
+
+  // OVERDUE — always shown, oldest first.
+  const overdueSorted = overdue.slice().sort((a, b) => (a.due || '').localeCompare(b.due || ''));
+  const od = capSection(overdueSorted);
+  sections.push(
+    `OVERDUE (${overdue.length})${od.omitted ? `, showing ${od.shown.length}` : ''}\n`
+    + (overdue.length ? od.shown.map((t) => fmtOverdueRow(t, date)).join('\n') : 'Nothing overdue.')
+  );
+
+  // DUE TODAY — always shown.
+  const dt = capSection(dueToday);
+  sections.push(
+    `DUE TODAY (${dueToday.length})${dt.omitted ? `, showing ${dt.shown.length}` : ''}\n`
+    + (dueToday.length ? dt.shown.map(fmtTodoTitle).join('\n') : 'Nothing due.')
+  );
+
   if (events.length) {
     const { shown, omitted } = capSection(events);
-    sections.push(`Today's events (${events.length})${omitted ? `, showing ${shown.length}` : ''}:\n${shown.map(fmtEventRow).join('\n')}`);
+    sections.push(`EVENTS (${events.length})${omitted ? `, showing ${shown.length}` : ''}\n${shown.map(fmtEventRow).join('\n')}`);
   }
   if (birthdays.length) {
     const { shown, omitted } = capSection(birthdays);
-    sections.push(`Birthdays today (${birthdays.length})${omitted ? `, showing ${shown.length}` : ''}:\n${shown.map(fmtBirthdayRow).join('\n')}`);
+    sections.push(`BIRTHDAYS (${birthdays.length})${omitted ? `, showing ${shown.length}` : ''}\n${shown.map(fmtBirthdayRow).join('\n')}`);
   }
-  return `Daily brief — ${date}\n\n${sections.join('\n\n')}\n`;
+
+  // ONGOING — open work in the background: neither overdue nor due today
+  // (future-dated, undated, or scheduled reminders). Informational, so shown
+  // only when present; soonest due first, undated last.
+  if (background.length) {
+    const sorted = background.slice().sort((a, b) => {
+      if (!a.due) return b.due ? 1 : 0;
+      if (!b.due) return -1;
+      return a.due.localeCompare(b.due);
+    });
+    const { shown, omitted } = capSection(sorted);
+    sections.push(`ONGOING (${background.length})${omitted ? `, showing ${shown.length}` : ''}\n${shown.map(fmtBackgroundRow).join('\n')}`);
+  }
+  return `${header}\n\n${sections.join('\n\n')}\n`;
+}
+
+// One-line email subject that surfaces the actionable counts up front, e.g.
+// "Daily brief: 2 overdue, 1 due (Mon 25 May)". Birthdays are included (socially
+// time-sensitive); events are not (they vary in importance). A clear day reads
+// "Daily brief: clear (Mon 25 May)".
+function subjectFor({ date, overdue = [], dueToday = [], birthdays = [] }) {
+  if (!isISODate(date)) {
+    throw new Error('subjectFor: date must be YYYY-MM-DD');
+  }
+  const bits = [];
+  if (overdue.length) bits.push(`${overdue.length} overdue`);
+  if (dueToday.length) bits.push(`${dueToday.length} due`);
+  if (birthdays.length) bits.push(`${birthdays.length} birthday${birthdays.length === 1 ? '' : 's'}`);
+  const summary = bits.length ? bits.join(', ') : 'clear';
+  const d = isoToUTC(date);
+  return `Daily brief: ${summary} (${WEEKDAYS[d.getUTCDay()]} ${fmtDayMon(date)})`;
 }
 
 // "Today" (YYYY-MM-DD) in an IANA timezone. Uses Intl.formatToParts rather than
@@ -127,4 +209,4 @@ function localDate(d, tz) {
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
-module.exports = { parseTodoLine, parseTodoOutput, parseAgendaOnThisDayOutput, formatBrief, localDate, MAX_PER_SECTION };
+module.exports = { parseTodoLine, parseTodoOutput, parseAgendaOnThisDayOutput, formatBrief, subjectFor, localDate, MAX_PER_SECTION };

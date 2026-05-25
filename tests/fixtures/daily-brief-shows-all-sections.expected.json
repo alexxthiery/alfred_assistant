@@ -1,16 +1,19 @@
 {
   "exitCode": 0,
   "stdoutContains": [
-    "Daily brief — 2026-05-20",
-    "Overdue (",
+    "Daily brief, ",
+    "OVERDUE (",
     "Overdue task one",
-    "due 2026-05-18",
-    "Due today (",
+    "overdue (was 18 May)",
+    "DUE TODAY (",
     "Due today task one",
     "[high]",
-    "Today's events (",
-    "ev-brief-today",
-    "Birthdays today (",
-    "bday-brief-person"
+    "EVENTS (",
+    "Ev brief today",
+    "BIRTHDAYS (",
+    "Bday brief person",
+    "ONGOING (",
+    "Background ongoing task",
+    "(due 15 Jun)"
   ]
 }

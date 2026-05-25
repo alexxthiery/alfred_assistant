@@ -481,7 +481,7 @@ Then compose a structured email body (≤40 lines total) with **three short sect
 Send via:
 ```
 <body> | /workspace/extra/vault/.bin/email-digest \
-   --subject "Vault weekly digest — $(date +%Y-%m-%d)" \
+   --subject "Vault weekly digest, $(date +%Y-%m-%d)" \
    --to "{{USER_EMAIL}}"
 ```
 
@@ -500,14 +500,16 @@ The morning brief is a **deterministic host cron job** (`integrations/scheduling
 If {{USER_NAME}} asks you to run a brief *right now* (one-off), run the command yourself — do not compose the body:
 
 ```
-/workspace/extra/vault/.bin/daily-brief --tz <your-IANA-tz> | /workspace/extra/vault/.bin/email-digest \
-   --subject "Daily brief — $(TZ=<your-IANA-tz> date +%Y-%m-%d)" \
+BODY="$(/workspace/extra/vault/.bin/daily-brief --tz <your-IANA-tz>)"
+SUBJ="$(/workspace/extra/vault/.bin/daily-brief --tz <your-IANA-tz> --print-subject --no-sync --no-log)"
+printf '%s\n' "$BODY" | /workspace/extra/vault/.bin/email-digest \
+   --subject "$SUBJ" \
    --to "{{USER_EMAIL}}"
 ```
 
 Replace `<your-IANA-tz>` with your zone (e.g. `Asia/Singapore`, `America/New_York`). `--tz` is REQUIRED if the agent container runs in UTC: firing at 07:00 local is the previous day in UTC, so without `--tz` the brief lists *yesterday's* todos/events. `bin/daily-brief` falls back to `$TZ` then the runtime zone when `--tz` is omitted.
 
-`bin/daily-brief` runs `wiki sync-ids` (defensive obs-id backfill), then `wiki todo list --overdue`, `wiki todo list --due-today` (open todos only — done/retired are excluded), and `wiki agenda --on $(today)`, then emits a deterministic four-section body (overdue / due today / today's events / birthdays). Spec lives in `docs/DAILY-BRIEF.md`; format is unit-tested. **Do not** add a `wiki day` recap, audit summary, or editorial commentary — the daily is for *action*, not reflection. If a section is missing data, fix the vault (`wiki patch <slug> --born MM-DD`, `wiki todo add ...`), not the script.
+`bin/daily-brief` runs `wiki sync-ids` (defensive obs-id backfill), then `wiki todo list --overdue`, `wiki todo list --due-today`, `wiki todo list --open` (open todos only; done/retired are excluded), and `wiki agenda --on $(today)`, then emits a deterministic body: OVERDUE and DUE TODAY always render (action sections), EVENTS, BIRTHDAYS, and ONGOING (background todos: open but neither overdue nor due today) only when present. Rows lead with the title, overdue items show relative aging, and the subject carries the counts (`--print-subject`). Spec lives in `docs/DAILY-BRIEF.md`; format is unit-tested. **Do not** add a `wiki day` recap, audit summary, or editorial commentary — the daily is for *action*, not reflection. If a section is missing data, fix the vault (`wiki patch <slug> --born MM-DD`, `wiki todo add ...`), not the script.
 
 ---
 

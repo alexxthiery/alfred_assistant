@@ -1,15 +1,17 @@
 # Daily morning brief
 
-A cron-scheduled task that fires every morning at 07:00 (your timezone), runs `bin/daily-brief`, and emails you a short three-or-four-section summary via Gmail SMTP. Unlike the [weekly digest](WEEKLY-DIGEST.md), composition is **deterministic**: a tiny Node script (`bin/daily-brief`) calls the underlying CLI verbs and emits byte-identical output for identical vault state. Alfred is not in the format loop.
+A cron-scheduled task that fires every morning at 07:00 (your timezone), runs `bin/daily-brief`, and emails you a short summary via Gmail SMTP. Unlike the [weekly digest](WEEKLY-DIGEST.md), composition is **deterministic**: a tiny Node script (`bin/daily-brief`) calls the underlying CLI verbs and emits byte-identical output for identical vault state. Alfred is not in the format loop.
 
 Trust the channel: even an empty day sends a "clean slate" email. Silence means the cron didn't fire; silence is never "nothing to report".
+
+The email is plain text, formatted for a human reader: the two action sections (overdue, due today) always render so a structured "nothing" still proves the cron fired; each row leads with the todo title (not its internal slug); overdue items show relative aging ("3 days overdue (was 22 May)"); and the subject line carries the counts (`Daily brief: 2 overdue, 1 due (Mon 25 May)`).
 
 ## Pieces
 
 | Piece | Where | Purpose |
 |---|---|---|
 | Cron task | nanoclaw `schedule_task` (07:00 daily, your timezone) | Fires the routine |
-| Composer | `bin/daily-brief` (Node, ~120 lines) | Runs four `wiki` subprocesses (step 0 `sync-ids` + three reads), parses output, emits formatted body |
+| Composer | `bin/daily-brief` (Node, ~120 lines) | Runs five `wiki` subprocesses (step 0 `sync-ids` + four reads), parses output, emits formatted body |
 | Pure formatter | `bin/lib/daily-brief.js` | Parses verb output + formats body. No I/O. Unit-tested |
 | `bin/email-digest` | This repo (shared with weekly) | Bash wrapper around `curl --url 'smtps://smtp.gmail.com:465'` |
 | Persona routine | `docs/PERSONA.template.md` § "Daily routine" | One short paragraph: pipe `daily-brief` into `email-digest`. No composition by Alfred |
@@ -20,39 +22,55 @@ Trust the channel: even an empty day sends a "clean slate" email. Silence means 
 1. **Step 0 — `wiki sync-ids` (defensive, idempotent).** Mints any missing `<!--obs:XXXXXX-->` markers across the vault. ~1 second when coverage is already 100%; no-op in the steady state. Failure here is non-fatal — the brief still ships, but a warning lands on stderr. See **§ Why we mint defensively** below for the rationale.
 2. **Step 1 — `wiki todo list --overdue`.** Open todos whose `due:` is in the past.
 3. **Step 2 — `wiki todo list --due-today`.** Open todos whose `due:` matches today.
-4. **Step 3 — `wiki agenda --on $(today)`.** Events + birthdays sharing today's MM-DD (any year).
-5. **Compose** the deterministic body (see § What the email contains) and emit to stdout.
-6. **Persist** a copy to `<vault>/cache/daily-brief/YYYY-MM-DD.txt` unless `--no-log`.
+4. **Step 3 — `wiki todo list --open`.** All open todos; those that are neither overdue nor due today become the ONGOING (background) section.
+5. **Step 4 — `wiki agenda --on $(today)`.** Events + birthdays sharing today's MM-DD (any year).
+6. **Compose** the deterministic body (see § What the email contains) and emit to stdout.
+7. **Persist** a copy to `<vault>/cache/daily-brief/YYYY-MM-DD.txt` unless `--no-log`.
 
 Steps 0 and 6 can be skipped with `--no-sync` and `--no-log` respectively (used by tests, never in production).
 
 ## What the email contains
 
-Up to four sections, each capped at 5 items. Sections with zero items are omitted:
+Each section is capped at 5 items (a `, showing 5` note appears when more exist):
 
-- **Overdue (N)** — open todo pages whose `due:` is in the past, oldest first.
-- **Due today (N)** — open todo pages whose `due:` matches today.
-- **Today's events (N)** — `type=event` pages whose `when:` shares today's MM-DD (any year — so recurring annual events also fire).
-- **Birthdays today (N)** — pages with `born:` sharing today's MM-DD. Year-known entries show `(turns N)`.
+- **OVERDUE (N)** — open todos whose `due:` is in the past, oldest first; each shows relative aging. **Always rendered** (says `Nothing overdue.` when empty).
+- **DUE TODAY (N)** — open todos whose `due:` matches today. **Always rendered** (says `Nothing due.` when empty).
+- **EVENTS (N)** — `type=event` pages whose `when:` shares today's MM-DD (any year, so recurring annual events fire). Shown only when present.
+- **BIRTHDAYS (N)** — pages with `born:` sharing today's MM-DD. Year-known entries show `(turns N)`. Shown only when present.
+- **ONGOING (N)** — open todos that are neither overdue nor due today (future-dated, undated, or scheduled reminders still in flight): the background work. Soonest due first, undated last; due date shown as a trailing tag. Shown only when present.
 
-If all four sections are empty, the body is exactly: `Clean slate today. Nothing overdue, nothing due, no events, no birthdays.`
+Rows lead with the human title/name, not the internal slug, and contain no `[[wikilinks]]`. If everything is empty, the body collapses to one line: `Clean slate. Nothing overdue, nothing due, no events, no birthdays.`
+
+The email **subject** carries the actionable counts, e.g. `Daily brief: 2 overdue, 1 due (Mon 25 May)`, or `Daily brief: clear (Mon 25 May)` on a quiet day. The host wrapper computes it via `bin/daily-brief --print-subject` (a second, cheap pass).
 
 ## Sample output
 
 ```
+$ bin/daily-brief --date 2026-05-25
+Daily brief, Mon 25 May 2026
+
+OVERDUE (2)
+- Confirm BA2605-026 referee availability for paper assignment
+  3 days overdue (was 22 May)
+- Pickleball booking Saturday May 23 at 2pm
+  2 days overdue (was 23 May)
+
+DUE TODAY (0)
+Nothing due.
+```
+
+```
 $ bin/daily-brief --date 2026-06-22
-Daily brief — 2026-06-22
+Daily brief, Mon 22 Jun 2026
 
-Birthdays today (1):
-  06-22 — [[carol]]
-```
+OVERDUE (0)
+Nothing overdue.
 
-```
-$ bin/daily-brief --date 2026-06-01
-Daily brief — 2026-06-01
+DUE TODAY (0)
+Nothing due.
 
-Today's events (1):
-  2026-06-01 — [[meeting-team-offsite]]
+BIRTHDAYS (1)
+- Carol (turns 41)
 ```
 
 ## Setup

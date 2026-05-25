@@ -15,6 +15,7 @@
 //   bin/daily-brief --date 2026-05-19      emit body for a specific date
 //   bin/daily-brief --no-log               skip cache log write
 //   bin/daily-brief --no-sync              skip the defensive sync-ids step
+//   bin/daily-brief --print-subject        emit only the one-line email subject
 //
 // Step 0 — defensive `wiki sync-ids`: closes any gap in obs-id markers
 // caused by deployment-sync timing between the dev machine and the
@@ -37,6 +38,7 @@ const {
   parseTodoOutput,
   parseAgendaOnThisDayOutput,
   formatBrief,
+  subjectFor,
   localDate,
 } = require('./lib/daily-brief.js');
 
@@ -110,13 +112,26 @@ function main() {
   // clock (keeps the brief deterministic for any explicit --date).
   const overdueOut = runWiki(wikiBin, ['todo', 'list', '--overdue', '--asof', date]);
   const dueTodayOut = runWiki(wikiBin, ['todo', 'list', '--due-today', '--asof', date]);
+  const openOut = runWiki(wikiBin, ['todo', 'list', '--open']);
   const agendaOut = runWiki(wikiBin, ['agenda', '--on', date]);
 
   const overdue = parseTodoOutput(overdueOut);
   const dueToday = parseTodoOutput(dueTodayOut);
+  // Background ("ongoing") = open todos that are neither overdue nor due today:
+  // future-dated, undated, or scheduled reminders still in flight.
+  const imminent = new Set([...overdue, ...dueToday].map((t) => t.slug));
+  const background = parseTodoOutput(openOut).filter((t) => !imminent.has(t.slug));
   const { events, birthdays } = parseAgendaOnThisDayOutput(agendaOut);
 
-  const body = formatBrief({ date, overdue, dueToday, events, birthdays });
+  // --print-subject: emit only the one-line email subject (counts + date) and
+  // exit. The host wrapper calls this alongside the body run so the email
+  // subject reflects the actual counts. No body, no cache log.
+  if (args['print-subject']) {
+    process.stdout.write(`${subjectFor({ date, overdue, dueToday, birthdays })}\n`);
+    return;
+  }
+
+  const body = formatBrief({ date, overdue, dueToday, events, birthdays, background });
   process.stdout.write(body);
 
   // Cache log: keeps a copy of every brief on disk so "did Alfred actually

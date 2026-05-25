@@ -64,7 +64,7 @@ The persona routine is documented in `docs/PERSONA.template.md` under "Weekly ro
    - **Stats** — pages / open todos / audit issues / stale markers / pending inbox items (one line).
    - **Top promotion candidates** — 3 highest-ranked independent mentions, each with the surrounding sentence and the proposed slug.
    - **Action items** — 3 highest-leverage fixes from `wiki review` + `wiki audit`, imperative voice.
-3. Pipes the body through `bin/email-digest --subject "Vault weekly digest — YYYY-MM-DD" --to {{USER_EMAIL}}`.
+3. Pipes the body through `bin/email-digest --subject "Vault weekly digest, YYYY-MM-DD" --to {{USER_EMAIL}}`.
 
 The 40-line cap and synthesis discipline are deliberate: the digest is meant to be readable on a phone in 30 seconds, not a dump of CLI output.
 

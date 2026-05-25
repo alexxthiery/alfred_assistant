@@ -21,5 +21,5 @@ ENV_FILE="${ENV_FILE:-$HOME/nanoclaw/.env}"
 cd "$ALFRED_VAULT"
 claude -p "Run the weekly vault review exactly as your persona's Weekly routine specifies. Output ONLY the final email body (<=40 lines, the three sections). No preamble." \
   | "$ALFRED_VAULT/.bin/email-digest" \
-      --subject "Vault weekly digest — $(date +%F)" \
+      --subject "Vault weekly digest, $(date +%F)" \
       --to "$EMAIL_FROM"

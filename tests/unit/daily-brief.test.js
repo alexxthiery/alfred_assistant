@@ -13,6 +13,7 @@ const {
   parseTodoOutput,
   parseAgendaOnThisDayOutput,
   formatBrief,
+  subjectFor,
   localDate,
   MAX_PER_SECTION,
 } = require(path.resolve(__dirname, '..', '..', 'bin', 'lib', 'daily-brief.js'));
@@ -73,11 +74,13 @@ test('parseAgendaOnThisDayOutput: empty day', () => {
 
 test('formatBrief: clean-slate body when all sections empty', () => {
   const body = formatBrief({ date: '2026-05-19' });
-  assert.ok(body.startsWith('Daily brief — 2026-05-19\n'));
-  assert.ok(/Clean slate today\./.test(body));
+  assert.ok(body.startsWith('Daily brief, '));
+  assert.ok(/Clean slate\./.test(body));
+  // No em dashes anywhere (project style rule).
+  assert.ok(!body.includes('—'));
 });
 
-test('formatBrief: all four sections, sorted overdue oldest-first', () => {
+test('formatBrief: all sections, title-first, overdue aged oldest-first', () => {
   const body = formatBrief({
     date: '2026-05-19',
     overdue: [
@@ -88,14 +91,16 @@ test('formatBrief: all four sections, sorted overdue oldest-first', () => {
     events: [{ slug: 'mtg-x', when: '2026-05-19' }],
     birthdays: [{ slug: 'carol', born: '1985-05-19', age: 41 }],
   });
-  // Overdue is sorted by due ascending (oldest first).
-  const overdueBlock = body.split('\n\n').find((b) => b.startsWith('Overdue'));
-  assert.ok(/todo-a — A — due 2026-05-15 — \[high\]\n  todo-b/.test(overdueBlock));
-  // Other sections present
-  assert.ok(/Due today \(1\):/.test(body));
-  assert.ok(/Today's events \(1\):/.test(body));
-  assert.ok(/Birthdays today \(1\):/.test(body));
-  assert.ok(/carol/.test(body));
+  // Title leads; slug is gone; overdue shows relative aging; oldest first.
+  assert.ok(/OVERDUE \(2\)\n- A \[high\]\n {2}4 days overdue \(was 15 May\)\n- B\n {2}2 days overdue \(was 17 May\)/.test(body));
+  assert.ok(!body.includes('todo-a'), 'slug must not leak into the body');
+  // Due-today: title-first, no aging line.
+  assert.ok(/DUE TODAY \(1\)\n- C \[med\]/.test(body));
+  // Events and birthdays prettified, no [[wikilinks]].
+  assert.ok(/EVENTS \(1\)\n- Mtg x/.test(body));
+  assert.ok(/BIRTHDAYS \(1\)\n- Carol \(turns 41\)/.test(body));
+  assert.ok(!body.includes('[['), 'no raw wikilinks in the email');
+  assert.ok(!body.includes('—'), 'no em dashes');
 });
 
 test('formatBrief: caps each section at MAX_PER_SECTION and reports omission', () => {
@@ -103,26 +108,63 @@ test('formatBrief: caps each section at MAX_PER_SECTION and reports omission', (
     slug: `todo-${i}`, title: `T${i}`, due: `2026-05-${10 + i}`, priority: null,
   }));
   const body = formatBrief({ date: '2026-05-19', overdue: many });
-  assert.ok(new RegExp(`Overdue \\(${many.length}\\), showing ${MAX_PER_SECTION}:`).test(body));
-  // Last shown slug is index MAX_PER_SECTION-1 after the oldest-first sort.
-  assert.ok(body.includes(`todo-${MAX_PER_SECTION - 1}`));
-  // Anything beyond the cap is not in the body.
-  assert.ok(!body.includes(`todo-${many.length - 1} — T${many.length - 1}`));
+  assert.ok(new RegExp(`OVERDUE \\(${many.length}\\), showing ${MAX_PER_SECTION}`).test(body));
+  // Oldest-first: T0..T4 shown, the rest omitted.
+  assert.ok(body.includes('- T4'));
+  assert.ok(!body.includes('- T7'));
 });
 
-test('formatBrief: empty sections are omitted (no "Birthdays today (0)" lines)', () => {
+test('formatBrief: action sections always render; events/birthdays omitted when empty', () => {
   const body = formatBrief({
     date: '2026-05-19',
     overdue: [{ slug: 'todo-a', title: 'A', due: '2026-05-15', priority: null }],
   });
-  assert.ok(/Overdue \(1\):/.test(body));
-  assert.ok(!/Due today/.test(body));
-  assert.ok(!/Today's events/.test(body));
-  assert.ok(!/Birthdays/.test(body));
+  assert.ok(/OVERDUE \(1\)/.test(body));
+  assert.ok(/DUE TODAY \(0\)\nNothing due\./.test(body));
+  assert.ok(!/EVENTS/.test(body));
+  assert.ok(!/BIRTHDAYS/.test(body));
+});
+
+test('formatBrief: ONGOING lists background todos, soonest-due first, undated last', () => {
+  const body = formatBrief({
+    date: '2026-05-19',
+    background: [
+      { slug: 'todo-x', title: 'Book trip', due: '2026-08-01', priority: null },
+      { slug: 'todo-y', title: 'Backup folder', due: null, priority: null },
+      { slug: 'todo-z', title: 'Renew passport', due: '2026-06-15', priority: 'high' },
+    ],
+  });
+  assert.ok(/ONGOING \(3\)\n- Renew passport \[high\] \(due 15 Jun\)\n- Book trip \(due 1 Aug\)\n- Backup folder/.test(body), body);
+  assert.ok(!body.includes('—'), 'no em dashes');
+});
+
+test('formatBrief: ONGOING omitted when no background todos', () => {
+  const body = formatBrief({ date: '2026-05-19', dueToday: [{ slug: 'todo-c', title: 'C', due: '2026-05-19', priority: null }] });
+  assert.ok(!/ONGOING/.test(body));
+});
+
+test('formatBrief: a day with only background todos is not a clean slate', () => {
+  const body = formatBrief({ date: '2026-05-19', background: [{ slug: 'todo-x', title: 'Book trip', due: '2026-08-01', priority: null }] });
+  assert.ok(!/Clean slate/.test(body));
+  assert.ok(/ONGOING \(1\)/.test(body));
 });
 
 test('formatBrief: rejects bad date shape', () => {
   assert.throws(() => formatBrief({ date: 'tomorrow' }), /YYYY-MM-DD/);
+});
+
+test('subjectFor: counts lead, friendly date', () => {
+  const s = subjectFor({ date: '2026-05-25', overdue: [{}, {}], dueToday: [{}] });
+  assert.match(s, /^Daily brief: 2 overdue, 1 due \(\w{3} 25 May\)$/);
+});
+
+test('subjectFor: clear day', () => {
+  assert.match(subjectFor({ date: '2026-05-25' }), /^Daily brief: clear \(\w{3} 25 May\)$/);
+});
+
+test('subjectFor: birthdays pluralize and are included', () => {
+  assert.match(subjectFor({ date: '2026-05-25', birthdays: [{}, {}] }), /2 birthdays/);
+  assert.match(subjectFor({ date: '2026-05-25', birthdays: [{}] }), /1 birthday\b/);
 });
 
 // ─── localDate: timezone-correct "today" (not UTC) ───────────────────────────
