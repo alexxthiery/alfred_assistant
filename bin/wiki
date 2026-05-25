@@ -71,6 +71,7 @@ function cmdPersonaLint(args) {
     'docs/NANOCLAW-PATCHES.md',
     'docs/WEEKLY-DIGEST.md',
     'docs/CONVENTIONS.md',
+    'docs/PHILOSOPHY.md',
     'README.md',
     'CONTRIBUTING.md',
     'CHANGELOG.md',

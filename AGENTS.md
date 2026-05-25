@@ -14,6 +14,8 @@ Single-user, self-hosted personal-knowledge agent. The "vault" is a typed graph 
 
 The repo is *the published surface* (CLI + docs + tests). The user's actual vault lives elsewhere on their machine and is mounted into the agent container at runtime via `.alfred.yml`.
 
+**Read `docs/PHILOSOPHY.md` once.** It states the design principles (CLI-only writes, zero deps, the vault outlives the tool, small blast radius, fail-to-safe-state, drift guards, …) that the rules in this file flow from. A change that passes every test but quietly breaks one of those principles is still a regression.
+
 ## Starting cold — which runbook?
 
 Match your task to one of these and jump to the linked section:
@@ -233,6 +235,7 @@ After landing, the rule shows up automatically in `wiki audit` (which iterates A
 
 ## Pointers
 
+- **Why the codebase looks the way it does (design principles)** → `docs/PHILOSOPHY.md`
 - **What an agent should do at runtime** → `docs/PERSONA.template.md`
 - **The vault contract** → `docs/SCHEMA.md`
 - **The four host-side patches Alfred needs from nanoclaw** → `docs/NANOCLAW-PATCHES.md`
