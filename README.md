@@ -58,7 +58,7 @@ The capability surface, with a pointer to the detailed doc for each. This is the
 ```
 alfred_assistant/
   bin/
-    wiki                  # main CLI (~4k LOC, zero deps, Node stdlib only)
+    wiki                  # CLI entrypoint: argv parse + VERBS help table + cmds dispatch + tamper/auto-commit gating (zero deps, Node stdlib only)
     inbox                 # raw-content triage CLI
     wiki-test             # fixture runner (supports a `bin` field to test downstream consumers)
     email-digest          # Gmail SMTP wrapper (bash) for the weekly digest + daily brief
@@ -90,6 +90,7 @@ alfred_assistant/
       vault.js            #   forEachPage, listWikiPages, wikiPath, readPage, vault paths
     verbs/
       read.js             # read-only verbs split out of bin/wiki (list, search, recent, preview, print, sources, related, unlinked-mentions, agenda, day, context, challenge, render)
+    commands/             # verb handlers (cmdXxx) split out of bin/wiki, one file per group; migration in progress
   schemas/
     wiki-ingest.schema.json   # JSON Schema for the ingest spec
   docs/
@@ -117,7 +118,8 @@ alfred_assistant/
   tools/
     scan-pii.sh           # pre-commit PII scanner (used in development)
     pre-commit            # symlinked into .git/hooks/; runs scan-pii.sh + npm test on relevant changes
-  CLAUDE.md               # orientation for LLM agents working on this repo
+  AGENTS.md               # orientation for LLM agents working on this repo (Codex/Claude Code/etc.)
+  CLAUDE.md               # one-line @AGENTS.md import so Claude Code loads the same orientation
   CHANGELOG.md            # human-readable history per audit / refactor batch
   CONTRIBUTING.md         # how to propose changes (single-user project; mostly historical)
   install.sh              # symlinks bin/ into a target vault's .bin/

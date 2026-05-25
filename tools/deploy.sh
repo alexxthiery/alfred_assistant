@@ -217,7 +217,7 @@ for f in "${BIN_ITEMS[@]}"; do
 done
 # Subtree directories under bin/ (lib/, verbs/, etc.) — keep this list in sync
 # with new top-level dirs added under bin/. Each is copy-or-refreshed as a unit.
-BIN_DIRS=(lib verbs)
+BIN_DIRS=(lib verbs commands)
 DIR_ACTIONS=()
 for d in "${BIN_DIRS[@]}"; do
   src="$SRC/bin/$d"

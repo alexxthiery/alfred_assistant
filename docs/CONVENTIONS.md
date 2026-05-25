@@ -24,7 +24,7 @@ Cite code by symbol + file, never by line number. Line numbers rot every time th
 - Good: `` `loadSchema()` in `bin/lib/schema.js` ``.
 - Good: `` grep for `const cmds = {` in `bin/wiki` ``.
 
-The runbooks in `CLAUDE.md` follow this convention. New docs must too.
+The runbooks in `AGENTS.md` follow this convention. New docs must too.
 
 ## Error format
 
@@ -70,7 +70,8 @@ Closed sets live in `docs/SCHEMA.md` and are parsed at runtime by `bin/lib/schem
 | Vault constants + page iteration | `bin/lib/vault.js` | `VAULT_ROOT`, `WIKI_DIR`, `forEachPage`. The controlled fs boundary. |
 | CLI flag-rename / removal policy | `bin/lib/flag-aliases.js` | Pure; consulted at dispatch. |
 | Read-only verbs (`list`, `print`, `search`, ...) | `bin/verbs/read.js` | Extracted from `bin/wiki`. |
-| Everything else (dispatch, write verbs, hygiene verbs, replay, sql) | `bin/wiki` | Top-level CLI; imports from `bin/lib/*` and `bin/verbs/*`. |
+| Verb handlers (write, edit, ingest, hygiene, sql, review, ...) | `bin/commands/<group>.js` | Thin handlers exporting `cmdXxx`; migrating out of `bin/wiki`, one group at a time. |
+| Dispatch, argv parse, `VERBS` help table, tamper/auto-commit gating | `bin/wiki` | Top-level CLI; imports handlers from `bin/commands/*` + `bin/verbs/*` and helpers from `bin/lib/*`. |
 
 Iteration of every page goes through `forEachPage` (from `bin/lib/vault.js`), not raw `for (const f of listWikiPages())`. The single helper is the spot to add per-process caching later, once mutation-during-iteration sites are audited.
 
@@ -102,15 +103,15 @@ Every write-class verb (`write`, `patch`, `ingest`, `mv`, `delete`, `merge`, `li
 - Opt-out: `--no-auto-commit` flag, or `WIKI_NO_AUTO_COMMIT=1` env var.
 - Failure mode: a multi-line stderr block names the recovery steps. Verb exit code is not affected by git failure (the work is done; only the commit was missed).
 
-Tamper-check runs once at the start of every write-class verb. It refuses to proceed if `wiki/`, `raw/`, `SCHEMA.md`, or `.bin/` files have been edited outside the CLI since the last auto-commit. The race between the tamper-check and the very write that follows is documented in `CLAUDE.md § safe-edit invariants`.
+Tamper-check runs once at the start of every write-class verb. It refuses to proceed if `wiki/`, `raw/`, `SCHEMA.md`, or `.bin/` files have been edited outside the CLI since the last auto-commit. The race between the tamper-check and the very write that follows is documented in `AGENTS.md § safe-edit invariants`.
 
 ## Documentation pointers
 
 | Audience | Read |
 |---|---|
 | New contributor (human) | `README.md`, then `CONTRIBUTING.md` |
-| Agent developer | `CLAUDE.md`, then this file, then `docs/SCHEMA.md` |
-| Adding a verb | `CLAUDE.md § runbook 1` |
-| Adding a tag/type | `CLAUDE.md § runbook 2`, `docs/SCHEMA.md` |
-| Adding a fixture | `CLAUDE.md § runbook 3`, `tests/fixtures/README.md` |
+| Agent developer | `AGENTS.md`, then this file, then `docs/SCHEMA.md` |
+| Adding a verb | `AGENTS.md § runbook 1` |
+| Adding a tag/type | `AGENTS.md § runbook 2`, `docs/SCHEMA.md` |
+| Adding a fixture | `AGENTS.md § runbook 3`, `tests/fixtures/README.md` |
 | Persona/CLI drift | `wiki persona-lint`, `docs/PERSONA.template.md` |

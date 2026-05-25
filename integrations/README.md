@@ -2,6 +2,8 @@
 
 The CLI (`bin/`) and the persona are runtime-agnostic. Alfred is just "an LLM agent that drives `bin/wiki` against your vault." Any agent runtime that can run shell commands works. This directory holds the thin per-runtime config — **not** persona variants. There is exactly one persona: the canonical `AGENTS.md` in your vault.
 
+> `AGENTS.md` here always means the **vault's** persona (runtime behavior). The repo also has its own root `AGENTS.md`, which is *developer* orientation for changing this codebase — a different file in a different tree. See the note at the top of the repo `AGENTS.md`.
+
 ## The model
 
 ```

@@ -28,7 +28,7 @@ node bin/wiki preflight   # env/dep go/no-go in any test vault
 node bin/wiki persona-lint  # catches doc-vs-CLI verb drift
 
 # 6. Add a fixture if you added a verb or changed observable behavior
-# See tests/fixtures/README.md + CLAUDE.md runbook 3.
+# See tests/fixtures/README.md + AGENTS.md runbook 3.
 
 # 7. Commit (the pre-commit hook will scan staged files for PII)
 git commit -m "[<area>] short message"
