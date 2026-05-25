@@ -378,7 +378,7 @@ wiki sql "SELECT o.slug, v.title, o.body, o.since FROM observations o JOIN vault
 ```
 
 **Layer 2 — BM25 + synonyms (`wiki search`)**
-Use when the question is topical and not perfectly captured by frontmatter fields. The default mode ranks observations by BM25 relevance over `observations.body`, expanding query tokens through `<vault-root>/SYNONYMS.md` if present.
+Use when the question is topical and not perfectly captured by frontmatter fields. The default mode ranks observations by BM25 relevance over `observations.body`, expanding query tokens through `<vault-root>/SYNONYMS.md` if present. It also resolves a page's own surface forms: a separate index over each page's title + `aliases` means searching any name of a concept (including multi-word aliases) returns that page under a `matched by title/alias:` heading, even when no observation body contains the phrase. Once you have the page, use `context`/`related` to spread to neighbours.
 ```bash
 wiki search "school visit"
 wiki search "doctor" --tag health --limit 5

@@ -4,6 +4,8 @@
 
 Copy this file to `<vault-root>/SYNONYMS.md` and edit. Both `wiki search` and any verb downstream that calls `expandQuery` will pick it up automatically.
 
+**Scope (what belongs here vs. not).** This file is for *generic single-word paraphrases* where there is no concept page to anchor the term (`doctor = physician`, `teacher = instructor`). You do **not** need to add synonyms for concept pages: `wiki search` already indexes every page's title + `aliases` and resolves any of those surface forms (including multi-word aliases like "Markov chain Monte Carlo") to the page automatically, so your concept vocabulary grows with the vault, hands-off. Reach for `SYNONYMS.md` only to bridge query terms that no page's aliases cover.
+
 ## Format
 
 Line-oriented, intentionally minimal:

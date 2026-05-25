@@ -125,14 +125,32 @@ function cmdSearchBm25(query, opts) {
     try { tagClause = compileTagExpressionToSql(opts.tag, 'v.tags'); }
     catch (e) { console.error(`error: --tag: ${e.message}`); process.exit(1); }
   }
+  // Two rankings merged: `content` = BM25 over observation bodies (unchanged);
+  // `label` = BM25 over vault.label_text (title+aliases), which resolves a
+  // surface form (e.g. a multi-word alias) to its page. Scores from the two FTS
+  // indexes are not comparable, so they are kept in separate `via` groups and
+  // presented in separate sections — content ranking is byte-identical to before.
   const sql = `
-    SELECT v.slug AS slug, v.title AS title, o.body AS body,
-           fts_main_observations.match_bm25(o.obs_uid, '${sqlQ}') AS score
-    FROM observations o
-    LEFT JOIN vault v ON v.slug = o.slug
-    WHERE fts_main_observations.match_bm25(o.obs_uid, '${sqlQ}') IS NOT NULL${tagClause}
-    ORDER BY score DESC
-    LIMIT ${opts.limit};
+    WITH content AS (
+      SELECT v.slug AS slug, v.title AS title, o.body AS body,
+             fts_main_observations.match_bm25(o.obs_uid, '${sqlQ}') AS score
+      FROM observations o
+      LEFT JOIN vault v ON v.slug = o.slug
+      WHERE fts_main_observations.match_bm25(o.obs_uid, '${sqlQ}') IS NOT NULL${tagClause}
+      ORDER BY score DESC
+      LIMIT ${opts.limit}
+    ),
+    labels AS (
+      SELECT v.slug AS slug, v.title AS title, CAST(NULL AS VARCHAR) AS body,
+             fts_main_vault.match_bm25(v.slug, '${sqlQ}') AS score
+      FROM vault v
+      WHERE fts_main_vault.match_bm25(v.slug, '${sqlQ}') IS NOT NULL${tagClause}
+      ORDER BY score DESC
+      LIMIT ${opts.limit}
+    )
+    SELECT slug, title, body, score, 'content' AS via FROM content
+    UNION ALL
+    SELECT slug, title, body, score, 'label' AS via FROM labels;
   `;
   const r = spawnSync(resolveDuckdbBin(), [dbPath, '-jsonlines', '-noheader', '-c', sql], {
     encoding: 'utf-8',
@@ -149,16 +167,33 @@ function cmdSearchBm25(query, opts) {
     .map((line) => { try { return JSON.parse(line); } catch (_) { return null; } })
     .filter(Boolean);
 
-  // Tag filter is now applied in SQL above; the result set is already
-  // tag-correct. Just format and print.
+  // Tag filter is applied in SQL; both result sets are already tag-correct.
+  // UNION ALL does not preserve per-CTE ordering, so re-sort each group by score.
+  const fmtScore = (s) => (typeof s === 'number' ? s.toFixed(3) : s);
+  const contentRows = rows.filter((r) => r.via === 'content').sort((a, b) => b.score - a.score);
+  const labelRows = rows.filter((r) => r.via === 'label').sort((a, b) => b.score - a.score);
+
   let printed = 0;
-  for (const row of rows) {
+  const shown = new Set();
+  for (const row of contentRows) {
     if (opts.doneSet && opts.doneSet.has(row.slug)) continue;
-    const score = typeof row.score === 'number' ? row.score.toFixed(3) : row.score;
-    console.log(`${row.slug}\t${score}\t${row.title || ''}`);
+    console.log(`${row.slug}\t${fmtScore(row.score)}\t${row.title || ''}`);
     const excerpt = (row.body || '').replace(/\s+/g, ' ').trim().slice(0, 160);
     if (excerpt) console.log(`    …${excerpt}…`);
+    shown.add(row.slug);
     printed++;
+  }
+
+  // Pages resolved by title/alias that content search did not already surface.
+  const labelOnly = labelRows.filter(
+    (r) => !shown.has(r.slug) && !(opts.doneSet && opts.doneSet.has(r.slug)),
+  );
+  if (labelOnly.length) {
+    console.log('matched by title/alias:');
+    for (const row of labelOnly) {
+      console.log(`${row.slug}\t${fmtScore(row.score)}\t${row.title || ''}`);
+      printed++;
+    }
   }
   if (printed === 0) console.log('(no matches)');
 }

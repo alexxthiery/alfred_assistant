@@ -1,0 +1,4 @@
+{
+  "_comment": "Index-side alias resolution: searching a page's multi-word alias (Markov chain Monte Carlo) resolves to its slug (mcmc) via the vault label FTS index, even though no observation body contains that phrase. Guards the title+alias FTS index in bin/lib/duckdb.js + the label section in cmdSearchBm25.",
+  "cmd": ["search", "Markov chain Monte Carlo"]
+}

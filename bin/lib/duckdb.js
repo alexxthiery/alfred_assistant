@@ -66,7 +66,7 @@ const SNAPSHOT_SCHEMA_PATH = path.join(CACHE_DIR, '.snapshot-schema');
 // it to the value persisted on disk and forces rebuild on mismatch, so a CLI
 // upgrade automatically refreshes stale .duckdb files without manual
 // intervention.
-const SNAPSHOT_SCHEMA_VERSION = 'v3-2026-05-19-fts'; // bumped: observations.id added + BM25 FTS index on observations.body
+const SNAPSHOT_SCHEMA_VERSION = 'v4-2026-05-25-label-fts'; // bumped: + FTS index on vault.label_text (title+aliases) for alias resolution
 
 function buildVaultNdjson() {
   // mention_count = distinct inbound wikilinks per source page (graph edges),
@@ -112,6 +112,9 @@ function buildVaultNdjson() {
       updated: fm.updated || null,
       tags: arr(fm.tags),
       aliases: arr(fm.aliases),
+      // Concatenated title + aliases, FTS-indexed so `wiki search` can resolve
+      // any of a page's surface forms (incl. multi-word aliases) to its slug.
+      label_text: [String(fm.title || ''), ...arr(fm.aliases)].join(' '),
       n_facts: counts.fact,
       n_hypotheses: counts.hypothesis,
       n_opinions: counts.opinion,
@@ -194,6 +197,10 @@ function loadVaultDb() {
     "CREATE INDEX relations_slug ON relations(slug);",
     "CREATE INDEX relations_target ON relations(target);",
     "PRAGMA create_fts_index('observations', 'obs_uid', 'body', stemmer='english', stopwords='english', overwrite=1);",
+    // Second FTS index over page title+aliases (slug is the unique doc id), so
+    // `wiki search` resolves alias surface forms to the page. Separate index =
+    // content ranking stays untouched; the two are merged in the search verb.
+    "PRAGMA create_fts_index('vault', 'slug', 'label_text', stemmer='english', stopwords='english', overwrite=1);",
   ].join('\n');
   const bin = resolveDuckdbBin();
   if (!bin) {
