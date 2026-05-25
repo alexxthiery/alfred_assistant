@@ -75,6 +75,7 @@ Every verb's handler lives in exactly one module. To change a verb's behavior, o
 | `bin/commands/review.js` | review |
 | `bin/commands/git.js` | diff, revert |
 | `bin/commands/hygiene.js` | bless, audit, fix-links, groom, size, sync-ids, reindex, preflight, migrate |
+| `bin/commands/jobs.js` | jobs (`--check` validates installed launchd/cron vs the manifest in `bin/lib/jobs.js`) |
 | `bin/wiki` (inline) | persona-lint |
 
 **Token-economics rule of thumb.** `bin/wiki` is now the ~690-line dispatch/help/gating layer (down from ~5,000); even so, to change a verb you open its command module above, not `bin/wiki`. Read the handler plus a sibling verb that already does something similar.
@@ -117,7 +118,7 @@ Unit tests live in `tests/unit/*.test.js` and exercise pure helpers from `bin/li
 
 The audit has been substantially worked down. Tracker in `audit/WORKPLAN.md` (gitignored — local only): all BLOCKER, HIGH, NIT cleared; MEDIUM at 18/19 (only M13 deferred — DuckDB incremental rebuild, revisit at 1K+ pages); LOW tier (7 items) open. Concrete state that affects daily work:
 
-- Pure/shared helpers live under `bin/lib/` (31 modules: `frontmatter`, `schema`, `graph`, `ingest`, `audit`, `vault`, `autolink`, `flag-aliases`, `flag-spec`, `config`, plus the write-side helpers `page-io`, `write-validate`, `audit-runtime`, `autolink-runtime`, `ingest-body`, `resolve`, `replay-capture`); unit-tested. **The verb-handler split is complete**: every handler lives in `bin/commands/<group>.js` (14 modules) or `bin/verbs/read.js`, and `bin/wiki` is now ~690 lines (from ~5,000) holding only the `VERBS`/`cmds` tables + argv parse + flag validation + tamper/auto-commit gating. `persona-lint` is the sole inline handler. `tests/unit/dispatch-parity.test.js` fails loudly if a verb, its `cmds` entry, or its exported handler drifts out of sync.
+- Pure/shared helpers live under `bin/lib/` (`frontmatter`, `schema`, `graph`, `ingest`, `audit`, `vault`, `autolink`, `flag-aliases`, `flag-spec`, `config`, `jobs`, plus the write-side helpers `page-io`, `write-validate`, `audit-runtime`, `autolink-runtime`, `ingest-body`, `resolve`, `replay-capture`); unit-tested. **The verb-handler split is complete**: every handler lives in `bin/commands/<group>.js` or `bin/verbs/read.js`, and `bin/wiki` is now ~690 lines (from ~5,000) holding only the `VERBS`/`cmds` tables + argv parse + flag validation + tamper/auto-commit gating. `persona-lint` is the sole inline handler. `tests/unit/dispatch-parity.test.js` fails loudly if a verb, its `cmds` entry, or its exported handler drifts out of sync.
 - `wiki persona-lint` (H09) — catches verb drift in docs (scans 9 docs).
 - `wiki migrate` (H07) — frontmatter schema versioning. Every page write stamps `schema_version`.
 - `wiki preflight` (M12) — one-shot env/dependency check. Run first when dropping into an unfamiliar vault.

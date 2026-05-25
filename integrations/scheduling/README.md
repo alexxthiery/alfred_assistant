@@ -13,6 +13,8 @@ Scheduled jobs do **not** belong to any agent runtime. They run from the OS sche
 
 All but the weekly are runtime-independent and need no LLM; the weekly invokes a *headless* agent on demand, not a persistent runtime.
 
+This table is also the CLI's job manifest (`bin/lib/jobs.js`). Run `wiki jobs` to print it, and `wiki jobs --check` to validate what is actually installed: it reads your `~/Library/LaunchAgents/com.alfred.*.plist` (and `crontab -l`) and reports each job as `ok` / `custom` (installed at a non-default time) / `missing` / `drift` (installed but pointing at the wrong script — the one actionable failure, which exits nonzero). It is read-only: the OS scheduler stays the executor; `wiki jobs` never installs or edits a schedule.
+
 ## Install (macOS / launchd)
 
 1. Edit `run-daily-brief.sh` / `run-weekly-review.sh` (or set `ALFRED_VAULT` + `ENV_FILE`). `ENV_FILE` is a file exporting `EMAIL_FROM` + `GMAIL_APP_PASSWORD` — secrets stay there, never in the plist.

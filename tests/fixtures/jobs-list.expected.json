@@ -1,0 +1,11 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "daily-brief",
+    "reminder-dispatch",
+    "vault-backup-push",
+    "weekly-review",
+    "run-daily-brief.sh",
+    "jobs --check"
+  ]
+}

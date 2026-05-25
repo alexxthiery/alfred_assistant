@@ -38,6 +38,7 @@ const { cmdMeasure } = require('./commands/measure.js');
 const { cmdReplay } = require('./commands/replay.js');
 const { cmdDiff, cmdRevert } = require('./commands/git.js');
 const { cmdBless, cmdAudit, cmdFixLinks, cmdGroom, cmdSize, cmdSyncIds, cmdReindex, cmdPreflight, cmdMigrate } = require('./commands/hygiene.js');
+const { cmdJobs } = require('./commands/jobs.js');
 const { cmdLinks, cmdBacklinks, cmdRelations, cmdObservations, cmdAutolink, cmdResolve, cmdPath, cmdHubs, cmdHooks, cmdProcess, cmdTimeline, cmdStubs, cmdPlace } = require('./commands/graph.js');
 
 const { tamperCheck } = require('./lib/page-io.js');
@@ -524,6 +525,11 @@ const VERBS = [
     '  (auto-commit batches all dirty files into one commit; revert may undo more than expected)',
   ] },
 
+  { name: 'jobs', section: 'SCHEDULING', lines: [
+    '  jobs [--check] [--json]                   list scheduled jobs (daily-brief, reminders, backup, weekly);',
+    '  (--check validates installed launchd/cron vs the manifest; OS stays the executor, never edited here)',
+  ] },
+
   // GLOBAL FLAGS (not real verbs; rendered last)
   { name: '__global', section: 'GLOBAL FLAGS', lines: [
     '  --no-auto-commit                          skip the post-write git commit (or set WIKI_NO_AUTO_COMMIT=1)',
@@ -597,6 +603,8 @@ const cmds = {
   sql: cmdSql,
   // git
   diff: cmdDiff, revert: cmdRevert,
+  // scheduling (observability + config validation; OS launchd/cron is the executor)
+  jobs: cmdJobs,
 };
 
 // --help on a known verb prints per-verb help (M11); falls through to global

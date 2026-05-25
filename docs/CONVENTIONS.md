@@ -50,6 +50,8 @@ Avoid bare strings like `Page X does not exist.` for terminal errors. Prefer `er
 
 Known drift: `cmdIngest` exits 2 on audit-dirty (a successful write with non-blocking quality issues). That is not yet a distinct code; future work may reserve 4 for "succeeded with non-blocking issues". Until then, callers that need to distinguish should parse stdout for the per-page audit summary.
 
+Health-check verbs overload exit 1 as "checks failed" (not a usage error): `preflight` exits 1 if any check FAILed, and `jobs --check` exits 1 on schedule drift (an installed job pointing at the wrong target). `missing`/`custom` job states are informational and exit 0.
+
 ## Schema as contract
 
 Closed sets live in `docs/SCHEMA.md` and are parsed at runtime by `bin/lib/schema.js`. The parser is the sole source of truth for what's allowed.
