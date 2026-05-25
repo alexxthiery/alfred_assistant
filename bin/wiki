@@ -73,6 +73,7 @@ const { cmdLink, cmdMv, cmdDelete, cmdMerge } = require('./commands/edit.js');
 const { cmdPatch } = require('./commands/patch.js');
 const { formatObservation, formatRelation, buildBodyFromSpec } = require('./lib/ingest-body.js');
 const { resolveSlugCandidates } = require('./lib/resolve.js');
+const { REPLAY_DIR, CURRENT_SPEC_VERSION, REPLAY_SPEC_MIGRATIONS, replayPathFor, captureReplaySpec, captureReplayResult } = require('./lib/replay-capture.js');
 const { buildTitleMap, autolinkSlug } = require('./lib/autolink-runtime.js');
 const { readPageForWrite, regenerateIndex, appendLog, autoCommit, autoCommitDisabled, tamperCheck } = require('./lib/page-io.js');
 const { validateForWrite, validateBody, buildAllPagesSnapshot, warnHooks } = require('./lib/write-validate.js');
@@ -1675,64 +1676,6 @@ function cmdReindex() {
 // Captures real Telegram-driven ingest inputs + outputs to raw/telegram-replay/,
 // then `wiki replay <msg-id>` re-runs through the current pipeline and diffs.
 
-const REPLAY_DIR = path.join(VAULT_ROOT, 'raw', 'telegram-replay');
-
-function replayPathFor(msgId, suffix) {
-  if (!msgId) return null;
-  const safe = String(msgId).replace(/[^a-zA-Z0-9._-]/g, '_');
-  // If a file for this msgId already exists in any month subdir, return that path.
-  if (fs.existsSync(REPLAY_DIR)) {
-    for (const month of fs.readdirSync(REPLAY_DIR)) {
-      const monthDir = path.join(REPLAY_DIR, month);
-      if (!fs.statSync(monthDir).isDirectory()) continue;
-      const p = path.join(monthDir, `${safe}-${suffix}`);
-      if (fs.existsSync(p)) return p;
-    }
-  }
-  // New entry → current month.
-  const month = nowISO().slice(0, 7);
-  const dir = path.join(REPLAY_DIR, month);
-  fs.mkdirSync(dir, { recursive: true });
-  return path.join(dir, `${safe}-${suffix}`);
-}
-
-// Bump when the JSON ingest-spec shape changes in a way that older captures
-// can't replay cleanly. Add a transform from each old version to the current
-// in REPLAY_SPEC_MIGRATIONS below. Captures without a spec_version field are
-// treated as v1 (the shape at the time this versioning was introduced).
-const CURRENT_SPEC_VERSION = 1;
-const REPLAY_SPEC_MIGRATIONS = {
-  // Example for future use:
-  // 1: (spec) => { spec.someNewField = []; return spec; },  // 1 → 2
-};
-
-function captureReplaySpec(msgId, specJson) {
-  const p = replayPathFor(msgId, 'spec.json');
-  if (!p) return;
-  try {
-    // Stamp spec_version onto the captured JSON if missing. We re-serialize
-    // through JSON.parse/stringify so the field lands at the top level
-    // regardless of where the source had it (or didn't).
-    let toWrite = specJson;
-    try {
-      const obj = JSON.parse(specJson);
-      if (obj && typeof obj === 'object' && obj.spec_version == null) {
-        obj.spec_version = CURRENT_SPEC_VERSION;
-        toWrite = JSON.stringify(obj, null, 2) + '\n';
-      }
-    } catch (_) {
-      // Spec wasn't valid JSON — fall back to writing as-is and let replay handle it.
-    }
-    fs.writeFileSync(p, toWrite);
-  } catch (e) { console.error(`(replay capture failed: ${e.message.split('\n')[0]})`); }
-}
-
-function captureReplayResult(msgId, result) {
-  const p = replayPathFor(msgId, 'result.json');
-  if (!p) return;
-  try { fs.writeFileSync(p, JSON.stringify(result, null, 2) + '\n'); }
-  catch (e) { console.error(`(replay capture failed: ${e.message.split('\n')[0]})`); }
-}
 
 function parseIngestStdout(stdout) {
   const out = { created: [], modified: [], skipped: [] };
