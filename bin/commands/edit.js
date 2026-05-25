@@ -12,10 +12,12 @@
 'use strict';
 
 const fs = require('fs');
+const path = require('path');
 const { wikiPath, nowISO, forEachPage, SCHEMA_PATH } = require('../lib/vault.js');
 const { validSlug, isReserved, loadSchema: _loadSchema } = require('../lib/schema.js');
 const { parseFrontmatter, serializeFrontmatter } = require('../lib/frontmatter.js');
-const { backlinkRegex, aliasesOf } = require('../lib/graph.js');
+const { backlinkRegex, aliasesOf, parseRelations } = require('../lib/graph.js');
+const { aliasValueError } = require('../lib/maintenance.js');
 const { readPageForWrite, regenerateIndex, appendLog } = require('../lib/page-io.js');
 const { flushStaged } = require('../lib/staged-writes.js');
 
@@ -132,4 +134,159 @@ function cmdDelete(args) {
   console.log(`deleted: ${slug}`);
 }
 
-module.exports = { cmdLink, cmdMv, cmdDelete };
+function cmdMerge(args) {
+  const source = args._[0];
+  const target = args._[1];
+  if (!source || !target) {
+    console.error('Usage: wiki merge <source-slug> <target-slug> [--dry-run]');
+    console.error('  Merges source into target: rewrites all [[source]] to [[target]],');
+    console.error('  appends source body to target, adds source title/aliases as target aliases,');
+    console.error('  deletes source.');
+    process.exit(1);
+  }
+  if (source === target) { console.error('error: source and target must differ'); process.exit(1); }
+  const srcPath = wikiPath(source);
+  const tgtPath = wikiPath(target);
+  if (!fs.existsSync(srcPath)) { console.error(`error: source ${source} does not exist`); process.exit(2); }
+  if (!fs.existsSync(tgtPath)) { console.error(`error: target ${target} does not exist`); process.exit(2); }
+  if (isReserved(source) || isReserved(target)) { console.error('error: cannot merge reserved pages'); process.exit(1); }
+
+  const dry = !!args['dry-run'];
+  const dedupe = !!args.dedupe;
+  const srcParsed = readPageForWrite(srcPath);
+  const tgtParsed = readPageForWrite(tgtPath);
+
+  // 1. Compose the target's new body.
+  // Default (same-entity merge): concatenate the source body under a heading.
+  // --dedupe (V2): the source is a near-DUPLICATE idea, not extra content — keep
+  // the target body AS-IS (no `## Merged from` section, so the target stays a
+  // single atomic card and is not flagged sectioned-idea-page); just carry the
+  // source's RELATIONS over (deduped against the target's, so no edge is lost),
+  // then redirect backlinks + delete the source. Hooks are unioned into the
+  // frontmatter below.
+  let mergedBody;
+  if (dedupe) {
+    const tgtRelKeys = new Set(parseRelations(tgtParsed.body).map((r) => `${r.verb} ${r.target}`));
+    const carried = [];
+    for (const r of parseRelations(srcParsed.body)) {
+      const key = `${r.verb} ${r.target}`;
+      if (r.target === target || tgtRelKeys.has(key)) continue;
+      tgtRelKeys.add(key);
+      carried.push(`- ${r.verb} [[${r.target}]]`);
+    }
+    mergedBody = carried.length ? tgtParsed.body.trimEnd() + '\n' + carried.join('\n') + '\n' : tgtParsed.body;
+  } else {
+    mergedBody = tgtParsed.body.trimEnd() + '\n\n## Merged from ' + source + '\n\n' + srcParsed.body.trimEnd() + '\n';
+  }
+
+  // 2. Compose merged frontmatter
+  const newFm = { ...tgtParsed.fm };
+  // Merge tags (union, preserve order)
+  const tgtTags = Array.isArray(tgtParsed.fm.tags) ? tgtParsed.fm.tags : [];
+  const srcTags = Array.isArray(srcParsed.fm.tags) ? srcParsed.fm.tags : [];
+  const mergedTags = [...tgtTags];
+  for (const t of srcTags) if (!mergedTags.includes(t)) mergedTags.push(t);
+  newFm.tags = mergedTags;
+  // Merge aliases: target's existing + source slug + source title + source aliases
+  const tgtAliases = aliasesOf(tgtParsed.fm);
+  const srcAliases = aliasesOf(srcParsed.fm);
+  const newAliases = [...tgtAliases];
+  for (const a of [source, srcParsed.fm.title, ...srcAliases]) {
+    if (!a || newAliases.includes(a)) continue;
+    // V3: a comma/]-bearing value can't be an alias (HR07). The card-quality
+    // standard mandates declarative, comma-bearing titles, so erroring here
+    // blocked merging essentially any two well-formed cards. Mirror the
+    // patch --title fix: SKIP the invalid alias with a warning and continue
+    // (the merge — backlink redirect + body — still proceeds).
+    const aliasErr = aliasValueError(a);
+    if (aliasErr) { console.error(`warning: not promoting "${a}" to an alias on merge (${aliasErr}); skipped.`); continue; }
+    newAliases.push(a);
+  }
+  if (newAliases.length) newFm.aliases = newAliases;
+  // --dedupe: union the source's hooks into the target (deduped) so connective
+  // join-keys survive the collapse.
+  if (dedupe && Array.isArray(srcParsed.fm.hooks) && srcParsed.fm.hooks.length) {
+    const merged = Array.isArray(newFm.hooks) ? [...newFm.hooks] : [];
+    for (const h of srcParsed.fm.hooks) if (typeof h === 'string' && h && !merged.includes(h)) merged.push(h);
+    if (merged.length) newFm.hooks = merged;
+  }
+  newFm.updated = nowISO();
+
+  // 3. Rewrite [[source]] → [[target]] across all wiki pages, dedup if both appear.
+  // Two regexes: a non-global one for `.test()` (stateless across iterations),
+  // a global one for `.replace()` below. See audit/12 § stateful-regex.
+  const linkTestRe = backlinkRegex(source);
+  const linkReplaceRe = backlinkRegex(source, 'g');
+  const filesToRewrite = [];
+  forEachPage(({ slug: fromSlug, absPath, raw }) => {
+    if (fromSlug === source) return; // source will be deleted
+    if (linkTestRe.test(raw)) filesToRewrite.push(absPath);
+  });
+
+  // 4. Dry-run report
+  if (dry) {
+    console.log(`--- dry-run: merge ${source} -> ${target}${dedupe ? ' (--dedupe)' : ''} ---`);
+    console.log(dedupe
+      ? `  target body kept as-is (dedupe); source relations/hooks carried over deduped`
+      : `  target body grows by ${srcParsed.body.length} chars`);
+    console.log(`  new aliases on target: ${newAliases.join(', ')}`);
+    console.log(`  merged tags: [${mergedTags.join(', ')}]`);
+    console.log(`  pages with [[${source}]] to rewrite: ${filesToRewrite.length}`);
+    for (const fp of filesToRewrite) console.log(`    ${path.basename(fp)}`);
+    console.log(`  source ${source}.md to be deleted`);
+    return;
+  }
+
+  // 5–6. Stage all writes (target merge + per-page rewrites) into a Map; flush
+  // via temp+renameSync per entry only after every staged write computed
+  // without throwing. Mirrors the M08 staged-write pattern from cmdIngest:
+  // a mid-loop failure leaves the vault untouched instead of partially merged.
+  // See audit/12-coherence-robustness.md § concurrency-atomicity (HR03).
+  /** @type {Map<string,string>} absolute-path -> serialized content */
+  const staged = new Map();
+  let rewrittenLines = 0;
+
+  try {
+    // 5. Target with merged content + frontmatter.
+    staged.set(tgtPath, serializeFrontmatter(newFm, mergedBody));
+
+    // 6. Each backlink page: substitute [[source]] -> [[target]], dedup
+    //    microsyntax lines that may now collide with target's existing ones.
+    for (const fp of filesToRewrite) {
+      const cur = fs.readFileSync(fp, 'utf-8');
+      let updated = cur.replace(linkReplaceRe, `[[${target}]]`);
+      const lines = updated.split('\n');
+      const seen = new Set();
+      const dedup = [];
+      for (const l of lines) {
+        const t = l.trim();
+        // Only dedup microsyntax lines to avoid removing legitimate repeated prose
+        if (/^- (?:\[[a-z]+\]|"[^"]+"|[a-z_]+) (?:[A-Z]|\[\[)/.test(t) || /^- [a-z_]+ \[\[/.test(t)) {
+          if (seen.has(t)) continue;
+          seen.add(t);
+        }
+        dedup.push(l);
+      }
+      updated = dedup.join('\n');
+      const parsed = parseFrontmatter(updated);
+      parsed.fm.updated = nowISO();
+      staged.set(fp, serializeFrontmatter(parsed.fm, parsed.body));
+      rewrittenLines++;
+    }
+  } catch (e) {
+    console.error(`error: merge aborted before any writes: ${e.message}`);
+    process.exit(2);
+  }
+
+  flushStaged(staged, { tag: 'merge' });
+
+  // 7. Delete source (last; unlink has no rollback, but by here every staged
+  // write has succeeded).
+  fs.unlinkSync(srcPath);
+
+  regenerateIndex();
+  appendLog('merge', `${source} -> ${target} (rewrote ${rewrittenLines} files, added aliases ${newAliases.slice(tgtAliases.length).join(',')})`);
+  console.log(`merged: ${source} -> ${target} (${rewrittenLines} files rewritten, source deleted)`);
+}
+
+module.exports = { cmdLink, cmdMv, cmdDelete, cmdMerge };
