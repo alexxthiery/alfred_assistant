@@ -1,0 +1,7 @@
+{
+  "exitCode": 3,
+  "stderrContains": ["strict todo validation failed", "mislabeled-event", "Use --type event"],
+  "wikiAssertions": {
+    "todo-meeting-at-cbis-at-11-00-am": { "fileExists": false }
+  }
+}

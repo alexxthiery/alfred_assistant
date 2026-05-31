@@ -32,3 +32,4 @@ __pycache__/
 audit/
 # Local dev tool that reads the private audit/ workplan (keep local, not published)
 tools/audit-status.sh
+.claude/pipeline/

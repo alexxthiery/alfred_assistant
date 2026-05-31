@@ -1,6 +1,6 @@
 // Unit tests for daily-brief.js — pure parsers + formatter consumed by
-// bin/daily-brief. Locks the wire formats of the three upstream verbs and
-// the exact shape of the email body.
+// bin/daily-brief. Locks the wire formats of the upstream verbs and the exact
+// shape of the email body.
 
 'use strict';
 
@@ -12,6 +12,8 @@ const {
   parseTodoLine,
   parseTodoOutput,
   parseAgendaOnThisDayOutput,
+  parseAgendaWindowOutput,
+  isDeliveredPastReminder,
   formatBrief,
   subjectFor,
   localDate,
@@ -36,6 +38,15 @@ test('parseTodoLine: bare row, no due no priority', () => {
 test('parseTodoLine: skips blank lines and "(no matching todos)"', () => {
   assert.equal(parseTodoLine(''), null);
   assert.equal(parseTodoLine('(no matching todos)'), null);
+});
+
+test('parseTodoLine: preserves appended reminder metadata', () => {
+  const row = parseTodoLine(
+    'open\ttodo-ac\tAircon visit\tdue 2026-05-29\t\tremind 2026-05-28T20:00:00+08:00\treminded 2026-05-28T12:13:36Z\tnotify telegram,email',
+  );
+  assert.equal(row.remind_at, '2026-05-28T20:00:00+08:00');
+  assert.equal(row.reminded_at, '2026-05-28T12:13:36Z');
+  assert.deepEqual(row.notify, ['telegram', 'email']);
 });
 
 test('parseTodoOutput: multiple rows', () => {
@@ -70,6 +81,30 @@ test('parseAgendaOnThisDayOutput: empty day', () => {
   const { events, birthdays } = parseAgendaOnThisDayOutput('(nothing on 05-19)\n');
   assert.deepEqual(events, []);
   assert.deepEqual(birthdays, []);
+});
+
+test('parseAgendaWindowOutput: parses exact-date agenda rows', () => {
+  const stdout = [
+    '2026-05-30  [[pickleball-2026-05-30]]',
+    '2026-05-30 09:00  [[aircon-visit]]  @ home',
+    '(ignored line)',
+  ].join('\n');
+  assert.deepEqual(parseAgendaWindowOutput(stdout), [
+    { when: '2026-05-30', slug: 'pickleball-2026-05-30' },
+    { when: '2026-05-30', slug: 'aircon-visit' },
+  ]);
+});
+
+test('isDeliveredPastReminder: true only after a reminder has fired and due date passed', () => {
+  const fired = {
+    due: '2026-05-29',
+    remind_at: '2026-05-28T20:00:00+08:00',
+    reminded_at: '2026-05-28T12:13:36Z',
+  };
+  assert.equal(isDeliveredPastReminder(fired, '2026-05-30'), true);
+  assert.equal(isDeliveredPastReminder(fired, '2026-05-29'), false);
+  assert.equal(isDeliveredPastReminder({ ...fired, reminded_at: null }, '2026-05-30'), false);
+  assert.equal(isDeliveredPastReminder({ due: '2026-05-29' }, '2026-05-30'), false);
 });
 
 test('formatBrief: clean-slate body when all sections empty', () => {

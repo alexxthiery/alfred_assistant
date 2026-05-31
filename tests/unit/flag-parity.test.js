@@ -4,7 +4,7 @@
 //   Test A (no silent rejection): every flag the CODE reads (args.X /
 //     args['X']) is in the verb's known-flags set. Guarantees the strict
 //     validator in bin/wiki will never reject a flag the verb actually honors.
-//     If this fails, either document the flag in the VERBS help line or add it
+//     If this fails, either document the flag in the VERBS metadata or add it
 //     to flag-spec's extraValidFlags.
 //
 //   Test B (no false advertising): every flag ADVERTISED in a verb's one-line
@@ -24,13 +24,14 @@ const path = require('node:path');
 
 const { knownFlags, extraValidFlags, GLOBAL_FLAGS, FREEFORM_VERBS, flagsFromHelpText } =
   require('../../bin/lib/flag-spec.js');
+const { DISPATCH_VERBS } = require('../../bin/lib/verb-metadata.js');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const WIKI_SRC = fs.readFileSync(path.join(ROOT, 'bin', 'wiki'), 'utf-8');
 const READ_SRC = fs.readFileSync(path.join(ROOT, 'bin', 'verbs', 'read.js'), 'utf-8');
 const SOURCES = [WIKI_SRC, READ_SRC];
 
-// ─── parse the VERBS table → { verb: entryText } ────────────────────────────
+// ─── parse source blocks used below ─────────────────────────────────────────
 function topLevelBracketBlock(src, opener) {
   const start = src.indexOf(opener);
   assert.ok(start >= 0, `couldn't find ${JSON.stringify(opener)} in source`);
@@ -42,37 +43,6 @@ function topLevelBracketBlock(src, opener) {
     else if (src[i] === close && --depth === 0) return src.slice(start, i + 1);
   }
   throw new Error(`couldn't find end of ${opener}`);
-}
-
-function verbHelpTexts() {
-  const block = topLevelBracketBlock(WIKI_SRC, 'const VERBS = [');
-  // Slice the block at each `name: '<verb>'` so each verb's chunk holds its
-  // own lines + longHelp (and nothing from the next entry).
-  const marks = [];
-  for (const m of block.matchAll(/\bname:\s*'([a-z][a-z0-9-]*)'/g)) {
-    marks.push({ verb: m[1], idx: m.index });
-  }
-  const out = {};
-  for (let i = 0; i < marks.length; i++) {
-    const end = i + 1 < marks.length ? marks[i + 1].idx : block.length;
-    out[marks[i].verb] = block.slice(marks[i].idx, end);
-  }
-  return out;
-}
-
-// Only the one-line `lines:` help (the authoritative advertisement), excluding
-// longHelp prose, for Test B. We approximate by taking the `lines: [...]` array
-// text within the entry chunk.
-function verbAdvertisedLines(entryText) {
-  const m = entryText.match(/lines:\s*\[/);
-  if (!m) return '';
-  const from = entryText.indexOf('[', m.index);
-  let depth = 0;
-  for (let i = from; i < entryText.length; i++) {
-    if (entryText[i] === '[') depth++;
-    else if (entryText[i] === ']' && --depth === 0) return entryText.slice(from, i + 1);
-  }
-  return '';
 }
 
 // ─── parse `const cmds = {}` → { verb: cmdFnName } ──────────────────────────
@@ -143,7 +113,12 @@ function flagsReadByFn(fnName, visited = new Set()) {
   return out;
 }
 
-const HELP = verbHelpTexts();
+const HELP = Object.fromEntries(
+  DISPATCH_VERBS.map((v) => [v.name, [...(v.lines || []), v.longHelp || ''].join('\n')])
+);
+const ADVERTISED_LINES = Object.fromEntries(
+  DISPATCH_VERBS.map((v) => [v.name, (v.lines || []).join('\n')])
+);
 const FN = verbToFn();
 const VERBS = Object.keys(FN);
 
@@ -165,7 +140,7 @@ test('flag parity A: every flag the code reads is a known flag', () => {
   }
   assert.deepEqual(violations, [],
     'Code reads flags the validator would reject:\n  ' + violations.join('\n  ') +
-    '\nFix: document the flag in the VERBS `lines`, or add it to flag-spec extraValidFlags.');
+    '\nFix: document the flag in the VERBS metadata `lines`, or add it to flag-spec extraValidFlags.');
 });
 
 // Flags a verb advertises but intentionally does not read, documented here so
@@ -183,7 +158,7 @@ test('flag parity B: every flag advertised in help is implemented', () => {
     const read = flagsReadByFn(FN[verb]);
     const family = extraValidFlags(verb);
     const exempt = INTENTIONAL_UNREAD[verb] || new Set();
-    const advertised = flagsFromHelpText(verbAdvertisedLines(HELP[verb] || ''));
+    const advertised = flagsFromHelpText(ADVERTISED_LINES[verb] || '');
     for (const f of advertised) {
       if (GLOBAL_FLAGS.has(f)) continue;
       if (read.has(f) || family.has(f) || exempt.has(f)) continue;

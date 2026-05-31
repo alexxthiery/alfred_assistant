@@ -1,0 +1,4 @@
+{
+  "_comment": "The event-keyword guard has an explicit escape hatch for intentional action todos whose wording trips the broad schema keyword list.",
+  "cmd": ["todo", "add", "Book Vietnam trip", "--due", "2026-08-01", "--soft"]
+}

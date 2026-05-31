@@ -1,0 +1,9 @@
+{
+  "_comment": "A timed action reminder that has already fired should not continue nagging in the daily brief as an overdue item after its due date. The todo remains open/listable; only the morning brief hides it.",
+  "setup": [
+    ["todo", "add", "Pay rent", "--due", "2026-05-29", "--remind_at", "2026-05-28T20:00:00+08:00"],
+    ["patch", "todo-pay-rent", "--reminded_at", "2026-05-28T12:13:36Z", "--soft"]
+  ],
+  "bin": "daily-brief",
+  "cmd": ["--no-log", "--no-sync", "--date", "2026-05-30"]
+}

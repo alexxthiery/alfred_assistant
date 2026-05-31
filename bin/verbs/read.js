@@ -240,12 +240,23 @@ function cmdSearchJs(query, opts) {
 
 function cmdAgenda(args) {
   // Windows: today | week | upcoming (default) | past | all
+  // --asof YYYY-MM-DD makes the date window deterministic for scripts such as
+  // daily-brief; without it, the real local day is used.
   // Plus: --on YYYY-MM-DD (or --month-day MM-DD) — "on this calendar day, any
   // year": matches event pages whose `when` shares MM-DD and person pages whose
   // `born` shares MM-DD. Year-only `when` (e.g. "2022-12") still has YYYY-MM
   // so its MM is comparable; date-less entries are skipped.
   const win = (args._[0] || args.window || 'upcoming').toLowerCase();
-  const now = new Date();
+  let now = new Date();
+  if (args.asof !== undefined) {
+    const v = String(args.asof);
+    if (!isISODate(v)) {
+      console.error(`error: --asof must be YYYY-MM-DD (got "${v}")`);
+      process.exit(1);
+    }
+    const [y, m, d] = v.split('-').map((n) => parseInt(n, 10));
+    now = new Date(y, m - 1, d);
+  }
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const endOfToday = startOfToday + 86400 * 1000 - 1;
   const endOfWeek = startOfToday + 7 * 86400 * 1000;
@@ -277,14 +288,17 @@ function cmdAgenda(args) {
   forEachPage(({ slug: fileSlug, fm }) => {
     if (fm.type !== 'event') return;
     if (!fm.when) return;
-    const ts = Date.parse(fm.when);
+    const when = String(fm.when);
+    const hasFullDate = /^\d{4}-\d{2}-\d{2}(?:$|[T\s])/.test(when);
+    const ts = Date.parse(when);
     if (isNaN(ts)) return;
     const slug = fm.id || fileSlug;
     events.push({
       slug,
       title: fm.title || slug,
-      when: fm.when,
+      when,
       ts,
+      hasFullDate,
       duration: fm.duration || '',
       location: fm.location || '',
       attendees: Array.isArray(fm.attendees) ? fm.attendees : [],
@@ -295,10 +309,10 @@ function cmdAgenda(args) {
   let filtered;
   switch (win) {
     case 'today':
-      filtered = events.filter((e) => e.ts >= startOfToday && e.ts <= endOfToday);
+      filtered = events.filter((e) => e.hasFullDate && e.ts >= startOfToday && e.ts <= endOfToday);
       break;
     case 'week':
-      filtered = events.filter((e) => e.ts >= startOfToday && e.ts < endOfWeek);
+      filtered = events.filter((e) => e.hasFullDate && e.ts >= startOfToday && e.ts < endOfWeek);
       break;
     case 'past':
       filtered = events.filter((e) => e.ts < startOfToday);

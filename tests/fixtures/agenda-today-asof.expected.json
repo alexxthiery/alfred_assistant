@@ -1,0 +1,5 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["event-exact-asof"],
+  "stdoutNotContains": ["event-past-same-day", "event-month-only", "event-next-day"]
+}

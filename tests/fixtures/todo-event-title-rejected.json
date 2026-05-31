@@ -1,0 +1,4 @@
+{
+  "_comment": "Scheduled activities must be events, not open todos. `todo add` now runs strict validation before writing so event-shaped titles cannot become overdue noise in the daily brief.",
+  "cmd": ["todo", "add", "Meeting at CBIS at 11:00 AM", "--due", "2026-06-24"]
+}

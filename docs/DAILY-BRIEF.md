@@ -11,7 +11,7 @@ The email is plain text, formatted for a human reader: the two action sections (
 | Piece | Where | Purpose |
 |---|---|---|
 | Cron task | nanoclaw `schedule_task` (07:00 daily, your timezone) | Fires the routine |
-| Composer | `bin/daily-brief` (Node, ~120 lines) | Runs five `wiki` subprocesses (step 0 `sync-ids` + four reads), parses output, emits formatted body |
+| Composer | `bin/daily-brief` (Node, ~120 lines) | Runs six `wiki` subprocesses (step 0 `sync-ids` + five reads), parses output, emits formatted body |
 | Pure formatter | `bin/lib/daily-brief.js` | Parses verb output + formats body. No I/O. Unit-tested |
 | `bin/email-digest` | This repo (shared with weekly) | Bash wrapper around `curl --url 'smtps://smtp.gmail.com:465'` |
 | Persona routine | `docs/PERSONA.template.md` § "Daily routine" | One short paragraph: pipe `daily-brief` into `email-digest`. No composition by Alfred |
@@ -22,10 +22,11 @@ The email is plain text, formatted for a human reader: the two action sections (
 1. **Step 0 — `wiki sync-ids` (defensive, idempotent).** Mints any missing `<!--obs:XXXXXX-->` markers across the vault. ~1 second when coverage is already 100%; no-op in the steady state. Failure here is non-fatal — the brief still ships, but a warning lands on stderr. See **§ Why we mint defensively** below for the rationale.
 2. **Step 1 — `wiki todo list --overdue`.** Open todos whose `due:` is in the past.
 3. **Step 2 — `wiki todo list --due-today`.** Open todos whose `due:` matches today.
-4. **Step 3 — `wiki todo list --open`.** All open todos; those that are neither overdue nor due today become the ONGOING (background) section.
-5. **Step 4 — `wiki agenda --on $(today)`.** Events + birthdays sharing today's MM-DD (any year).
-6. **Compose** the deterministic body (see § What the email contains) and emit to stdout.
-7. **Persist** a copy to `<vault>/cache/daily-brief/YYYY-MM-DD.txt` unless `--no-log`.
+4. **Step 3 — `wiki todo list --open`.** All open todos; those that are neither overdue nor due today become the ONGOING (background) section. Fired timed reminders whose due date has passed are hidden from the brief, but remain visible in `wiki todo list --open`.
+5. **Step 4 — `wiki agenda today --asof $(today)`.** Exact-date events for today only. Historical events from prior years are not shown.
+6. **Step 5 — `wiki agenda --on $(today)`.** Birthdays sharing today's MM-DD. Its event output is intentionally ignored here because `--on` is an on-this-day/history query.
+7. **Compose** the deterministic body (see § What the email contains) and emit to stdout.
+8. **Persist** a copy to `<vault>/cache/daily-brief/YYYY-MM-DD.txt` unless `--no-log`.
 
 Steps 0 and 6 can be skipped with `--no-sync` and `--no-log` respectively (used by tests, never in production).
 
@@ -35,7 +36,7 @@ Each section is capped at 5 items (a `, showing 5` note appears when more exist)
 
 - **OVERDUE (N)** — open todos whose `due:` is in the past, oldest first; each shows relative aging. **Always rendered** (says `Nothing overdue.` when empty).
 - **DUE TODAY (N)** — open todos whose `due:` matches today. **Always rendered** (says `Nothing due.` when empty).
-- **EVENTS (N)** — `type=event` pages whose `when:` shares today's MM-DD (any year, so recurring annual events fire). Shown only when present.
+- **EVENTS (N)** — `type=event` pages whose `when:` is today's exact date. Shown only when present. Use `wiki agenda --on` manually for on-this-day historical events and anniversaries.
 - **BIRTHDAYS (N)** — pages with `born:` sharing today's MM-DD. Year-known entries show `(turns N)`. Shown only when present.
 - **ONGOING (N)** — open todos that are neither overdue nor due today (future-dated, undated, or scheduled reminders still in flight): the background work. Soonest due first, undated last; due date shown as a trailing tag. Shown only when present.
 
@@ -126,8 +127,11 @@ wiki todo add "Pay tax" --due 2026-05-21 --priority high
 ```
 
 A **timed reminder** is just a todo with a `remind_at` (and `--notify`). Its
-`due` date is what makes it appear in this brief; the `remind_at` time drives a
-separate Telegram push via the reminder dispatcher. See `docs/REMINDERS.md`.
+`due` date is what makes it appear in this brief on that date; the `remind_at`
+time drives a separate Telegram push via the reminder dispatcher. After a
+timed reminder has fired and its due date has passed, it is hidden from the
+brief so one-shot reminders do not nag forever. The todo still exists until
+you mark it done or otherwise clean it up. See `docs/REMINDERS.md`.
 
 ## Troubleshooting
 

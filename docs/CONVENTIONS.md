@@ -11,7 +11,7 @@ Project-wide conventions for `bin/wiki` and the `bin/lib/*.js` modules. Read thi
 | Loaders (fs -> structured) | `loadX` | `loadSchema`, `loadConfig`, `loadVaultDb` |
 | Extractors (text -> tokens) | `extractX` | `extractWikilinks`, `extractProvenanceMarkers` |
 | Validators (input -> errors) | `validateX` | `validateSlug`, `validateBody`, `validateIngestSpec` |
-| Closed-set constants | `UPPERCASE_SNAKE`, defined once in their owning module | `WRITE_VERBS` (in `bin/wiki`); `KNOWN_TYPES` / `ENTITY_KIND_TAGS` (in `bin/lib/schema.js`); `FLAG_ALIASES` (in `bin/lib/flag-aliases.js`) |
+| Closed-set constants | `UPPERCASE_SNAKE`, defined once in their owning module | `WRITE_VERBS` (in `bin/lib/verb-metadata.js`); `KNOWN_TYPES` / `ENTITY_KIND_TAGS` (in `bin/lib/schema.js`); `FLAG_ALIASES` (in `bin/lib/flag-aliases.js`) |
 | Verbs (CLI surface) | kebab-case for multi-word | `sync-ids`, `persona-lint`, `email-digest` |
 
 Counterexamples to avoid: don't define a closed-set inline at the call site (the audit-flagged `EXTERNAL_LINK_FIELDS` was the prior anti-pattern). Hoist once to the top of the file or to `bin/lib/<area>.js`.
@@ -71,9 +71,11 @@ Closed sets live in `docs/SCHEMA.md` and are parsed at runtime by `bin/lib/schem
 | Shared audit rule table | `bin/lib/audit.js` | One source for write-time strict subset + audit-time scored set. |
 | Vault constants + page iteration | `bin/lib/vault.js` | `VAULT_ROOT`, `WIKI_DIR`, `forEachPage`. The controlled fs boundary. |
 | CLI flag-rename / removal policy | `bin/lib/flag-aliases.js` | Pure; consulted at dispatch. |
+| Verb metadata | `bin/lib/verb-metadata.js` | Declarative help table, help-section order, and write-class/tamper-check set. No dispatch logic. |
+| Runtime persona template assembly | `bin/lib/persona-template.js`, `docs/persona/*.template.md` | Fragment source is assembled into `docs/PERSONA.template.md`; `tools/render-persona.sh` renders from fragments. |
 | Read-only verbs (`list`, `print`, `search`, ...) | `bin/verbs/read.js` | Extracted from `bin/wiki`. |
 | Verb handlers (write, edit, ingest, hygiene, sql, review, ...) | `bin/commands/<group>.js` | Thin handlers exporting `cmdXxx`. All verbs now live here; `persona-lint` is the lone inline exception in `bin/wiki`. |
-| Dispatch, argv parse, `VERBS` help table, tamper/auto-commit gating | `bin/wiki` | Top-level CLI; imports handlers from `bin/commands/*` + `bin/verbs/*` and helpers from `bin/lib/*`. |
+| Dispatch, argv parse, help rendering, tamper/auto-commit gating | `bin/wiki` | Top-level CLI; imports handlers from `bin/commands/*` + `bin/verbs/*` and helpers from `bin/lib/*`. |
 
 Iteration of every page goes through `forEachPage` (from `bin/lib/vault.js`), not raw `for (const f of listWikiPages())`. The single helper is the spot to add per-process caching later, once mutation-during-iteration sites are audited.
 
@@ -99,7 +101,7 @@ Renamed flags are wired through the `FLAG_ALIASES` table in `bin/wiki` and the p
 
 ## Auto-commit and tamper-check
 
-Every write-class verb (`write`, `patch`, `ingest`, `mv`, `delete`, `merge`, `link`, `autolink`, `groom`, `todo`) auto-commits its changes to the vault's git repo. Behavior:
+Every write-class verb (`write`, `patch`, `ingest`, `predict`, `hypothesize`, `capture`, `mv`, `delete`, `merge`, `link`, `autolink`, `groom`, `todo`) auto-commits its changes to the vault's git repo. Behavior:
 
 - Default: a single commit per CLI invocation, batching all staged changes.
 - Opt-out: `--no-auto-commit` flag, or `WIKI_NO_AUTO_COMMIT=1` env var.
@@ -116,4 +118,4 @@ Tamper-check runs once at the start of every write-class verb. It refuses to pro
 | Adding a verb | `AGENTS.md § runbook 1` |
 | Adding a tag/type | `AGENTS.md § runbook 2`, `docs/SCHEMA.md` |
 | Adding a fixture | `AGENTS.md § runbook 3`, `tests/fixtures/README.md` |
-| Persona/CLI drift | `wiki persona-lint`, `docs/PERSONA.template.md` |
+| Persona/CLI drift | `wiki persona-lint`, `docs/persona/*.template.md`, `docs/PERSONA.template.md` |

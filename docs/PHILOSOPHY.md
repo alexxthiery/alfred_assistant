@@ -46,7 +46,7 @@ Enforced by: the module layout; `tests/unit/dispatch-parity.test.js`.
 
 ## 8. Drift guards over good intentions
 
-An unexercised safeguard quietly rots; a rule that lives only in a human's head is already half-broken. So invariants become automated checks that fail loudly when violated: `persona-lint` (doc-vs-dispatch verb drift), `dispatch-parity` (handler wiring drift), `preflight` (environment and dependencies), `jobs --check` (schedule drift). If a rule matters, write the check that catches its violation.
+An unexercised safeguard quietly rots; a rule that lives only in a human's head is already half-broken. So invariants become automated checks that fail loudly when violated: `persona-lint` (doc-vs-dispatch verb drift), `dispatch-parity` and `verb-metadata` tests (handler/help/write-class drift), `persona-template` tests (fragment/aggregate drift), `preflight` (environment and dependencies), `jobs --check` (schedule drift). If a rule matters, write the check that catches its violation.
 
 Rule of thumb: *a capability you don't exercise is a claim, not a fact.*
 
@@ -58,9 +58,9 @@ Enforced by: `bin/daily-brief` (deterministic) vs the agent-driven weekly routin
 
 ## 10. Provider-agnostic
 
-`AGENTS.md` is the conventional, tool-neutral orientation any coding agent reads first; `CLAUDE.md` is a one-line import so Claude Code resolves to the same place. The runtime persona is likewise a generic template. Nothing in the core assumes a specific model or vendor.
+`AGENTS.md` is the conventional, tool-neutral orientation any coding agent reads first; `CLAUDE.md` is a one-line import so Claude Code resolves to the same place. The runtime persona is likewise a generic template, maintained as provider-neutral fragments and rendered into the vault's `AGENTS.md`. Nothing in the core assumes a specific model or vendor.
 
-Enforced by: `AGENTS.md` + the `CLAUDE.md` import stub; `docs/PERSONA.template.md`.
+Enforced by: `AGENTS.md` + the `CLAUDE.md` import stub; `docs/persona/*.template.md`; `docs/PERSONA.template.md`.
 
 ## 11. Surgical changes
 

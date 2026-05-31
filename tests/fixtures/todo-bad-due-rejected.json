@@ -1,0 +1,4 @@
+{
+  "_comment": "Alfred must resolve relative dates before calling the CLI. The CLI rejects natural-language due dates rather than storing ambiguous text.",
+  "cmd": ["todo", "add", "Call Bob", "--due", "Friday"]
+}

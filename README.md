@@ -50,7 +50,7 @@ The capability surface, with a pointer to the detailed doc for each. This is the
 - **Weekly digest:** a Monday discovery-and-quality email (promotion candidates, missing edges, audit offenders, stale markers). See [`docs/WEEKLY-DIGEST.md`](docs/WEEKLY-DIGEST.md).
 - **Gmail recall (`bin/gmail`):** a stateless IMAP read CLI (`search` / `show` / `count`) so the agent can answer "what did X send me last week?" or "what's the deadline in that email?" without mirroring your inbox to disk. See [`docs/GMAIL.md`](docs/GMAIL.md).
 - **Maintenance:** `wiki groom --mechanical` (close missing relations, run autolink, report stub debt), `wiki audit --all` (quality score), `wiki review` (discovery digest), `wiki sync-ids` (backfill observation ids).
-- **The agent (Alfred):** the optional conversational layer over the CLI. One persona (`AGENTS.md` in the vault) is shared by every runtime — nanoclaw, Claude Code, Codex — so Alfred behaves identically wherever you reach him. The published template (with the operating-loop reflexes: search-before-answer, volunteer-captures, surface-contradictions, Gmail-fallback) is [`docs/PERSONA.template.md`](docs/PERSONA.template.md); runtime wiring is in [`integrations/`](integrations/).
+- **The agent (Alfred):** the optional conversational layer over the CLI. One persona (`AGENTS.md` in the vault) is shared by every runtime — nanoclaw, Claude Code, Codex — so Alfred behaves identically wherever you reach him. The maintained template source lives in [`docs/persona/`](docs/persona/) and is assembled into [`docs/PERSONA.template.md`](docs/PERSONA.template.md); runtime wiring is in [`integrations/`](integrations/).
 - **Credential handling:** the rules for app passwords and secrets are in [`docs/SECURITY.md`](docs/SECURITY.md).
 
 ## Repository layout
@@ -58,7 +58,7 @@ The capability surface, with a pointer to the detailed doc for each. This is the
 ```
 alfred_assistant/
   bin/
-    wiki                  # CLI entrypoint: argv parse + VERBS help table + cmds dispatch + tamper/auto-commit gating (zero deps, Node stdlib only)
+    wiki                  # CLI entrypoint: argv parse + help rendering + cmds dispatch + tamper/auto-commit gating (zero deps, Node stdlib only)
     inbox                 # raw-content triage CLI
     wiki-test             # fixture runner (supports a `bin` field to test downstream consumers)
     email-digest          # Gmail SMTP wrapper (bash) for the weekly digest + daily brief
@@ -86,6 +86,8 @@ alfred_assistant/
       staged-writes.js    #   flushStaged (atomic-per-file multi-write flush; used by ingest/merge/mv)
       synonyms.js         #   parseSynonymsFile + expandQuery (BM25 synonym expansion)
       tag-filter.js       #   boolean tag-expression grammar -> SQL
+      verb-metadata.js    #   declarative help table + write-class/tamper metadata
+      persona-template.js #   runtime persona fragment assembly + rendering helpers
       vault-root.js       #   detectVaultRoot (shared by wiki + inbox)
       vault.js            #   forEachPage, listWikiPages, wikiPath, readPage, vault paths
     verbs/
@@ -96,7 +98,8 @@ alfred_assistant/
   docs/
     SCHEMA.md             # the vault contract — page types, tags, microsyntax
     CONVENTIONS.md        # error-format genres, exit codes, error-prefix vocabulary
-    PERSONA.template.md   # Alfred's instructions, with {{USER_NAME}} placeholders
+    persona/              # maintained source fragments for Alfred's runtime instructions
+    PERSONA.template.md   # assembled compatibility aggregate, with {{USER_NAME}} placeholders
     NANOCLAW-PATCHES.md   # the host-side patches you apply to your nanoclaw fork
     WEEKLY-DIGEST.md      # how the weekly cron + SMTP wrapper fit together
     DAILY-BRIEF.md        # the deterministic 07:00 morning brief

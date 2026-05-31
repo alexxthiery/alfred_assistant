@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # render-persona.sh — the single source of persona rendering.
 #
-# Strips the template's leading instruction comment and substitutes the
-# {{USER_*}} tokens, pulling identity from the vault's .alfred.yml via the
-# existing config parser (bin/lib/config.js) so there is exactly one place
-# that knows the substitution and one source of identity. deploy.sh delegates
-# its render here; do not re-implement the awk/sed elsewhere.
+# Assembles the fragment source in docs/persona/, strips the leading instruction
+# comment, and substitutes the {{USER_*}} tokens. Identity comes from the
+# vault's .alfred.yml via the existing config parser (bin/lib/config.js);
+# template assembly/substitution comes from bin/lib/persona-template.js.
+# deploy.sh delegates its render here; do not re-implement rendering elsewhere.
 #
 # IMPORTANT: this renders the GENERIC template, not the user's personalized
 # persona. It writes a COMPARISON file (AGENTS.local.md) — never the canonical
@@ -24,8 +24,8 @@ set -euo pipefail
 
 SELF=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$SELF/.." && pwd)
-TEMPLATE="$REPO/docs/PERSONA.template.md"
 CONFIG_JS="$REPO/bin/lib/config.js"
+PERSONA_TEMPLATE_JS="$REPO/bin/lib/persona-template.js"
 
 VAULT=""
 APPLY=false
@@ -42,50 +42,37 @@ done
 
 [ -n "$VAULT" ] || { echo "render-persona.sh: missing --vault" >&2; exit 2; }
 [ -f "$VAULT/.alfred.yml" ] || { echo "render-persona.sh: no .alfred.yml in $VAULT" >&2; exit 2; }
-[ -f "$TEMPLATE" ] || { echo "render-persona.sh: template missing: $TEMPLATE" >&2; exit 2; }
-
-# Identity from .alfred.yml via the canonical parser (no bash YAML parsing).
-VARS=$(node -e '
-  const { loadConfig } = require(process.argv[1]);
-  const c = loadConfig(process.argv[2]);
-  const tz = (c.weekly_review && c.weekly_review.timezone) || "";
-  const city = tz.includes("/") ? tz.split("/").pop().replace(/_/g, " ") : (tz || "Singapore");
-  process.stdout.write([
-    "USER_NAME\t"  + (c.user.name  || ""),
-    "USER_SLUG\t"  + (c.user.slug  || ""),
-    "USER_EMAIL\t" + (c.email.from || ""),
-    "USER_TZ_CITY\t" + city,
-  ].join("\n"));
-' "$CONFIG_JS" "$VAULT") || { echo "render-persona.sh: config load failed" >&2; exit 2; }
-
-USER_NAME=""; USER_SLUG=""; USER_EMAIL=""; USER_TZ_CITY="Singapore"
-while IFS=$'\t' read -r k v; do
-  case "$k" in
-    USER_NAME)    USER_NAME="$v" ;;
-    USER_SLUG)    USER_SLUG="$v" ;;
-    USER_EMAIL)   USER_EMAIL="$v" ;;
-    USER_TZ_CITY) USER_TZ_CITY="$v" ;;
-  esac
-done <<< "$VARS"
+[ -f "$CONFIG_JS" ] || { echo "render-persona.sh: config parser missing: $CONFIG_JS" >&2; exit 2; }
+[ -f "$PERSONA_TEMPLATE_JS" ] || { echo "render-persona.sh: persona template module missing: $PERSONA_TEMPLATE_JS" >&2; exit 2; }
+[ -d "$REPO/docs/persona" ] || { echo "render-persona.sh: persona fragments missing: $REPO/docs/persona" >&2; exit 2; }
 
 render() {
-  # Strip the leading <!-- ... --> instruction block (human-only template
-  # metadata), then substitute the four tokens.
-  awk 'BEGIN{skip=0} /^<!--$/{if(NR==1){skip=1;next}} skip && /^-->$/{skip=0;next} !skip{print}' \
-    "$TEMPLATE" \
-  | sed -e "s|{{USER_NAME}}|$USER_NAME|g" \
-        -e "s|{{USER_SLUG}}|$USER_SLUG|g" \
-        -e "s|{{USER_EMAIL}}|$USER_EMAIL|g" \
-        -e "s|{{USER_TZ_CITY}}|$USER_TZ_CITY|g"
+  node -e '
+    const { loadConfig } = require(process.argv[1]);
+    const { loadPersonaTemplate, renderPersonaTemplate } = require(process.argv[2]);
+    const vault = process.argv[3];
+    const repo = process.argv[4];
+    const c = loadConfig(vault);
+    const tz = (c.weekly_review && c.weekly_review.timezone) || "";
+    const city = tz.includes("/") ? tz.split("/").pop().replace(/_/g, " ") : (tz || "Singapore");
+    const user = c.user || {};
+    const email = c.email || {};
+    process.stdout.write(renderPersonaTemplate(loadPersonaTemplate(repo), {
+      USER_NAME: user.name || "",
+      USER_SLUG: user.slug || "",
+      USER_EMAIL: email.from || "",
+      USER_TZ_CITY: city,
+    }));
+  ' "$CONFIG_JS" "$PERSONA_TEMPLATE_JS" "$VAULT" "$REPO"
 }
 
 if $STDOUT; then
-  render
+  render || { echo "render-persona.sh: render failed" >&2; exit 2; }
   exit 0
 fi
 
 TMP=$(mktemp)
-render > "$TMP"
+render > "$TMP" || { rm -f "$TMP"; echo "render-persona.sh: render failed" >&2; exit 2; }
 LINES=$(wc -l < "$TMP" | tr -d ' ')
 
 DST="$VAULT/AGENTS.local.md"

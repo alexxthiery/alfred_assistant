@@ -1,0 +1,10 @@
+{
+  "_comment": "agenda today --asof is the exact-date event query used by daily-brief. It must not behave like agenda --on, which intentionally surfaces same-MM-DD historical events.",
+  "setup": [
+    ["write", "event-exact-asof", "--title", "Exact asof event", "--type", "event", "--tags", "event", "--when", "2026-05-20", "--content", "- [fact] seed ^[t:1]", "--soft"],
+    ["write", "event-past-same-day", "--title", "Past same day event", "--type", "event", "--tags", "event", "--when", "2025-05-20", "--content", "- [fact] seed ^[t:1]", "--soft"],
+    ["write", "event-month-only", "--title", "Month-only event", "--type", "event", "--tags", "event", "--when", "2026-05", "--content", "- [fact] seed ^[t:1]", "--soft"],
+    ["write", "event-next-day", "--title", "Next day event", "--type", "event", "--tags", "event", "--when", "2026-05-21", "--content", "- [fact] seed ^[t:1]", "--soft"]
+  ],
+  "cmd": ["agenda", "today", "--asof", "2026-05-20"]
+}

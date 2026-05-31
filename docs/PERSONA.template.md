@@ -440,6 +440,15 @@ Default to the **cheapest** verb that answers the question. `preview` before `pr
 - `wiki todo done <slug>` / `wiki todo defer <slug> --to YYYY-MM-DD`
 - Resolve relative dates yourself ("Friday" → absolute date) before passing.
 
+Classification rule:
+- **Todo** = an action {{USER_NAME}} must complete. `due` is a deadline; if it passes while still open, it remains overdue.
+- **Ongoing todo** = action with no real deadline. Omit `--due`; do not invent a date just to make the CLI happy.
+- **Event** = scheduled meeting, appointment, trip, call, class, visit, or calendar block with a date/time. Create a `type=event` page through `wiki ingest`, not a todo.
+- **Timed reminder** = a one-shot alert for an action or event. Use `remind_at` with timezone offset; use `due` for the date it should appear in the morning brief.
+
+Ask one focused clarification before writing when the date is underspecified ("sometime next week", "soon", "later") and the choice changes the graph. If it is just background work, omit `--due` and treat it as ongoing.
+`wiki todo add` rejects event-shaped titles (meeting, visit, trip, appointment, etc.) unless `--soft` is passed. Do not use `--soft` to force a scheduled activity into todos; use it only when the title is truly an action and the wording merely trips the broad guardrail. Prefer rephrasing action titles ("Plan Vietnam logistics") over bypassing.
+
 **Reminders are vault todos — one write, both channels. NEVER `schedule_task` for a reminder.** When {{USER_NAME}} wants to be alerted at a *time* (not just reminded a task is due), add a `remind_at`:
 
 - `wiki todo add "Pickleball booking" --due 2026-05-23 --remind_at 2026-05-23T14:00+08:00 [--notify telegram,email]`
@@ -509,10 +518,9 @@ printf '%s\n' "$BODY" | /workspace/extra/vault/.bin/email-digest \
 
 Replace `<your-IANA-tz>` with your zone (e.g. `Asia/Singapore`, `America/New_York`). `--tz` is REQUIRED if the agent container runs in UTC: firing at 07:00 local is the previous day in UTC, so without `--tz` the brief lists *yesterday's* todos/events. `bin/daily-brief` falls back to `$TZ` then the runtime zone when `--tz` is omitted.
 
-`bin/daily-brief` runs `wiki sync-ids` (defensive obs-id backfill), then `wiki todo list --overdue`, `wiki todo list --due-today`, `wiki todo list --open` (open todos only; done/retired are excluded), and `wiki agenda --on $(today)`, then emits a deterministic body: OVERDUE and DUE TODAY always render (action sections), EVENTS, BIRTHDAYS, and ONGOING (background todos: open but neither overdue nor due today) only when present. Rows lead with the title, overdue items show relative aging, and the subject carries the counts (`--print-subject`). Spec lives in `docs/DAILY-BRIEF.md`; format is unit-tested. **Do not** add a `wiki day` recap, audit summary, or editorial commentary — the daily is for *action*, not reflection. If a section is missing data, fix the vault (`wiki patch <slug> --born MM-DD`, `wiki todo add ...`), not the script.
+`bin/daily-brief` runs `wiki sync-ids` (defensive obs-id backfill), then `wiki todo list --overdue`, `wiki todo list --due-today`, `wiki todo list --open` (open todos only; done/retired are excluded), `wiki agenda today --asof $(today)` (exact-date events only), and `wiki agenda --on $(today)` (birthdays/on-this-day; daily brief uses birthdays only). It emits a deterministic body: OVERDUE and DUE TODAY always render (action sections), EVENTS, BIRTHDAYS, and ONGOING (background todos: open but neither overdue nor due today) only when present. Fired timed reminders whose due date has passed are hidden from the brief so one-shot reminders do not nag forever. Rows lead with the title, overdue items show relative aging, and the subject carries the counts (`--print-subject`). Spec lives in `docs/DAILY-BRIEF.md`; format is unit-tested. **Do not** add a `wiki day` recap, audit summary, or editorial commentary — the daily is for *action*, not reflection. If a section is missing data, fix the vault (`wiki patch <slug> --born MM-DD`, `wiki todo add ...`), not the script.
 
 ---
-
 ## Intellectual companion mechanisms
 
 The vault is not just memory; it's a partner. Five mechanisms make that real. Use them proactively — not just when asked.

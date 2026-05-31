@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# tools/deploy.sh — render PERSONA.template.md and refresh bin/ symlinks in
+# tools/deploy.sh — render the assembled persona template and refresh bin/ symlinks in
 # a target vault. Default mode is dry-run; pass --apply to actually write.
 #
 # What it does (in order):
 #   1. Seed .alfred.yml from examples/.alfred.yml.example if missing.
-#   2. Render docs/PERSONA.template.md → <target>/AGENTS.local.md (via
+#   2. Render docs/persona/*.template.md → <target>/AGENTS.local.md (via
 #      render-persona.sh) and diff it against the canonical <target>/AGENTS.md
 #      so the user can merge new template content. The canonical AGENTS.md is
 #      never overwritten.

@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "todo-book-vietnam-trip": {
+      "bodyContains": ["type: todo", "status: open", "due: 2026-08-01"]
+    }
+  }
+}

@@ -15,5 +15,6 @@
     "ONGOING (",
     "Background ongoing task",
     "(due 15 Jun)"
-  ]
+  ],
+  "stdoutNotContains": ["Ev brief past same day", "Event brief past same day"]
 }

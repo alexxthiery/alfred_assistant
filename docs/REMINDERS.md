@@ -21,8 +21,9 @@ A reminder todo carries:
 ## Two channels, both deterministic, both reading the vault
 
 - **Email** — the existing `daily-brief` (07:00) lists `wiki todo list
-  --due-today`. A reminder with `due:` = its date appears that morning. No
-  reminder-specific code.
+  --due-today`. A reminder with `due:` = its date appears that morning. After
+  it has fired and its due date has passed, the brief hides it from the
+  overdue section so one-shot reminders do not nag forever.
 - **Telegram** — `bin/reminder-dispatch` (host cron, every 15 min) finds todos
   where `remind_at <= now`, `notify` includes `telegram`, and there is no
   `reminded_at` stamp; prints one line each; then stamps `reminded_at` via

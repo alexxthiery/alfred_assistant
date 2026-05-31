@@ -1,0 +1,7 @@
+{
+  "exitCode": 3,
+  "stderrContains": ["--due must be YYYY-MM-DD"],
+  "wikiAssertions": {
+    "todo-call-bob": { "fileExists": false }
+  }
+}

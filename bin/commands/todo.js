@@ -11,6 +11,7 @@ const { serializeFrontmatter } = require('../lib/frontmatter.js');
 const { isISODate } = require('../lib/date.js');
 const { validateExtraFieldValue } = require('../lib/maintenance.js');
 const { readPageForWrite, regenerateIndex, appendLog } = require('../lib/page-io.js');
+const { validateBody } = require('../lib/write-validate.js');
 
 function cmdTodo(args) {
   const sub = args._[0];
@@ -41,7 +42,14 @@ function todoAdd(args) {
     created: nowISO(), updated: nowISO(), tags,
     status: 'open',
   };
-  if (args.due) fm.due = args.due;
+  if (args.due) {
+    const due = String(args.due);
+    if (!isISODate(due)) {
+      console.error(`error: --due must be YYYY-MM-DD (got "${args.due}")`);
+      process.exit(3);
+    }
+    fm.due = due;
+  }
   if (args.priority) fm.priority = args.priority;
   // Reminder fields: a todo with remind_at is a timed reminder. The dispatcher
   // (bin/reminder-dispatch) fires the Telegram push at remind_at; the morning
@@ -56,6 +64,18 @@ function todoAdd(args) {
       : ['telegram', 'email'];
   } else if (args.notify) {
     fm.notify = String(args.notify).split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  if (!args.soft) {
+    const bodyErrors = validateBody({ slug, title: fm.title, type: fm.type, tags: fm.tags, body: '', fm });
+    if (bodyErrors.length) {
+      console.error(`error: strict todo validation failed for ${slug}:`);
+      for (const e of bodyErrors) {
+        console.error(`  [${e.rule}] ${e.message}`);
+        if (e.fix) console.error(`    -> fix: ${e.fix}`);
+      }
+      console.error('  (If this is truly an action, use an action-shaped title or pass --soft intentionally.)');
+      process.exit(3);
+    }
   }
   fs.mkdirSync(WIKI_DIR, { recursive: true });
   fs.writeFileSync(wikiPath(slug), serializeFrontmatter(fm, '\n'));
@@ -137,6 +157,10 @@ function todoDone(args) {
 function todoDefer(args) {
   const slug = args._[0];
   if (!slug || !args.to) { console.error('Usage: wiki todo defer <slug> --to YYYY-MM-DD'); process.exit(1); }
+  if (!isISODate(String(args.to))) {
+    console.error(`error: --to must be YYYY-MM-DD (got "${args.to}")`);
+    process.exit(3);
+  }
   const p = wikiPath(slug);
   if (!fs.existsSync(p)) { console.error(`error: todo ${slug} not found`); process.exit(2); }
   const { fm, body } = readPageForWrite(p);

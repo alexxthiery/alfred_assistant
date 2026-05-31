@@ -1,10 +1,11 @@
 // daily-brief.js — pure parsers + formatter for the daily morning brief.
 //
 // No fs, no spawn — kept pure so unit tests can lock the exact wire formats
-// of the three upstream wiki verbs (`wiki todo list --overdue/--due-today`
-// and `wiki agenda --on MM-DD`) and the resulting email body.
+// of the upstream wiki verbs (`wiki todo list --overdue/--due-today`,
+// `wiki agenda today --asof YYYY-MM-DD`, and `wiki agenda --on YYYY-MM-DD`)
+// and the resulting email body.
 //
-// The orchestrator (bin/daily-brief) spawns the three subprocesses, hands
+// The orchestrator (bin/daily-brief) spawns the subprocesses, hands
 // their stdout strings to the parsers below, then calls formatBrief().
 
 'use strict';
@@ -14,23 +15,31 @@ const { isISODate } = require('./date.js');
 const MAX_PER_SECTION = 5;
 
 // Parse one line of `wiki todo list` output.
-//   "<status>\t<slug>\t<title>\t<dueStr>\t<pStr>"
+//   "<status>\t<slug>\t<title>\t<dueStr>\t<pStr>\t<remindStr>\t<remindedStr>\t<notifyStr>"
 // dueStr is either empty or "due YYYY-MM-DD"; pStr is either empty or "[priority]".
+// Reminder columns are optional and appended after the original five columns.
 // Returns null for blank / "(no matching todos)" lines.
 function parseTodoLine(line) {
   if (!line || line.startsWith('(') || /^\s*$/.test(line)) return null;
   const parts = line.split('\t');
   if (parts.length < 3) return null;
-  const [status, slug, title, dueStr = '', pStr = ''] = parts;
+  const [status, slug, title, dueStr = '', pStr = '', remindStr = '', remindedStr = '', notifyStr = ''] = parts;
   const dueMatch = dueStr.match(/^due (\d{4}-\d{2}-\d{2})$/);
   const prioMatch = pStr.match(/^\[([a-z]+)\]$/);
-  return {
+  const remindMatch = remindStr.match(/^remind (.+)$/);
+  const remindedMatch = remindedStr.match(/^reminded (.+)$/);
+  const notifyMatch = notifyStr.match(/^notify (.+)$/);
+  const row = {
     status,
     slug,
     title,
     due: dueMatch ? dueMatch[1] : null,
     priority: prioMatch ? prioMatch[1] : null,
   };
+  if (remindMatch) row.remind_at = remindMatch[1].trim();
+  if (remindedMatch) row.reminded_at = remindedMatch[1].trim();
+  if (notifyMatch) row.notify = notifyMatch[1].split(',').map((s) => s.trim()).filter(Boolean);
+  return row;
 }
 
 function parseTodoOutput(stdout) {
@@ -63,6 +72,27 @@ function parseAgendaOnThisDayOutput(stdout) {
     }
   }
   return { events, birthdays };
+}
+
+// Parse `wiki agenda today --asof YYYY-MM-DD` output:
+//   YYYY-MM-DD  [[slug]]
+//   YYYY-MM-DD HH:MM  [[slug]]
+// Returns only exact dated events from the agenda window. This is separate
+// from parseAgendaOnThisDayOutput because `agenda --on` deliberately means
+// "same MM-DD in any year" and is too broad for a daily schedule.
+function parseAgendaWindowOutput(stdout) {
+  const events = [];
+  for (const raw of (stdout || '').split('\n')) {
+    const line = raw.replace(/\s+$/, '');
+    if (!line.trim() || line.startsWith('(')) continue;
+    const m = line.match(/^\s*(\d{4}-\d{2}-\d{2})(?:[ T]\d{2}:\d{2})?(?:\s+\([^)]+\))?\s+\[\[([a-z0-9][a-z0-9-]*)\]\]/);
+    if (m) events.push({ when: m[1], slug: m[2] });
+  }
+  return events;
+}
+
+function isDeliveredPastReminder(todo, date) {
+  return !!(todo && todo.remind_at && todo.reminded_at && todo.due && todo.due < date);
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -209,4 +239,14 @@ function localDate(d, tz) {
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
-module.exports = { parseTodoLine, parseTodoOutput, parseAgendaOnThisDayOutput, formatBrief, subjectFor, localDate, MAX_PER_SECTION };
+module.exports = {
+  parseTodoLine,
+  parseTodoOutput,
+  parseAgendaOnThisDayOutput,
+  parseAgendaWindowOutput,
+  isDeliveredPastReminder,
+  formatBrief,
+  subjectFor,
+  localDate,
+  MAX_PER_SECTION,
+};

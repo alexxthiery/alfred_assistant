@@ -1,7 +1,7 @@
 // Dispatch parity — guards the wiring as verb handlers migrate out of bin/wiki
 // into bin/commands/. Three static checks (parse source + require modules, no spawn):
 //
-//   1. VERBS table names == cmds dispatch keys. A verb advertised in help with
+//   1. VERBS metadata names == cmds dispatch keys. A verb advertised in help with
 //      no handler (or a handler with no help entry) fails here.
 //   2. Every cmd* exported by a bin/commands/*.js module is referenced as a
 //      value in the cmds map. Catches "added a command module, forgot to wire
@@ -19,6 +19,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { DISPATCH_VERBS } = require('../../bin/lib/verb-metadata.js');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const WIKI_SRC = fs.readFileSync(path.join(ROOT, 'bin', 'wiki'), 'utf-8');
@@ -48,12 +49,9 @@ function cmdsMap() {
   return map;
 }
 
-// VERBS table → Set of names
+// VERBS metadata → Set of names
 function verbNames() {
-  const block = topLevelBracketBlock(WIKI_SRC, 'const VERBS = [');
-  const out = new Set();
-  for (const m of block.matchAll(/\bname:\s*'([a-z][a-z0-9-]*)'/g)) out.add(m[1]);
-  return out;
+  return new Set(DISPATCH_VERBS.map((v) => v.name));
 }
 
 // require('./commands/X.js') destructures in bin/wiki → { 'X.js': [cmdNames] }
@@ -80,8 +78,8 @@ test('dispatch parity 1: VERBS names == cmds keys', () => {
   assert.ok(cmdKeys.size >= 30, `expected >=30 verbs, parsed ${cmdKeys.size} (parser broke?)`);
   const inCmdsNotVerbs = [...cmdKeys].filter((v) => !verbs.has(v));
   const inVerbsNotCmds = [...verbs].filter((v) => !cmdKeys.has(v));
-  assert.deepEqual(inCmdsNotVerbs, [], `verbs dispatched but not in the VERBS help table: ${inCmdsNotVerbs.join(', ')}`);
-  assert.deepEqual(inVerbsNotCmds, [], `verbs in the VERBS help table but not dispatched: ${inVerbsNotCmds.join(', ')}`);
+  assert.deepEqual(inCmdsNotVerbs, [], `verbs dispatched but not in the VERBS metadata: ${inCmdsNotVerbs.join(', ')}`);
+  assert.deepEqual(inVerbsNotCmds, [], `verbs in the VERBS metadata but not dispatched: ${inVerbsNotCmds.join(', ')}`);
 });
 
 test('dispatch parity 2: every bin/commands/ exported cmd is wired into cmds', () => {

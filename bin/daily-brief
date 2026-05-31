@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 // daily-brief — emit a deterministic plain-text daily brief to stdout.
 //
-// Composes the bodies of three upstream wiki verbs (overdue todos, due-today
-// todos, today's events + birthdays via `wiki agenda --on`) into a single
-// short email body. The persona's daily routine pipes this into
+// Composes overdue todos, due-today todos, exact-date events, and birthdays
+// into a single short email body. The persona's daily routine pipes this into
 // `bin/email-digest`; nothing else.
 //
 // All composition logic lives in lib/daily-brief.js (pure). This file is
-// just orchestration: spawn the three subprocesses, parse, format, log.
+// just orchestration: spawn the wiki subprocesses, parse, format, log.
 //
 // Usage:
 //   bin/daily-brief                        emit body for today (in $TZ / system zone)
@@ -37,6 +36,8 @@ const { spawnSync } = require('node:child_process');
 const {
   parseTodoOutput,
   parseAgendaOnThisDayOutput,
+  parseAgendaWindowOutput,
+  isDeliveredPastReminder,
   formatBrief,
   subjectFor,
   localDate,
@@ -113,15 +114,19 @@ function main() {
   const overdueOut = runWiki(wikiBin, ['todo', 'list', '--overdue', '--asof', date]);
   const dueTodayOut = runWiki(wikiBin, ['todo', 'list', '--due-today', '--asof', date]);
   const openOut = runWiki(wikiBin, ['todo', 'list', '--open']);
-  const agendaOut = runWiki(wikiBin, ['agenda', '--on', date]);
+  const eventOut = runWiki(wikiBin, ['agenda', 'today', '--asof', date]);
+  const birthdayOut = runWiki(wikiBin, ['agenda', '--on', date]);
 
-  const overdue = parseTodoOutput(overdueOut);
+  const openRows = parseTodoOutput(openOut);
+  const hidden = new Set(openRows.filter((t) => isDeliveredPastReminder(t, date)).map((t) => t.slug));
+  const overdue = parseTodoOutput(overdueOut).filter((t) => !hidden.has(t.slug));
   const dueToday = parseTodoOutput(dueTodayOut);
   // Background ("ongoing") = open todos that are neither overdue nor due today:
   // future-dated, undated, or scheduled reminders still in flight.
   const imminent = new Set([...overdue, ...dueToday].map((t) => t.slug));
-  const background = parseTodoOutput(openOut).filter((t) => !imminent.has(t.slug));
-  const { events, birthdays } = parseAgendaOnThisDayOutput(agendaOut);
+  const background = openRows.filter((t) => !imminent.has(t.slug) && !hidden.has(t.slug));
+  const events = parseAgendaWindowOutput(eventOut);
+  const { birthdays } = parseAgendaOnThisDayOutput(birthdayOut);
 
   // --print-subject: emit only the one-line email subject (counts + date) and
   // exit. The host wrapper calls this alongside the body run so the email

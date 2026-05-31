@@ -52,10 +52,11 @@ function freshVault() {
 test('reminder-dispatch: event-keyword-title reminder fires once and stamps (no re-fire)', () => {
   const v = freshVault();
   try {
-    // "meeting" in the title would trip mislabeled-event on a type:todo — the
-    // exact case that blocked the stamp and caused duplicate sends.
+    // "meeting" in the title trips the todo-add event guard, so this setup
+    // uses --soft to simulate legacy/intentional edge-state that the dispatcher
+    // must still stamp instead of spamming.
     const add = run(WIKI, ['todo', 'add', 'Zoom meeting strategy', '--due', '2026-05-22',
-      '--remind_at', '2026-05-22T10:00:00+08:00'], v);
+      '--remind_at', '2026-05-22T10:00:00+08:00', '--soft'], v);
     assert.equal(add.status, 0, `todo add should succeed: ${add.stderr}`);
 
     const d1 = run(DISPATCH, ['--now', '2026-05-22T03:00:00Z', '--no-log'], v);

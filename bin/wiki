@@ -14,7 +14,7 @@
 const fs = require('fs');
 const path = require('path');
 const { SCHEMA_MIGRATIONS } = require('./lib/frontmatter.js');
-const { KNOWN_TYPES } = require('./lib/schema.js');
+const { SECTIONS, VERBS, WRITE_VERBS } = require('./lib/verb-metadata.js');
 
 const { applyFlagAliases } = require('./lib/flag-aliases.js');
 
@@ -52,7 +52,8 @@ const { tamperCheck } = require('./lib/page-io.js');
 // Files scanned (all paths relative to VAULT_ROOT; missing files skipped):
 //   - SCHEMA.md
 //   - alfred/_persona.md, alfred/_persona.local.md
-//   - docs/PERSONA.template.md, docs/SCHEMA.md, docs/NANOCLAW-PATCHES.md
+//   - docs/PERSONA.template.md, docs/persona/*.template.md
+//   - docs/SCHEMA.md, docs/NANOCLAW-PATCHES.md
 //   - README.md, CONTRIBUTING.md, CHANGELOG.md
 //
 // Exits 0 if clean, 2 if any unknown verb was found.
@@ -77,6 +78,13 @@ function cmdPersonaLint(args) {
     'CONTRIBUTING.md',
     'CHANGELOG.md',
   ];
+
+  const personaDir = path.join(VAULT_ROOT, 'docs', 'persona');
+  if (fs.existsSync(personaDir)) {
+    for (const file of fs.readdirSync(personaDir).sort()) {
+      if (file.endsWith('.md')) candidates.push(path.join('docs', 'persona', file));
+    }
+  }
 
   // Need cmds in scope — it's declared at the bottom of the file as a
   // module-level const, hoisted at parse but only initialized after function
@@ -154,388 +162,8 @@ function parseArgs(argv) {
 }
 
 // ─── help system (M10 + M11) ───────────────────────────────────────────────
-// Verb help lives in a single data table. printGlobalHelp() iterates by
-// section; printVerbHelp(name) shows the entry's longHelp if defined,
-// otherwise falls back to its synopsis lines.
-
-const SECTIONS = [
-  'READ',
-  'WRITE',
-  'GRAPH + NAVIGATION',
-  'TODO',
-  'HYGIENE',
-  'SQL',
-  'REPLAY',
-  'REVIEW',
-  'MEASUREMENTS',
-  'GIT',
-  'GLOBAL FLAGS',
-];
-
-const VERBS = [
-  // READ
-  { name: 'list',     section: 'READ', lines: ['  list [--tag t] [--type t] [--limit N] [--slugs-only] [--include-done]   list pages (alphabetical); done todos hidden unless --include-done'] },
-  { name: 'search',   section: 'READ', lines: ['  search <query> [--tag T] [--limit N] [--literal] [--regex] [--title-only] [--include-done]   BM25 + synonyms; done todos hidden unless --include-done'] },
-  { name: 'recent',   section: 'READ', lines: ['  recent [--days N] [--type T]              pages updated recently'] },
-  { name: 'preview',  section: 'READ', lines: ['  preview <slug> [--compact]                cheap peek (~10 lines, ~150 tokens); --compact trims further'] },
-  { name: 'print',    section: 'READ', lines: ['  print <slug> [--backlinks] [--links]      full page with optional context'] },
-  { name: 'context',  section: 'READ', lines: ['  context <slug> [--compact]                bundled: FM + obs + relations + 1-hop neighbors (--compact: agent-friendly, ~30% fewer lines)'] },
-  { name: 'sources',  section: 'READ', lines: ['  sources                                   list type=source pages'] },
-  { name: 'related',  section: 'READ', lines: ['  related <slug> [--unconnected]            pages by tag/link proximity; --unconnected = zk-style connection candidates (shared neighbor, not yet directly linked)'] },
-  { name: 'unlinked-mentions', section: 'READ', lines: ['  unlinked-mentions <slug> [--limit N]      pages whose body mentions <slug>\'s title/aliases but lacks a [[wikilink]] (wikilink-promotion candidates)'] },
-  { name: 'render',   section: 'READ', lines: ['  render <slug>                             execute the first ```sql fence on a type=view page'] },
-  { name: 'agenda',   section: 'READ', lines: [
-    '  agenda [today|week|upcoming|past|all]     list type=event pages by when (also accepts --window <w>)',
-    '  agenda --on YYYY-MM-DD                    on-this-day: events + birthdays sharing MM-DD (any year)',
-    '  agenda --month-day MM-DD                  same as --on but year-agnostic',
-  ] },
-  { name: 'day',      section: 'READ', lines: [
-    '  day [YYYY-MM-DD]                          list observations stamped [on <date>]; defaults to today',
-  ] },
-  { name: 'challenge', section: 'READ', lines: [
-    '  challenge <slug>                          print page + red-team prompt (forces dissent, not confirmation)',
-  ], longHelp: [
-    'wiki challenge — surface dissent against a page.',
-    '',
-    'Usage:',
-    '  wiki challenge <slug>',
-    '',
-    'Prints the full page followed by a structured red-team prompt instructing',
-    'the agent to argue *against* the page. Five sections in the prompt:',
-    '  1. Strongest objection — single weakest claim, why it might be wrong.',
-    '  2. Missing alternatives — two competing positions the page does not consider.',
-    '  3. Hidden assumptions — what does the page take for granted?',
-    '  4. Provenance gaps — claims resting on weak/outdated/motivated evidence.',
-    '  5. Falsifiable change-of-mind — concrete new evidence that would flip the view.',
-    '',
-    'The verb itself is dumb-by-design: it just prints. The intelligence lives in',
-    'the agent reading the output and producing the critique. Default LLM behavior',
-    'is confirmation reinforcement; this verb is the forcing function for dissent.',
-    '',
-    'Use proactively when {{USER_NAME}} states a strong opinion on a concept or',
-    'position-* page. Treat the prompt as authoritative — do not soften the critique.',
-  ].join('\n') },
-
-  // WRITE
-  { name: 'process',  section: 'WRITE', lines: ['  process                                   START HERE for a process session: prints the card rubric + live hook vocabulary + gold-card exemplars (loads guidance into context)'] },
-  {
-    name: 'ingest', section: 'WRITE',
-    lines: ['  ingest --stdin | --file <path> [--allow-duplicates] [--allow-duplicate-slug s] [--dry-run]   structured JSON-input compiler'],
-    longHelp: [
-      'wiki ingest — compile a JSON spec into vault writes.',
-      '',
-      'Usage:',
-      '  wiki ingest --stdin              (read spec JSON from stdin)',
-      '  wiki ingest --file <path.json>   (read spec JSON from file)',
-      '  wiki ingest ... --dry-run            (validate + simulate audit + report plan; writes NOTHING)',
-      '  wiki ingest ... --allow-duplicates   (bypass fuzzy duplicate check, whole batch)',
-      '  wiki ingest ... --allow-duplicate-slug <slug>   (bypass dup check for ONE slug)',
-      '',
-      'Spec shape (all sections optional, but at least one is required):',
-      '  {',
-      '    "source": "telegram:YYYY-MM-DD",       // required',
-      '    "msg_id": "<inbound-msg-id>",          // optional; triggers replay capture',
-      '    "stubs":    [{"slug","title","type","tags"}, ...],',
-      '    "entities": [{"slug","title","type","tags","facts","relations",...}, ...],',
-      '    "events":   [{"slug","title","when","tags":["event",...], ...}, ...],',
-      '    "patches":  [{"slug","add_facts","add_relations","supersede",...}, ...]',
-      '  }',
-      '',
-      'Validation runs upfront — no partial writes if anything fails. After writes,',
-      'bidirectional autolink runs on touched slugs, then `wiki audit` reports issues.',
-      '',
-      'Exit codes: 0 clean | 2 IO/parse error | 3 validation failed.',
-      '',
-      'ATOMIC IDEAS: a paper/note with multiple ideas becomes MULTIPLE entities,',
-      'one self-contained concept each (match the fivo-* / sixo-* / actsmc cards).',
-      'Never one fat `type: concept` entity with `##` sections — that is rejected',
-      '(sectioned-idea-page); a deliberate overview is `type: synthesis`.',
-      '',
-      'See docs/INGEST_SPEC.md for the full field reference (and docs/SCHEMA.md for types/tags/verbs).',
-    ].join('\n'),
-  },
-  {
-    name: 'write', section: 'WRITE',
-    lines: [
-      '  write <slug> --title "..." --type <type> [--tags a,b] [--hooks a,b,c]',
-      '       [--content "..." | --stdin] [--append|--replace] [--no-anchor] [--soft]',
-      '       (--replace preserves existing hooks unless --hooks is given)',
-      `       types: ${[...KNOWN_TYPES].join('|')}`,
-      '       (strict by default: rejects mislabeled-event, uncategorized bullets, invented verbs,',
-      '        missing provenance on entity/event/concept/synthesis; --soft to bypass)',
-    ],
-    longHelp: [
-      'wiki write — create or update a single page.',
-      '',
-      'Usage:',
-      '  wiki write <slug> --title "..." --type <type> [--tags a,b] [--content "..." | --stdin]',
-      '  wiki write <slug> ... --append   (add body to existing page)',
-      '  wiki write <slug> ... --replace  (overwrite existing page)',
-      '  wiki write <slug> ... --no-anchor   (suppress orphan warning)',
-      '  wiki write <slug> ... --soft        (downgrade audit issues to warnings)',
-      '  wiki write <slug> ... --force-alias (bypass non-functional-alias and alias-collision strict rules only)',
-      '  wiki write <slug> ... --allow-secret (bypass contains-secret strict rule only — use sparingly)',
-      '  wiki write <slug> ... --force-duplicate (bypass exact-duplicate-observation only — for intentional re-statement)',
-      '  wiki write <slug> ... [--born YYYY-MM-DD | MM-DD]',
-      '  wiki write <slug> ... [--visibility private|personal|public] [--sensitive true|false] [--confidence 0.0-1.0]',
-      '',
-      `Types: ${[...KNOWN_TYPES].join(' | ')}`,
-      '',
-      'Strict-mode rejections (bypass with --soft):',
-      '  - mislabeled-event: title contains an event keyword but type != event',
-      '  - event-tag: type=event without "event" in tags',
-      '  - event-when: type=event without --when',
-      '  - uncategorized-bullets: body has `- ` lines that aren\'t observations/relations',
-      '  - invented-verb: relation uses a verb not in SCHEMA.md',
-      '  - missing-provenance: substantive types (entity/event/concept/synthesis)',
-      '    with observations but no ^[...] marker',
-      '',
-      'For multi-page writes, prefer `wiki ingest` (atomic upfront validation).',
-      '',
-      'Exit codes: 0 clean | 1 bad args | 2 page-already-exists / auto-rendered | 3 validation failed.',
-    ].join('\n'),
-  },
-  {
-    name: 'patch', section: 'WRITE',
-    lines: [
-      '  patch <slug> [--observation "..."] [--relation "verb [[target]]"]',
-      '              [--remove-relation "verb [[target]]"]   drop relation + its inverse on the target',
-      '              [--supersede "<substring>"]    strike-through old obs + [until today]',
-      '              [--add-tag x] [--remove-tag x] [--alias name] [--remove-alias name]',
-      '              [--hooks a,b] [--remove-hooks a,b]   add / drop connective hooks',
-      '              [--summary "..."] [--title "..."] [--born YYYY-MM-DD | MM-DD]',
-      '              [--visibility private|personal|public] [--sensitive true|false] [--confidence 0.0-1.0]',
-    ],
-    longHelp: [
-      'wiki patch — modify an existing page in place.',
-      '',
-      'Usage:',
-      '  wiki patch <slug> --observation "[fact] <body> #tag"',
-      '  wiki patch <slug> --relation "<verb> [[<target>]]"',
-      '  wiki patch <slug> --remove-relation "<verb> [[<target>]]"   removes it here AND the registered inverse on <target> (groom-safe)',
-      '  wiki patch <slug> --supersede "<substring>"   strike old obs + add [until <today>]',
-      '  wiki patch <slug> --add-tag <tag>',
-      '  wiki patch <slug> --remove-tag <tag>',
-      '  wiki patch <slug> --alias <name>',
-      '  wiki patch <slug> --summary "..." | --title "..."',
-      '',
-      'Combine --supersede with --observation to replace an old fact with a new one.',
-      'For deeper changes (re-typing a page, multi-page consistency), use `wiki ingest`',
-      'which validates atomically before writing.',
-      '',
-      '--force-alias: bypass only the non-functional-alias and alias-collision strict',
-      'rules (other strict rules still apply). Use sparingly for legitimate',
-      'placeholder-alias workflows; prefer `wiki merge` to resolve duplicates.',
-      '',
-      'Auto-rendered pages (frontmatter `source_file:` set) refuse patching — use',
-      '`wiki measure` to append rows to the source TSV instead.',
-      '',
-      'Exit codes: 0 clean | 1 bad args | 2 page-not-found / auto-rendered.',
-    ].join('\n'),
-  },
-  { name: 'predict',     section: 'WRITE', lines: ['  predict <slug> "body" --by YYYY-MM-DD [--confidence 0.0-1.0]   add a [prediction] line; sugar over `patch --observation`'] },
-  { name: 'hypothesize', section: 'WRITE', lines: ['  hypothesize <slug> "body" [--confidence 0.0-1.0]              add a [hypothesis] line; --confidence defaults to 0.5'] },
-  { name: 'capture',     section: 'WRITE', lines: ['  capture <slug> "<utterance>" [--as CATEGORY] [--by YYYY-MM-DD]  classify utterance shape → observation category; routes via cmdPatch'] },
-  { name: 'link',   section: 'WRITE', lines: ['  link <from> <to>                          append [[to]] under ## Links'] },
-  { name: 'mv',     section: 'WRITE', lines: ['  mv <old> <new> [--no-alias]               rename + rewrite backlinks (old slug becomes an alias unless --no-alias, e.g. a typo fix)'] },
-  { name: 'delete', section: 'WRITE', lines: ['  delete <slug> [--force]                   remove (refuses if backlinks)'] },
-  { name: 'merge',  section: 'WRITE', lines: ['  merge <source> <target> [--dedupe] [--dry-run]   fold source into target (--dedupe: source is a duplicate idea — keep target body, just redirect+delete)'] },
-
-  // GRAPH + NAVIGATION
-  { name: 'links',         section: 'GRAPH + NAVIGATION', lines: ['  links <slug>                              outbound wikilinks'] },
-  { name: 'backlinks',     section: 'GRAPH + NAVIGATION', lines: ['  backlinks <slug>                          inbound wikilinks'] },
-  { name: 'relations',     section: 'GRAPH + NAVIGATION', lines: ['  relations [<slug>]                        parsed typed edges'] },
-  { name: 'observations',  section: 'GRAPH + NAVIGATION', lines: ['  observations [<slug>] [--category fact]   parsed inline facts'] },
-  {
-    name: 'autolink', section: 'GRAPH + NAVIGATION',
-    lines: [
-      '  autolink <slug>|--all [--direction in|out|both] [--dry-run]',
-      '                                            inject wikilinks for known titles',
-    ],
-  },
-  { name: 'resolve',  section: 'GRAPH + NAVIGATION', lines: ['  resolve <fuzzy>                           fuzzy name → slug (top matches)'] },
-  { name: 'path',     section: 'GRAPH + NAVIGATION', lines: ['  path <from> <to> [--max-hops N] [--directed]   shortest typed-edge path; --directed follows edge direction'] },
-  { name: 'hubs',     section: 'GRAPH + NAVIGATION', lines: ['  hubs [--top N]                            most-backlinked pages'] },
-  { name: 'place',    section: 'GRAPH + NAVIGATION', lines: ['  place "concept"                           pre-write helper: existing? similar? suggested'] },
-  { name: 'stubs',    section: 'GRAPH + NAVIGATION', lines: ['  stubs [--top N] [--show-refs]             referenced-but-missing slugs, ranked'] },
-  { name: 'hooks',    section: 'GRAPH + NAVIGATION', lines: ['  hooks [--min N]                           connective hooks in use + page counts (live vocabulary for reuse-first; --min filters to recurring)'] },
-  { name: 'timeline', section: 'GRAPH + NAVIGATION', lines: ['  timeline <slug>                           dated observations + events involving slug, sorted'] },
-
-  // TODO
-  { name: 'todo', section: 'TODO', lines: [
-    '  todo add "title" [--due] [--priority]     (timed reminder: also pass remind_at=<ISO> and notify=telegram,email)',
-    '  todo list [--open|--due-today|--overdue|--done|--reminders] [--asof YYYY-MM-DD]',
-    '  todo done <slug>                          todo defer <slug> --to YYYY-MM-DD',
-  ] },
-
-  // HYGIENE
-  {
-    name: 'lint', section: 'HYGIENE',
-    lines: [
-      '  lint [--only dead,ids,orphans,tags,types,aggregator,agg-suspect,narrative,density,stale,unsourced,tiers,loneliness]',
-      '       (per-page rules — provenance, type-tag, hypotheses, mislabeled-event — now live in `wiki audit`)',
-      '       [--threshold N]                      (loneliness threshold; default 2)',
-    ],
-    longHelp: [
-      'wiki lint — cross-vault structural checks (vault-wide patterns).',
-      '',
-      'Usage:',
-      '  wiki lint                                 run all rules',
-      '  wiki lint --only <rule1>,<rule2>          run a subset',
-      '  wiki lint --threshold N                   (for loneliness rule)',
-      '',
-      'Available rules:',
-      '  dead          — orphan files with no inbound/outbound references',
-      '  ids           — frontmatter id != filename basename',
-      '  orphans       — pages disconnected from the main component',
-      '  tags          — unknown tags (not in SCHEMA.md taxonomy)',
-      '  types         — unknown types (not in KNOWN_TYPES)',
-      '  aggregator    — pages matching forbidden-aggregator-slug shape',
-      '  agg-suspect   — pages with many tags + many obs (aggregator pattern)',
-      '  narrative     — pages with prose paragraphs instead of structured bullets',
-      '  density       — non-leaf pages with < 2 wikilinks',
-      '  stale         — `updated` older than tag-driven thresholds',
-      '  unsourced     — sources missing raw_path / sha256 / ingested_at',
-      '  tiers         — heavily-referenced slugs without a page (promotion candidates)',
-      '  loneliness    — pages with < N total connections',
-      '',
-      'For per-page audit rules (mislabeled-event, missing-provenance, etc.) use `wiki audit`.',
-      '',
-      'Exit code: 0 if clean, 2 if any rule fires.',
-    ].join('\n'),
-  },
-  { name: 'sync-ids', section: 'HYGIENE', lines: ['  sync-ids [--dry-run]                      align frontmatter id with filename AND mint <!--obs:XXXXXX--> markers'] },
-  { name: 'size',     section: 'HYGIENE', lines: ['  size [--threshold N]                      list pages above N body lines'] },
-  { name: 'reindex',  section: 'HYGIENE', lines: ['  reindex                                   regenerate index.md'] },
-  { name: 'bless',    section: 'HYGIENE', lines: ['  bless                                     accept + commit out-of-band vault changes (clears a tamper-check block)'] },
-  { name: 'groom',    section: 'HYGIENE', lines: ['  groom --mechanical [--dry-run]            auto-fix symmetric relations, bidirectional autolink, report stubs'] },
-  { name: 'fix-links', section: 'HYGIENE', lines: ['  fix-links [--apply]                       repair nested-wikilink corruption [[A[[B]]C]] -> [[ABC]] (only when target resolves)'] },
-  {
-    name: 'audit', section: 'HYGIENE',
-    lines: ['  audit <slug> | --all [--rule <name>] [--json]   mechanical quality score per page or vault-wide'],
-    longHelp: [
-      'wiki audit — per-page quality + vault-wide cross-page rules.',
-      '',
-      'Usage:',
-      '  wiki audit <slug>       audit a single page',
-      '  wiki audit --all        audit every page in the vault',
-      '',
-      'Per-page rules (severity high/medium/low, weighted into a score):',
-      '  mislabeled-event       (high)  — title has event keyword, type != event',
-      '  mislabeled-entity      (high)  — type=note with entity-kind tag',
-      '  missing-provenance     (high)  — substantive type, obs but no ^[...] marker',
-      '  invented-verb          (high)  — relation verb not in SCHEMA.md',
-      '  event-when             (high)  — type=event without `when` frontmatter',
-      '  event-tag              (medium)— type=event without "event" in tags',
-      '  uncategorized-bullets  (medium)— `- ` lines not observations or relations',
-      '  empty-page             (medium)— substantive type with no obs/relations',
-      '  multi-fact-observation (low)   — obs packs >=4 clauses (split; a long single idea is fine)',
-      '',
-      'Cross-page rules (--all only):',
-      '  hot-text-mention       — capitalized 2+ word phrase in 2+ pages, no stub',
-      '  lonely                 — pages with < 2 total inbound + outbound connections',
-      '',
-      'Rules are defined in bin/lib/audit.js as AUDIT_RULES; same table also feeds',
-      '`wiki write`\'s strict-mode rejection set (filtered to strict:true).',
-      '',
-      'Exit codes: 0 clean | 2 issues found.',
-    ].join('\n'),
-  },
-  { name: 'persona-lint', section: 'HYGIENE', lines: ['  persona-lint                              grep persona/schema/docs for unknown `wiki <verb>` references'] },
-  { name: 'migrate',      section: 'HYGIENE', lines: ['  migrate [<slug>] [--dry-run]              apply pending SCHEMA_MIGRATIONS; stamps schema_version on unversioned pages'] },
-  { name: 'preflight',    section: 'HYGIENE', lines: ['  preflight                                 smoke-test node/git/SCHEMA.md/duckdb/curl/SMTP/audit; one-command go/no-go'] },
-
-  // SQL
-  { name: 'sql', section: 'SQL', lines: [
-    '  sql "<query>" [--tsv|--csv|--json]        run SQL against the three tables (DuckDB); machine-parseable output modes',
-    '  sql --schema                              DESCRIBE all three tables + column gloss',
-    '  sql --explore                             open the DuckDB REPL on the DB',
-    '  (DB at .cache/vault.duckdb; rebuilt lazily when any wiki/*.md is newer)',
-  ], longHelp: [
-    'wiki sql — ad-hoc DuckDB queries over the vault.',
-    '',
-    'Three tables, joinable by slug:',
-    '  vault         one row per page. Columns include slug, title, type, tags,',
-    '                aliases, n_facts/n_hypotheses/n_predictions/n_questions/...',
-    '                (denormalized counts, derivable from observations),',
-    '                frontmatter passthroughs (born, visibility, sensitive,',
-    '                confidence, decided_on, status, due, when_), mention_count.',
-    '                NOTE: `when_` is the renamed `when` frontmatter (SQL reserves',
-    '                `when`); use `when_` in queries.',
-    '  observations  one row per body bullet ([fact]/[hypothesis]/[prediction]/etc).',
-    '                Columns: slug, category, body (cleaned, no date/prov tags),',
-    '                superseded, since, until, as_of, on_date, by_date, confidence,',
-    '                provenance (varchar[]).',
-    '  relations     one row per "- verb [[target]]" relation.',
-    '                Columns: slug, verb, target.',
-    '',
-    'Canonical join keys:',
-    '  observations.slug = vault.slug',
-    '  relations.slug    = vault.slug   (and relations.target = vault.slug)',
-    '',
-    'Common patterns:',
-    '  # Predictions past resolution date that haven\'t been superseded',
-    '  SELECT slug, body, by_date, confidence FROM observations',
-    '   WHERE category=\'prediction\' AND by_date < current_date AND NOT superseded;',
-    '',
-    '  # People not touched in 6 months (latent reconnection)',
-    '  SELECT slug FROM vault',
-    '   WHERE type=\'entity\' AND list_contains(tags, \'person\')',
-    '     AND updated < current_date - INTERVAL 180 DAY;',
-    '',
-    '  # Relation histogram (which verbs dominate?)',
-    '  SELECT verb, COUNT(*) n FROM relations GROUP BY verb ORDER BY n DESC;',
-    '',
-    'Prefer this verb over asking for a new verb whenever a query expresses the',
-    'need. New verbs are reserved for actions, not for read-only filters.',
-  ].join('\n') },
-
-  // REPLAY
-  { name: 'replay', section: 'REPLAY', lines: [
-    '  replay <msg-id>                           re-run captured spec, diff vs captured result',
-    '  replay --all                              walk all captures, summarize stable/drift',
-    '  (captures live at raw/telegram-replay/<YYYY-MM>/ — auto-written when spec.msg_id is set)',
-  ] },
-
-  // REVIEW
-  { name: 'review', section: 'REVIEW', lines: [
-    '  review                                    Markdown digest of:',
-    '                                            (1) independent mentions (promotion candidates)',
-    '                                            (2) co-occurring slugs with no typed relation',
-    '                                            (3) concept anchors missing (heavily-used tag, no canonical page)',
-    '                                            (4) stale `[as-of]` / past-due `[until]` markers',
-    '                                            (5) decisions without rationale',
-    '                                            (6) orphan sources (ingested, never referenced)',
-    '                                            (7) stale open todos (>60 days)',
-  ] },
-
-  // MEASUREMENTS
-  { name: 'measure', section: 'MEASUREMENTS', lines: [
-    '  measure <series> --date YYYY-MM-DD --field=value [...]',
-    '                                           append a row to raw/measurements/<series>.tsv',
-    '                                           and re-render the matching wiki page.',
-    '                                           auto-derives bmi from height_m+weight_kg, age from --birth.',
-    '  (pages with frontmatter `source_file:` cannot be patched/written — use this verb.)',
-  ] },
-
-  // GIT
-  { name: 'diff',   section: 'GIT', lines: ['  diff [--since "spec"]                     show recent commits (default: 24h)'] },
-  { name: 'revert', section: 'GIT', lines: [
-    '  revert [<commit>|HEAD]                    revert a commit (refuses if working tree dirty)',
-    '  (auto-commit batches all dirty files into one commit; revert may undo more than expected)',
-  ] },
-
-  { name: 'jobs', section: 'SCHEDULING', lines: [
-    '  jobs [--check] [--json]                   list scheduled jobs (daily-brief, reminders, backup, weekly);',
-    '  (--check validates installed launchd/cron vs the manifest; OS stays the executor, never edited here)',
-  ] },
-
-  // GLOBAL FLAGS (not real verbs; rendered last)
-  { name: '__global', section: 'GLOBAL FLAGS', lines: [
-    '  --no-auto-commit                          skip the post-write git commit (or set WIKI_NO_AUTO_COMMIT=1)',
-    '  <verb> --help                             show detailed help for a verb (where available)',
-  ] },
-];
+// Command help metadata lives in bin/lib/verb-metadata.js so docs, tests,
+// validation, and dispatch wiring can share one command surface.
 
 function printGlobalHelp() {
   console.error('wiki <verb> [args]');
@@ -682,7 +310,6 @@ if (args['no-auto-commit']) {
 
 // Tamper check: run BEFORE write-class verbs so users see bypass writes
 // before they're folded into the next auto-commit.
-const WRITE_VERBS = new Set(['write', 'patch', 'ingest', 'mv', 'delete', 'merge', 'link', 'autolink', 'groom', 'todo']);
 // `todo` is write-class, but its `list` subcommand is read-only — tamper-
 // checking it would block a pure read on a dirty vault (e.g. the reminder
 // dispatcher's `todo list --reminders` failing → reminders silently don't

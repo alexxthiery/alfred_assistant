@@ -5,6 +5,7 @@
     ["todo", "add", "Due today task one", "--due", "2026-05-20", "--priority", "high"],
     ["todo", "add", "Background ongoing task", "--due", "2026-06-15"],
     ["write", "ev-brief-today", "--title", "Event brief today", "--type", "event", "--tags", "event", "--when", "2026-05-20", "--content", "- [fact] seed ^[t:1]", "--soft"],
+    ["write", "ev-brief-past-same-day", "--title", "Event brief past same day", "--type", "event", "--tags", "event", "--when", "2025-05-20", "--content", "- [fact] seed ^[t:1]", "--soft"],
     ["write", "bday-brief-person", "--title", "Bday brief person", "--type", "entity", "--tags", "person", "--content", "- [fact] seed ^[t:1]", "--soft"],
     ["patch", "bday-brief-person", "--born", "2026-05-20"]
   ],
