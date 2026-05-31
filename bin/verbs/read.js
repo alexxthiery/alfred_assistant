@@ -152,7 +152,7 @@ function cmdSearchBm25(query, opts) {
     UNION ALL
     SELECT slug, title, body, score, 'label' AS via FROM labels;
   `;
-  const r = spawnSync(resolveDuckdbBin(), [dbPath, '-jsonlines', '-noheader', '-c', sql], {
+  const r = spawnSync(resolveDuckdbBin(), ['-readonly', dbPath, '-jsonlines', '-noheader', '-c', sql], {
     encoding: 'utf-8',
   });
   if (r.status !== 0) {

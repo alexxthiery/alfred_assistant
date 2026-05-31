@@ -18,7 +18,7 @@ function cmdSql(args) {
     console.log("Three tables. Columns:");
     for (const t of ['vault', 'observations', 'relations']) {
       console.log(`\n--- ${t} ---`);
-      spawnSync(resolveDuckdbBin(), [dbPath, '-c', `DESCRIBE ${t};`], { stdio: 'inherit' });
+      spawnSync(resolveDuckdbBin(), ['-readonly', dbPath, '-c', `DESCRIBE ${t};`], { stdio: 'inherit' });
     }
     console.log('\nNotes:');
     console.log('  - `vault`: one row per page (slug, type, tags, frontmatter fields, n_* counts).');
@@ -44,7 +44,7 @@ function cmdSql(args) {
   }
   if (args.explore) {
     console.error(`(opening DuckDB REPL on ${dbPath}; three tables: vault, observations, relations)`);
-    spawnSync(resolveDuckdbBin(), [dbPath], { stdio: 'inherit' });
+    spawnSync(resolveDuckdbBin(), ['-readonly', dbPath], { stdio: 'inherit' });
     return;
   }
   const query = args._.length ? args._.join(' ') : '';
@@ -66,7 +66,7 @@ function cmdSql(args) {
   if (args.json) modeArgs = ['-json'];
   else if (args.csv) modeArgs = ['-csv'];
   else if (args.tsv) modeArgs = ['-c', '.mode tabs'];
-  const res = spawnSync(resolveDuckdbBin(), [dbPath, ...modeArgs, '-c', query], { stdio: 'inherit' });
+  const res = spawnSync(resolveDuckdbBin(), ['-readonly', dbPath, ...modeArgs, '-c', query], { stdio: 'inherit' });
   process.exit(res.status || 0);
 }
 

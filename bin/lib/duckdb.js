@@ -60,6 +60,9 @@ const DB_NDJSON_PATH = path.join(CACHE_DIR, 'vault.ndjson');
 const OBS_NDJSON_PATH = path.join(CACHE_DIR, 'observations.ndjson');
 const REL_NDJSON_PATH = path.join(CACHE_DIR, 'relations.ndjson');
 const SNAPSHOT_SCHEMA_PATH = path.join(CACHE_DIR, '.snapshot-schema');
+const REBUILD_LOCK_PATH = path.join(CACHE_DIR, 'vault.duckdb.lock');
+const REBUILD_LOCK_TIMEOUT_MS = Number(process.env.WIKI_DUCKDB_LOCK_TIMEOUT_MS || 10_000);
+const REBUILD_LOCK_STALE_MS = Number(process.env.WIKI_DUCKDB_LOCK_STALE_MS || 60_000);
 
 // Bump SNAPSHOT_SCHEMA_VERSION whenever the column shape of any NDJSON file
 // changes (new column, removed column, renamed column). loadVaultDb compares
@@ -67,6 +70,48 @@ const SNAPSHOT_SCHEMA_PATH = path.join(CACHE_DIR, '.snapshot-schema');
 // upgrade automatically refreshes stale .duckdb files without manual
 // intervention.
 const SNAPSHOT_SCHEMA_VERSION = 'v4-2026-05-25-label-fts'; // bumped: + FTS index on vault.label_text (title+aliases) for alias resolution
+
+function sleepMs(ms) {
+  const sab = new SharedArrayBuffer(4);
+  const view = new Int32Array(sab);
+  Atomics.wait(view, 0, 0, ms);
+}
+
+function uniqueTmpPath(finalPath) {
+  const suffix = `${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}`;
+  return `${finalPath}.${suffix}.tmp`;
+}
+
+function acquireRebuildLock() {
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  const start = Date.now();
+  while (true) {
+    try {
+      const fd = fs.openSync(REBUILD_LOCK_PATH, 'wx');
+      fs.writeFileSync(fd, `${process.pid}\n${new Date().toISOString()}\n`);
+      return () => {
+        try { fs.closeSync(fd); } catch (_) { /* ignore */ }
+        try { fs.unlinkSync(REBUILD_LOCK_PATH); } catch (_) { /* ignore */ }
+      };
+    } catch (e) {
+      if (!e || e.code !== 'EEXIST') throw e;
+      try {
+        const age = Date.now() - fs.statSync(REBUILD_LOCK_PATH).mtimeMs;
+        if (age > REBUILD_LOCK_STALE_MS) {
+          try { fs.unlinkSync(REBUILD_LOCK_PATH); } catch (_) { /* another process won */ }
+          continue;
+        }
+      } catch (_) {
+        continue;
+      }
+      if (Date.now() - start > REBUILD_LOCK_TIMEOUT_MS) {
+        console.error(`error: timed out waiting for DuckDB cache rebuild lock: ${REBUILD_LOCK_PATH}`);
+        process.exit(2);
+      }
+      sleepMs(50);
+    }
+  }
+}
 
 function buildVaultNdjson() {
   // mention_count = distinct inbound wikilinks per source page (graph edges),
@@ -143,7 +188,7 @@ function buildVaultNdjson() {
   // Prevents a concurrent reader from seeing an internally-inconsistent
   // snapshot (e.g. fresh pages but stale observations).
   const atomicWrite = (finalPath, content) => {
-    const tmp = `${finalPath}.tmp`;
+    const tmp = uniqueTmpPath(finalPath);
     fs.writeFileSync(tmp, content);
     fs.renameSync(tmp, finalPath);
   };
@@ -153,70 +198,91 @@ function buildVaultNdjson() {
   return { pages: pages.length, observations: obsRows.length, relations: relRows.length };
 }
 
+function needsVaultDbRebuild() {
+  if (!fs.existsSync(DB_PATH)) return true;
+  let dbMtime = 0;
+  try {
+    dbMtime = fs.statSync(DB_PATH).mtimeMs;
+  } catch (_) {
+    return true;
+  }
+
+  // Schema-version sidecar: if the recorded version doesn't match the
+  // current SNAPSHOT_SCHEMA_VERSION, the .duckdb has the old column shape
+  // and a query against a new column would error. Force rebuild.
+  const recorded = fs.existsSync(SNAPSHOT_SCHEMA_PATH)
+    ? fs.readFileSync(SNAPSHOT_SCHEMA_PATH, 'utf-8').trim()
+    : '';
+  if (recorded !== SNAPSHOT_SCHEMA_VERSION) return true;
+
+  for (const f of listWikiPages()) {
+    if (fs.statSync(path.join(WIKI_DIR, f)).mtimeMs > dbMtime) return true;
+  }
+  return false;
+}
+
 function loadVaultDb() {
   fs.mkdirSync(CACHE_DIR, { recursive: true });
-  let needRebuild = !fs.existsSync(DB_PATH);
-  if (!needRebuild) {
-    // Schema-version sidecar: if the recorded version doesn't match the
-    // current SNAPSHOT_SCHEMA_VERSION, the .duckdb has the old column shape
-    // and a query against a new column would error. Force rebuild.
-    const recorded = fs.existsSync(SNAPSHOT_SCHEMA_PATH)
-      ? fs.readFileSync(SNAPSHOT_SCHEMA_PATH, 'utf-8').trim()
-      : '';
-    if (recorded !== SNAPSHOT_SCHEMA_VERSION) needRebuild = true;
-  }
-  if (!needRebuild) {
-    const dbMtime = fs.statSync(DB_PATH).mtimeMs;
-    for (const f of listWikiPages()) {
-      if (fs.statSync(path.join(WIKI_DIR, f)).mtimeMs > dbMtime) { needRebuild = true; break; }
-    }
-  }
-  if (!needRebuild) return DB_PATH;
+  if (!needsVaultDbRebuild()) return DB_PATH;
 
-  const counts = buildVaultNdjson();
-  if (fs.existsSync(DB_PATH)) fs.unlinkSync(DB_PATH);
-  // SQL is piped via stdin (one statement per line) rather than passed as a
-  // single argv blob: DuckDB's argv-form batch-parses the whole string before
-  // execution, so a later PRAGMA referencing a CREATE-TABLE-in-the-same-batch
-  // would fail catalog lookup. stdin processes each line as its own batch.
-  const esc = (p) => p.replace(/'/g, "''");
-  const sql = [
-    "INSTALL fts; LOAD fts;",
-    `CREATE TABLE vault AS SELECT * FROM read_json_auto('${esc(DB_NDJSON_PATH)}', format='newline_delimited');`,
-    // Pin the nullable date columns to VARCHAR. read_json_auto infers a column
-    // as JSON (not VARCHAR) when every row is null — e.g. a vault with no dated
-    // observations — which then breaks `WHERE on_date = '...'` comparisons. The
-    // `* REPLACE (TRY_CAST(...))` forces VARCHAR regardless of data, so query
-    // sites never need a per-call CAST. TRY_CAST yields NULL (not the string
-    // 'null') for JSON-null, preserving correct filtering on all-null vaults.
-    `CREATE TABLE observations AS SELECT row_number() OVER () AS obs_uid, * REPLACE (TRY_CAST(since AS VARCHAR) AS since, TRY_CAST(until AS VARCHAR) AS until, TRY_CAST(as_of AS VARCHAR) AS as_of, TRY_CAST(on_date AS VARCHAR) AS on_date, TRY_CAST(by_date AS VARCHAR) AS by_date) FROM read_json_auto('${esc(OBS_NDJSON_PATH)}', format='newline_delimited');`,
-    `CREATE TABLE relations AS SELECT * FROM read_json_auto('${esc(REL_NDJSON_PATH)}', format='newline_delimited');`,
-    "CREATE INDEX vault_slug ON vault(slug);",
-    "CREATE INDEX observations_slug ON observations(slug);",
-    "CREATE INDEX observations_id ON observations(id);",
-    "CREATE INDEX relations_slug ON relations(slug);",
-    "CREATE INDEX relations_target ON relations(target);",
-    "PRAGMA create_fts_index('observations', 'obs_uid', 'body', stemmer='english', stopwords='english', overwrite=1);",
-    // Second FTS index over page title+aliases (slug is the unique doc id), so
-    // `wiki search` resolves alias surface forms to the page. Separate index =
-    // content ranking stays untouched; the two are merged in the search verb.
-    "PRAGMA create_fts_index('vault', 'slug', 'label_text', stemmer='english', stopwords='english', overwrite=1);",
-  ].join('\n');
-  const bin = resolveDuckdbBin();
-  if (!bin) {
-    console.error('error: duckdb binary not found. Tried $DUCKDB_BIN, `duckdb` on PATH, and /opt/homebrew/bin, /usr/local/bin, /opt/local/bin, /usr/bin.');
-    console.error('  If installed: set DUCKDB_BIN=/full/path/to/duckdb. Otherwise: `brew install duckdb` (host) or apt-install (container).');
-    process.exit(2);
+  const releaseLock = acquireRebuildLock();
+  let tmpDb = null;
+  try {
+    // Another process may have rebuilt the cache while we were waiting.
+    if (!needsVaultDbRebuild()) return DB_PATH;
+
+    const counts = buildVaultNdjson();
+    tmpDb = uniqueTmpPath(DB_PATH);
+    // SQL is piped via stdin (one statement per line) rather than passed as a
+    // single argv blob: DuckDB's argv-form batch-parses the whole string before
+    // execution, so a later PRAGMA referencing a CREATE-TABLE-in-the-same-batch
+    // would fail catalog lookup. stdin processes each line as its own batch.
+    const esc = (p) => p.replace(/'/g, "''");
+    const sql = [
+      "INSTALL fts; LOAD fts;",
+      `CREATE TABLE vault AS SELECT * FROM read_json_auto('${esc(DB_NDJSON_PATH)}', format='newline_delimited');`,
+      // Pin the nullable date columns to VARCHAR. read_json_auto infers a column
+      // as JSON (not VARCHAR) when every row is null — e.g. a vault with no dated
+      // observations — which then breaks `WHERE on_date = '...'` comparisons. The
+      // `* REPLACE (TRY_CAST(...))` forces VARCHAR regardless of data, so query
+      // sites never need a per-call CAST. TRY_CAST yields NULL (not the string
+      // 'null') for JSON-null, preserving correct filtering on all-null vaults.
+      `CREATE TABLE observations AS SELECT row_number() OVER () AS obs_uid, * REPLACE (TRY_CAST(since AS VARCHAR) AS since, TRY_CAST(until AS VARCHAR) AS until, TRY_CAST(as_of AS VARCHAR) AS as_of, TRY_CAST(on_date AS VARCHAR) AS on_date, TRY_CAST(by_date AS VARCHAR) AS by_date) FROM read_json_auto('${esc(OBS_NDJSON_PATH)}', format='newline_delimited');`,
+      `CREATE TABLE relations AS SELECT * FROM read_json_auto('${esc(REL_NDJSON_PATH)}', format='newline_delimited');`,
+      "CREATE INDEX vault_slug ON vault(slug);",
+      "CREATE INDEX observations_slug ON observations(slug);",
+      "CREATE INDEX observations_id ON observations(id);",
+      "CREATE INDEX relations_slug ON relations(slug);",
+      "CREATE INDEX relations_target ON relations(target);",
+      "PRAGMA create_fts_index('observations', 'obs_uid', 'body', stemmer='english', stopwords='english', overwrite=1);",
+      // Second FTS index over page title+aliases (slug is the unique doc id), so
+      // `wiki search` resolves alias surface forms to the page. Separate index =
+      // content ranking stays untouched; the two are merged in the search verb.
+      "PRAGMA create_fts_index('vault', 'slug', 'label_text', stemmer='english', stopwords='english', overwrite=1);",
+    ].join('\n');
+    const bin = resolveDuckdbBin();
+    if (!bin) {
+      console.error('error: duckdb binary not found. Tried $DUCKDB_BIN, `duckdb` on PATH, and /opt/homebrew/bin, /usr/local/bin, /opt/local/bin, /usr/bin.');
+      console.error('  If installed: set DUCKDB_BIN=/full/path/to/duckdb. Otherwise: `brew install duckdb` (host) or apt-install (container).');
+      process.exit(2);
+    }
+    const r = spawnSync(bin, [tmpDb], { input: sql, encoding: 'utf-8' });
+    if (r.error || r.status !== 0) {
+      const msg = (r.stderr || '').split('\n')[0] || (r.error && r.error.message) || `exit ${r.status}`;
+      console.error(`error: failed to build DuckDB at ${tmpDb}: ${msg}`);
+      process.exit(2);
+    }
+    fs.renameSync(tmpDb, DB_PATH);
+    tmpDb = null;
+    fs.writeFileSync(SNAPSHOT_SCHEMA_PATH, SNAPSHOT_SCHEMA_VERSION + '\n');
+    console.error(`(rebuilt vault.duckdb: ${counts.pages} pages, ${counts.observations} observations, ${counts.relations} relations)`);
+    return DB_PATH;
+  } finally {
+    if (tmpDb) {
+      try { fs.unlinkSync(tmpDb); } catch (_) { /* ignore */ }
+    }
+    releaseLock();
   }
-  const r = spawnSync(bin, [DB_PATH], { input: sql, encoding: 'utf-8' });
-  if (r.error || r.status !== 0) {
-    const msg = (r.stderr || '').split('\n')[0] || (r.error && r.error.message) || `exit ${r.status}`;
-    console.error(`error: failed to build DuckDB at ${DB_PATH}: ${msg}`);
-    process.exit(2);
-  }
-  fs.writeFileSync(SNAPSHOT_SCHEMA_PATH, SNAPSHOT_SCHEMA_VERSION + '\n');
-  console.error(`(rebuilt vault.duckdb: ${counts.pages} pages, ${counts.observations} observations, ${counts.relations} relations)`);
-  return DB_PATH;
 }
 
 // Verify the duckdb binary is on PATH; abort with a clear hint otherwise.
