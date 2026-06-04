@@ -75,7 +75,8 @@ function cmdLint(args) {
   // Orphans (no inbound)
   if (enabled('orphans')) {
     const orphans = [];
-    for (const slug of slugs) {
+    for (const [slug, p] of Object.entries(pages)) {
+      if (p.fm.type === 'todo') continue;
       if (!inboundByPage[slug] || inboundByPage[slug].length === 0) orphans.push(slug);
     }
     if (orphans.length) {

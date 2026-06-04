@@ -1,0 +1,11 @@
+{
+  "_comment": "Default wiki search must remain usable when DuckDB is unavailable. WIKI_DISABLE_DUCKDB forces the Node-only lexical fallback path.",
+  "env": {
+    "WIKI_DISABLE_DUCKDB": "1"
+  },
+  "setup": [
+    ["write", "fallback-search-target", "--title", "Deliberate practice and spacing", "--type", "concept", "--tags", "research", "--aliases", "spacing effect", "--content", "- [fact] Pedagogy benefits from deliberate practice and spacing. ^[t:1]", "--soft"],
+    ["write", "fallback-search-decoy", "--title", "Marine biology", "--type", "concept", "--tags", "meta", "--content", "- [fact] unrelated content about coral reefs. ^[t:1]", "--soft"]
+  ],
+  "cmd": ["search", "pedagogy spacing", "--limit", "5"]
+}

@@ -13,7 +13,7 @@ const { parseFrontmatter } = require('../lib/frontmatter.js');
 const { aliasesOf, backlinkRegex, extractWikilinks, parseObservations, parseRelations } = require('../lib/graph.js');
 const { resolveSlugCandidates } = require('../lib/resolve.js');
 const { buildTitleMap, autolinkSlug } = require('../lib/autolink-runtime.js');
-const { regenerateIndex } = require('../lib/page-io.js');
+const { regenerateIndex, appendLog } = require('../lib/page-io.js');
 
 function cmdLinks(args) {
   const slug = args._[0];
@@ -122,7 +122,7 @@ function cmdAutolink(args) {
 
   let totalOut = 0, totalIn = 0;
   for (const slug of targets) {
-    const r = autolinkSlug(slug, { direction, dryRun: !!args['dry-run'], verbose: true, titleMap: tmap });
+    const r = autolinkSlug(slug, { direction, dryRun: !!args['dry-run'], verbose: true, titleMap: tmap, log: false });
     totalOut += r.out;
     totalIn += r.in;
   }
@@ -131,6 +131,10 @@ function cmdAutolink(args) {
   else if (args['dry-run']) console.log(`(dry-run) would inject ${total} link(s) total (${totalOut} outbound, ${totalIn} inbound)`);
   else {
     regenerateIndex();
+    const detail = args.all
+      ? `--all (+${totalOut}/out, +${totalIn}/in)`
+      : `${targets.join(',')} (+${totalOut}/out, +${totalIn}/in)`;
+    appendLog('autolink', detail);
     console.log(`injected ${total} link(s) total (${totalOut} outbound, ${totalIn} inbound)`);
   }
 }

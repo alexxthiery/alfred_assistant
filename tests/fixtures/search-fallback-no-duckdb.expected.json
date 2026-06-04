@@ -1,0 +1,6 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["fallback-search-target"],
+  "stdoutNotContains": ["fallback-search-decoy"],
+  "stderrContains": ["using JS lexical fallback search"]
+}

@@ -41,6 +41,20 @@ const REPLAY_SPEC_MIGRATIONS = {
   // 1: (spec) => { spec.someNewField = []; return spec; },  // 1 → 2
 };
 
+function replayMsgIdRequired() {
+  // Host policy, not a schema invariant: local maintenance specs may omit
+  // msg_id, but Telegram-driven Alfred runs can set this to make every write
+  // replay-capturable before touching the vault.
+  const v = process.env.WIKI_REQUIRE_REPLAY_MSG_ID;
+  return !!(v && v !== '0' && v !== 'false');
+}
+
+function missingRequiredReplayMsgId(spec, opts = {}) {
+  if (opts.replay) return false;
+  if (!replayMsgIdRequired()) return false;
+  return !(spec && typeof spec.msg_id === 'string' && spec.msg_id.trim());
+}
+
 function captureReplaySpec(msgId, specJson) {
   const p = replayPathFor(msgId, 'spec.json');
   if (!p) return;
@@ -69,4 +83,13 @@ function captureReplayResult(msgId, result) {
   catch (e) { console.error(`(replay capture failed: ${e.message.split('\n')[0]})`); }
 }
 
-module.exports = { REPLAY_DIR, CURRENT_SPEC_VERSION, REPLAY_SPEC_MIGRATIONS, replayPathFor, captureReplaySpec, captureReplayResult };
+module.exports = {
+  REPLAY_DIR,
+  CURRENT_SPEC_VERSION,
+  REPLAY_SPEC_MIGRATIONS,
+  replayPathFor,
+  replayMsgIdRequired,
+  missingRequiredReplayMsgId,
+  captureReplaySpec,
+  captureReplayResult,
+};

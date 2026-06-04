@@ -21,7 +21,7 @@ const { computeMissingInverses, groupByTarget } = require('../lib/inverse-closur
 const { formatIndex, batchHookWarnings } = require('../lib/maintenance.js');
 const { formatObservation, formatRelation, buildBodyFromSpec } = require('../lib/ingest-body.js');
 const { resolveSlugCandidates } = require('../lib/resolve.js');
-const { captureReplaySpec, captureReplayResult } = require('../lib/replay-capture.js');
+const { captureReplaySpec, captureReplayResult, missingRequiredReplayMsgId } = require('../lib/replay-capture.js');
 const { buildTitleMap, autolinkSlug } = require('../lib/autolink-runtime.js');
 const { regenerateIndex, appendLog } = require('../lib/page-io.js');
 const { warnHooks } = require('../lib/write-validate.js');
@@ -60,7 +60,12 @@ function cmdIngest(args) {
   // B2 replay capture: persist the spec for any Telegram-driven ingest carrying
   // a msg_id. Disabled when running under --replay (we're replaying a captured
   // spec; don't overwrite the artifact we're re-running).
-  const replayMsgId = spec && spec.msg_id;
+  if (missingRequiredReplayMsgId(spec, { replay: !!args.replay })) {
+    console.error('error: top-level "msg_id" is required because WIKI_REQUIRE_REPLAY_MSG_ID=1');
+    console.error('       Telegram-triggered ingests must be replay-capturable; include the inbound message id.');
+    process.exit(2);
+  }
+  const replayMsgId = spec && typeof spec.msg_id === 'string' ? spec.msg_id.trim() : spec && spec.msg_id;
   if (replayMsgId && !args.replay) captureReplaySpec(replayMsgId, jsonText);
 
   // ─── VALIDATE ─────────────────────────────────────────────────────────
@@ -225,12 +230,12 @@ function cmdIngest(args) {
       // V4: dedup against the page's existing relations AND within this batch,
       // so re-running a spec never doubles an edge (mirrors add_hooks below).
       const existingRels = parseRelations(newBody);
-      const seenRel = new Set(existingRels.map((r) => `${r.verb} ${r.target}`));
+      const seenRel = new Set(existingRels.map((r) => `${r.verb}\x1f${r.target}`));
       for (const r of p.add_relations) {
         const line = formatRelation(r);
         if (!line) continue;
         const pr = parseRelationLine(line);
-        const key = pr ? `${pr.verb} ${pr.target}` : null;
+        const key = pr ? `${pr.verb}\x1f${pr.target}` : null;
         if (key && seenRel.has(key)) continue;
         if (key) seenRel.add(key);
         additions.push(line);
@@ -398,7 +403,7 @@ function cmdIngest(args) {
   titleMap.sort((a, b) => b.title.length - a.title.length);
   const autolinkFailures = [];
   for (const slug of touched) {
-    try { autolinkSlug(slug, { direction: 'both', dryRun: false, verbose: false, titleMap }); }
+    try { autolinkSlug(slug, { direction: 'both', dryRun: false, verbose: false, titleMap, log: false }); }
     catch (e) { autolinkFailures.push({ slug, message: e.message }); }
   }
 

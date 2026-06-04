@@ -13,7 +13,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const { parseTagExpression, compileTagExpressionToSql } = require(
+const { parseTagExpression, compileTagExpressionToSql, matchesTagExpression } = require(
   path.resolve(__dirname, '..', '..', 'bin', 'lib', 'tag-filter.js')
 );
 
@@ -127,4 +127,12 @@ test('compile: accepts pre-parsed AST', () => {
   const ast = [{ negate: false, tags: ['research'] }];
   const sql = compileTagExpressionToSql(ast, 'v.tags');
   assert.equal(sql, " AND list_contains(v.tags, 'research')");
+});
+
+test('matchesTagExpression mirrors OR, comma-AND, and NOT semantics', () => {
+  assert.equal(matchesTagExpression(['research'], 'research OR health'), true);
+  assert.equal(matchesTagExpression(['health'], 'research OR health'), true);
+  assert.equal(matchesTagExpression(['meta'], 'research OR health'), false);
+  assert.equal(matchesTagExpression(['research', 'tool'], 'research, NOT tool'), false);
+  assert.equal(matchesTagExpression(['research', 'meta'], 'research, NOT tool'), true);
 });

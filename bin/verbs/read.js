@@ -20,7 +20,8 @@ const { VAULT_ROOT, WIKI_DIR, wikiPath, listWikiPages, readPage, forEachPage } =
 const { loadVaultDb, ensureDuckdbAvailable, resolveDuckdbBin } = require('../lib/duckdb.js');
 const { parseSynonymsFile, expandQuery } = require('../lib/synonyms.js');
 const { buildTitleEntries } = require('../lib/autolink.js');
-const { compileTagExpressionToSql } = require('../lib/tag-filter.js');
+const { compileTagExpressionToSql, matchesTagExpression, parseTagExpression } = require('../lib/tag-filter.js');
+const { searchPagesLexical } = require('../lib/search-fallback.js');
 const { isISODate } = require('../lib/date.js');
 
 function cmdList(args) {
@@ -87,7 +88,11 @@ function cmdSearch(args) {
   const doneSet = args['include-done'] ? null : doneTodoSet();
   const useFts = query && !useLiteral && !useRegex && !useTitleOnly;
   if (useFts) {
-    cmdSearchBm25(query, { limit, tag: args.tag, doneSet });
+    if (process.env.WIKI_DISABLE_DUCKDB !== '1' && resolveDuckdbBin()) {
+      cmdSearchBm25(query, { limit, tag: args.tag, doneSet });
+      return;
+    }
+    cmdSearchLexicalFallback(query, { limit, tag: args.tag, doneSet });
     return;
   }
   cmdSearchJs(query, { tag: args.tag, useLiteral, useRegex, useTitleOnly, doneSet });
@@ -198,6 +203,31 @@ function cmdSearchBm25(query, opts) {
   if (printed === 0) console.log('(no matches)');
 }
 
+function collectSearchPages() {
+  const pages = [];
+  forEachPage(({ slug: fileSlug, fm, body }) => {
+    pages.push({ slug: fm.id || fileSlug, fm, body });
+  });
+  return pages;
+}
+
+function cmdSearchLexicalFallback(query, opts) {
+  console.error('warning: duckdb unavailable; using JS lexical fallback search');
+  let rows;
+  try {
+    rows = searchPagesLexical(collectSearchPages(), { query, ...opts });
+  } catch (e) {
+    console.error(`error: --tag: ${e.message}`);
+    process.exit(1);
+  }
+
+  for (const row of rows) {
+    console.log(`${row.slug}\t${row.score.toFixed(3)}\t${row.title || ''}`);
+    if (row.excerpt) console.log(`    …${row.excerpt}…`);
+  }
+  if (rows.length === 0) console.log('(no matches)');
+}
+
 // Legacy JS-side search path: substring (regex-escaped) or regex (raw) match
 // across page titles + bodies. Preserved for --literal / --regex / --title-only.
 function cmdSearchJs(query, opts) {
@@ -206,12 +236,14 @@ function cmdSearchJs(query, opts) {
     const pattern = opts.useRegex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     re = new RegExp(pattern, 'i');
   }
+  let tagAst = null;
+  if (opts.tag) {
+    try { tagAst = parseTagExpression(opts.tag); }
+    catch (e) { console.error(`error: --tag: ${e.message}`); process.exit(1); }
+  }
   let count = 0;
   forEachPage(({ slug: fileSlug, fm, body }) => {
-    if (opts.tag) {
-      const tags = Array.isArray(fm.tags) ? fm.tags : [];
-      if (!tags.includes(opts.tag)) return;
-    }
+    if (tagAst && !matchesTagExpression(Array.isArray(fm.tags) ? fm.tags : [], tagAst)) return;
     const slug = fm.id || fileSlug;
     if (opts.doneSet && opts.doneSet.has(slug)) return;
     const title = fm.title || '';

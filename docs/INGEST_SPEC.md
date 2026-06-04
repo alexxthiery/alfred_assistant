@@ -25,7 +25,10 @@ create/modify/skip plan, touching nothing.
 - `source` (**required**) — provenance stamped on every observation that doesn't
   carry its own `source`. Schemes: `telegram:<date>`, `arxiv:<id>`, `https://…`,
   `gmail:<addr>:<date>`, `raw/clippings/<file>.md`, `inbox/<file>`.
-- `msg_id` (optional) — captures the spec+result for `wiki replay`.
+- `msg_id` (optional for host-side maintenance, required by policy for
+  Telegram-triggered Alfred ingests) — captures the spec+result for
+  `wiki replay`. Set `WIKI_REQUIRE_REPLAY_MSG_ID=1` in environments where missing
+  replay provenance should fail before any write.
 - At least one of `stubs` / `entities` / `events` / `patches` must be non-empty.
 
 ## Observation arrays

@@ -110,6 +110,29 @@ test('groom --mechanical commits cleanly — no leftover dirty index.md (V5)', (
   }
 });
 
+test('autolink command commits page edits and regenerated index together', () => {
+  const v = freshVault();
+  try {
+    const target = wiki(v, ['write', 'banana-bread', '--title', 'Banana Bread', '--type', 'concept',
+      '--tags', 'meta', '--content', '- [fact] target page ^[telegram:2026-06-03]', '--soft']);
+    assert.equal(target.status, 0, `target write should succeed: ${target.stderr}`);
+    const source = wiki(v, ['write', 'recipe-notes', '--title', 'Recipe Notes', '--type', 'concept',
+      '--tags', 'meta', '--content', '- [fact] Banana Bread appears here ^[telegram:2026-06-03]', '--soft']);
+    assert.equal(source.status, 0, `source write should succeed: ${source.stderr}`);
+    assert.equal(git(v, ['status', '--porcelain']).stdout.trim(), '', 'clean after setup writes');
+    const beforeCount = Number(git(v, ['rev-list', '--count', 'HEAD']).stdout.trim());
+
+    const a = wiki(v, ['autolink', 'banana-bread', '--direction', 'in']);
+    assert.equal(a.status, 0, `autolink should succeed: ${a.stderr}`);
+    assert.match(fs.readFileSync(path.join(v, 'wiki', 'recipe-notes.md'), 'utf-8'), /\[\[banana-bread\]\]/);
+    assert.equal(git(v, ['status', '--porcelain']).stdout.trim(), '', 'tree clean after autolink + index regen');
+    const afterCount = Number(git(v, ['rev-list', '--count', 'HEAD']).stdout.trim());
+    assert.equal(afterCount, beforeCount + 1, 'autolink command should make one final commit');
+  } finally {
+    fs.rmSync(v, { recursive: true, force: true });
+  }
+});
+
 test('tamper-check is a no-op when the vault is not a git repo', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vault-nogit-'));
   cpDir(TEMPLATE, tmp);

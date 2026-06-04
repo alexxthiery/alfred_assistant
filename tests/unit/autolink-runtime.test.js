@@ -54,3 +54,15 @@ test('autolinkSlug: dry-run does not write', () => {
   assert.ok(r.in >= 1, 'dry-run still reports the would-be injection');
   assert.equal(read('dry-mention'), before, 'dry-run must not modify the file');
 });
+
+test('autolinkSlug: log=false writes but does not append log.md', () => {
+  page('quiet-card', 'Quiet Card', '- [fact] quiet target ^[memory:2026-05-25]');
+  page('quiet-mention', 'Quiet Mention', '- [fact] Quiet Card is named here ^[memory:2026-05-25]');
+  const logPath = path.join(WIKI, 'log.md');
+  const beforeLog = fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf-8') : '';
+  const r = autolinkSlug('quiet-card', { direction: 'in', verbose: false, log: false });
+  assert.ok(r.in >= 1, `expected an inbound injection, got ${JSON.stringify(r)}`);
+  assert.match(read('quiet-mention'), /\[\[quiet-card\]\]/);
+  const afterLog = fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf-8') : '';
+  assert.equal(afterLog, beforeLog, 'batch callers own final logging/commit');
+});

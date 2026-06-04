@@ -1,0 +1,3 @@
+{
+  "cmd": ["lint", "--only", "orphans"]
+}

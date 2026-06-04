@@ -12,7 +12,15 @@ const path = require('node:path');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'replaycap-'));
 process.env.WIKI_ROOT = TMP;
 
-const { REPLAY_DIR, CURRENT_SPEC_VERSION, replayPathFor, captureReplaySpec, captureReplayResult } =
+const {
+  REPLAY_DIR,
+  CURRENT_SPEC_VERSION,
+  replayPathFor,
+  replayMsgIdRequired,
+  missingRequiredReplayMsgId,
+  captureReplaySpec,
+  captureReplayResult,
+} =
   require('../../bin/lib/replay-capture.js');
 
 test('REPLAY_DIR is under the vault raw/ tree', () => {
@@ -44,4 +52,22 @@ test('captureReplayResult: writes the result JSON', () => {
   const obj = JSON.parse(fs.readFileSync(p, 'utf-8'));
   assert.equal(obj.ok, true);
   assert.deepEqual(obj.created, ['x']);
+});
+
+test('replay msg_id guard: disabled by default, enabled by env', () => {
+  const prior = process.env.WIKI_REQUIRE_REPLAY_MSG_ID;
+  try {
+    delete process.env.WIKI_REQUIRE_REPLAY_MSG_ID;
+    assert.equal(replayMsgIdRequired(), false);
+    assert.equal(missingRequiredReplayMsgId({ source: 'telegram:1' }), false);
+
+    process.env.WIKI_REQUIRE_REPLAY_MSG_ID = '1';
+    assert.equal(replayMsgIdRequired(), true);
+    assert.equal(missingRequiredReplayMsgId({ source: 'telegram:1' }), true);
+    assert.equal(missingRequiredReplayMsgId({ source: 'telegram:1', msg_id: 'telegram:42' }), false);
+    assert.equal(missingRequiredReplayMsgId({ source: 'telegram:1' }, { replay: true }), false);
+  } finally {
+    if (prior == null) delete process.env.WIKI_REQUIRE_REPLAY_MSG_ID;
+    else process.env.WIKI_REQUIRE_REPLAY_MSG_ID = prior;
+  }
 });

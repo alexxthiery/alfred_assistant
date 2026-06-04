@@ -1,0 +1,5 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["# Orphans — pages with no inbound links"],
+  "stdoutNotContains": ["todo-fixture"]
+}

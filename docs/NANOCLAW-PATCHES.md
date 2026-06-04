@@ -90,6 +90,24 @@ Default nanoclaw doesn't register it (the comment in `providers/index.ts` explai
 import './claude.js';
 ```
 
+## Patch 5 — Gate vault-relevant replies until Alfred reads the vault
+
+**Why.** The persona tells Alfred to search the vault before topical answers, but prompt rules are not a hard invariant.
+For Alfred this matters: an answer to a personal recall, planning, todo, meeting, email, or daily-brief question should not be delivered if Alfred has not touched the mounted vault at all.
+This patch makes the constraint physical at the message-delivery boundary.
+
+**Where.** `container/agent-runner/src/providers/claude.ts`.
+
+**Patch.** Keep a small per-user-batch gate in the Claude provider:
+
+- classify only clearly vault-relevant prompts as requiring vault access;
+- mark the gate satisfied only by meaningful vault knowledge access (`wiki`, `inbox`, `daily-brief`, `email-digest`, `reminder-dispatch`, or reads/greps/globs under `/workspace/extra/<vault>/wiki`);
+- do not count `/workspace/extra/<vault>/AGENTS.md` as knowledge access, because it only proves persona loading;
+- block `send_message` and suppress final `<message to="...">` output until a vault read happens;
+- after two corrective nudges, fail visibly instead of looping forever.
+
+The existing `NANOCLAW_DISABLE_VAULT_TELEMETRY=1` escape hatch disables this gate too.
+
 ## Applying
 
 Each patch is small and idempotent.

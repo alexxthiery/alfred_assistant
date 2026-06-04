@@ -234,7 +234,24 @@ for d in "${BIN_DIRS[@]}"; do
   fi
 done
 
-if [ ${#NEEDS_COPY[@]} -eq 0 ] && [ ${#DIR_ACTIONS[@]} -eq 0 ]; then
+INGEST_SCHEMA_SRC="$SRC/schemas/wiki-ingest.schema.json"
+INGEST_SCHEMA_DST="$TARGET/.bin/wiki-ingest.schema.json"
+INGEST_SCHEMA_ACTION=""
+if [ -f "$INGEST_SCHEMA_SRC" ]; then
+  if [ ! -e "$INGEST_SCHEMA_DST" ]; then
+    INGEST_SCHEMA_ACTION="create"
+  elif [ -L "$INGEST_SCHEMA_DST" ]; then
+    INGEST_SCHEMA_ACTION="delink-then-copy"
+  elif cmp -s "$INGEST_SCHEMA_SRC" "$INGEST_SCHEMA_DST"; then
+    : # identical, skip
+  else
+    INGEST_SCHEMA_ACTION="refresh"
+  fi
+else
+  echo "[bin] WARN: source $INGEST_SCHEMA_SRC missing, skipping ingest schema"
+fi
+
+if [ ${#NEEDS_COPY[@]} -eq 0 ] && [ ${#DIR_ACTIONS[@]} -eq 0 ] && [ -z "$INGEST_SCHEMA_ACTION" ]; then
   echo "[bin] OK (all .bin/ files match source — no copy needed)"
 else
   echo "[bin] WOULD COPY (or refresh) ${#BIN_ITEMS[@]} CLIs + subtree(s) from $SRC/bin → $TARGET/.bin"
@@ -244,6 +261,9 @@ else
   for ((i = 0; i < ${#DIR_ACTIONS[@]}; i += 2)); do
     echo "    $TARGET/.bin/${DIR_ACTIONS[i]}/: ${DIR_ACTIONS[i+1]}"
   done
+  if [ -n "$INGEST_SCHEMA_ACTION" ]; then
+    echo "    $TARGET/.bin/wiki-ingest.schema.json: $INGEST_SCHEMA_ACTION"
+  fi
   if $APPLY; then
     # No per-file backups: the source is git-versioned, so the recovery path
     # for a bad deploy is `git checkout` in the repo, not a .bak in .bin/.
@@ -264,6 +284,10 @@ else
       if [ -d "$dst" ]; then rm -rf "$dst"; fi
       cp -R "$src" "$dst"
     done
+    if [ -n "$INGEST_SCHEMA_ACTION" ]; then
+      if [ -L "$INGEST_SCHEMA_DST" ]; then rm -f "$INGEST_SCHEMA_DST"; fi
+      cp -p "$INGEST_SCHEMA_SRC" "$INGEST_SCHEMA_DST"
+    fi
     echo "  (overwrote in place; recovery via git in the source repo)"
   fi
 fi

@@ -47,10 +47,10 @@ function arrEq(a, b) {
   return A.every((v, i) => v === B[i]);
 }
 
-function runWikiInTemp(tmp, args) {
+function runWikiInTemp(tmp, args, envOverrides = {}) {
   return spawnSync('node', [WIKI_BIN, ...args], {
     cwd: tmp,
-    env: { ...process.env, WIKI_ROOT: tmp },
+    env: { ...process.env, ...envOverrides, WIKI_ROOT: tmp },
     encoding: 'utf-8',
   });
 }
@@ -89,6 +89,7 @@ function runFixture(name) {
 
   const spec = JSON.parse(fs.readFileSync(specPath, 'utf-8'));
   const expected = JSON.parse(fs.readFileSync(expectedPath, 'utf-8'));
+  const envOverrides = spec.env && typeof spec.env === 'object' ? spec.env : {};
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `vault-fixture-${name}-`));
 
   try {
@@ -100,7 +101,7 @@ function runFixture(name) {
     // For CLI fixtures, run any `setup` steps first.
     if (isCli && Array.isArray(spec.setup)) {
       for (const setupArgs of spec.setup) {
-        const r = runWikiInTemp(tmp, setupArgs);
+        const r = runWikiInTemp(tmp, setupArgs, envOverrides);
         if (r.status !== 0) {
           return { name, ok: false, reason: `setup step failed: ${setupArgs.join(' ')}\n  exit=${r.status}\n  stderr: ${(r.stderr || '').split('\n').slice(0, 3).join(' | ')}` };
         }
@@ -113,9 +114,9 @@ function runFixture(name) {
     // between wiki's output and a downstream consumer that parses it.
     const res = (isCli && spec.bin)
       ? spawnSync('node', [path.join(REPO, 'bin', spec.bin), ...args], {
-          cwd: tmp, env: { ...process.env, WIKI_ROOT: tmp }, encoding: 'utf-8',
+          cwd: tmp, env: { ...process.env, ...envOverrides, WIKI_ROOT: tmp }, encoding: 'utf-8',
         })
-      : runWikiInTemp(tmp, args);
+      : runWikiInTemp(tmp, args, envOverrides);
 
     const exit = res.status;
     const stdout = res.stdout || '';

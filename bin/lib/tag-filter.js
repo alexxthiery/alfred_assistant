@@ -69,7 +69,19 @@ function compileTagExpressionToSql(astOrExpr, columnExpr = 'v.tags') {
   return ' AND ' + parts.join(' AND ');
 }
 
+function matchesTagExpression(tags, astOrExpr) {
+  if (!astOrExpr) return true;
+  const ast = typeof astOrExpr === 'string' ? parseTagExpression(astOrExpr) : astOrExpr;
+  const tagSet = new Set(Array.isArray(tags) ? tags : []);
+  for (const clause of ast) {
+    const any = clause.tags.some((t) => tagSet.has(t));
+    if (clause.negate ? any : !any) return false;
+  }
+  return true;
+}
+
 module.exports = {
   parseTagExpression,
   compileTagExpressionToSql,
+  matchesTagExpression,
 };

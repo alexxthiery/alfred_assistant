@@ -275,7 +275,7 @@ function cmdGroom(args) {
       const slug = f.replace(/\.md$/, '');
       // Re-run autolink in both directions; verbose=false to keep groom output clean
       const before = fs.readFileSync(wikiPath(slug), 'utf-8');
-      autolinkSlug(slug, { direction: 'both', dryRun: false, verbose: false, titleMap });
+      autolinkSlug(slug, { direction: 'both', dryRun: false, verbose: false, titleMap, log: false });
       const after = fs.readFileSync(wikiPath(slug), 'utf-8');
       if (before !== after) injections++;
     }

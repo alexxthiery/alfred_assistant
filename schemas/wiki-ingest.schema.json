@@ -12,6 +12,11 @@
       "description": "Provenance marker (e.g. 'telegram:2026-05-17' or 'raw/notes/foo.md').",
       "minLength": 1
     },
+    "msg_id": {
+      "type": "string",
+      "description": "Inbound message id for replay capture. Required by policy for Telegram-triggered ingests.",
+      "minLength": 1
+    },
     "stubs":    { "type": "array", "items": { "$ref": "#/$defs/stub" } },
     "entities": { "type": "array", "items": { "$ref": "#/$defs/entity" } },
     "events":   { "type": "array", "items": { "$ref": "#/$defs/event" } },

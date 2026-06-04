@@ -247,7 +247,7 @@ const RAW_VERBS = [
       'Available rules:',
       '  dead          — orphan files with no inbound/outbound references',
       '  ids           — frontmatter id != filename basename',
-      '  orphans       — pages disconnected from the main component',
+      '  orphans       — pages with no inbound links (excluding type=todo)',
       '  tags          — unknown tags (not in SCHEMA.md taxonomy)',
       '  types         — unknown types (not in KNOWN_TYPES)',
       '  aggregator    — pages matching forbidden-aggregator-slug shape',

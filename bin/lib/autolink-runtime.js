@@ -24,8 +24,9 @@ function buildTitleMap() {
 
 // Autolink a single slug: inject outbound (other titles → [[slug]]) and/or
 // inbound (this title → [[slug]] in other pages) wikilinks.
+// log=false lets batch callers own the final appendLog/auto-commit.
 // Returns { out: N, in: N, total: N }.
-function autolinkSlug(slug, { direction = 'both', dryRun = false, verbose = true, titleMap = null } = {}) {
+function autolinkSlug(slug, { direction = 'both', dryRun = false, verbose = true, titleMap = null, log = true } = {}) {
   const tmap = titleMap || (() => { const m = buildTitleMap(); m.sort((a, b) => b.title.length - a.title.length); return m; })();
   let outCount = 0, inCount = 0;
   const p = wikiPath(slug);
@@ -78,7 +79,7 @@ function autolinkSlug(slug, { direction = 'both', dryRun = false, verbose = true
     if (inCount > 0) parts.push(`${inCount} inbound`);
     console.log(`${slug}: +${total} link(s) (${parts.join(', ')})`);
   }
-  if (!dryRun && total > 0) appendLog('autolink', `${slug} (+${outCount}/out, +${inCount}/in)`);
+  if (!dryRun && log && total > 0) appendLog('autolink', `${slug} (+${outCount}/out, +${inCount}/in)`);
   return { out: outCount, in: inCount, total };
 }
 
