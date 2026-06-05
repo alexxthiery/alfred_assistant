@@ -230,11 +230,16 @@ test('speculative-shape-fact: detail string identifies the trigger word', () => 
   assert.match(out.detail, /might/i);
 });
 
+test('speculative-shape-fact: ignores superseded fact lines', () => {
+  const r = findRule('speculative-shape-fact');
+  const body = '- ~~[fact] Y might happen ^[t:1]~~ [until 2026-06-06]';
+  const out = r.check({ body }, deps());
+  assert.equal(out, null);
+});
+
 // ─── ironclad rules ────────────────────────────────────────────────────────
-// Ironclad rules protect closed-set schema vocabulary (unknown observation
-// categories, unknown relation verbs). They are NOT bypassable by --soft,
-// because they catch syntax errors against the schema rather than
-// discretionary quality concerns (lonely, multi-fact-observation, etc.).
+// Ironclad rules protect invariants that --soft must never bypass: closed-set
+// schema vocabulary and destructive writes that would erase substantive pages.
 
 test('AUDIT_RULES: uncategorized-bullets is marked ironclad', () => {
   const r = findRule('uncategorized-bullets');
@@ -244,6 +249,12 @@ test('AUDIT_RULES: uncategorized-bullets is marked ironclad', () => {
 test('AUDIT_RULES: invented-verb is marked ironclad', () => {
   const r = findRule('invented-verb');
   assert.equal(r.ironclad, true, 'invented-verb must be ironclad (closed-set relation verbs)');
+});
+
+test('AUDIT_RULES: empty-page is strict and ironclad', () => {
+  const r = findRule('empty-page');
+  assert.equal(r.strict, true, 'empty-page must block writes for substantive pages');
+  assert.equal(r.ironclad, true, 'empty-page must not be bypassable by --soft');
 });
 
 test('ironcladRuleErrors: returns the uncategorized-bullets error for an [issue] line', () => {
@@ -256,6 +267,12 @@ test('ironcladRuleErrors: returns the invented-verb error for an unknown relatio
   const errors = ironcladRuleErrors({ body: '- fakeverb [[some-slug]]' }, deps());
   assert.equal(errors.length, 1);
   assert.equal(errors[0].rule, 'invented-verb');
+});
+
+test('ironcladRuleErrors: returns empty-page for substantive pages with empty body', () => {
+  const errors = ironcladRuleErrors({ type: 'entity', body: '' }, deps());
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].rule, 'empty-page');
 });
 
 test('ironcladRuleErrors: empty for clean body', () => {
@@ -352,6 +369,12 @@ test('empty-page: fires on substantive type with no obs or relations', () => {
   const r = findRule('empty-page');
   const out = r.check({ type: 'entity', body: 'just prose, no bullets' }, deps());
   assert.ok(out);
+});
+
+test('empty-page: silent on frontmatter-only event records', () => {
+  const r = findRule('empty-page');
+  const out = r.check({ type: 'event', body: '', fm: { when: '2026-06-06' } }, deps());
+  assert.equal(out, null);
 });
 
 test('empty-page: silent on stub template', () => {
@@ -717,6 +740,12 @@ test('mislabeled-event: exempt for type=concept (C1 — concepts are never event
   assert.equal(r.check({ title: 'Quarterly review', type: 'synthesis' }, deps()), null);
   // still fires on a note/entity title
   assert.ok(r.check({ title: 'Monday review', type: 'note' }, deps()));
+});
+
+test('mislabeled-event: todo review is an action, but todo meeting still flags', () => {
+  const r = findRule('mislabeled-event');
+  assert.equal(r.check({ title: 'Finish TMLR review', type: 'todo' }, deps()), null);
+  assert.ok(r.check({ title: 'Meeting at CBIS at 11:00 AM', type: 'todo' }, deps()));
 });
 
 test('empty-page: stub exempt even when provenance contains a wikilink (C2)', () => {

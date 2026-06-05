@@ -265,15 +265,23 @@ function cmdPatch(args) {
   }
 
   // Ironclad-rule check FIRST. Closed-set schema vocabulary violations
-  // (uncategorized-bullets, invented-verb) cannot be bypassed by --soft —
-  // they catch syntax errors against the schema, not discretionary nags.
+  // (uncategorized-bullets, invented-verb) and destructive empty-page writes
+  // cannot be bypassed by --soft — they catch syntax / data-loss failures,
+  // not discretionary nags.
   // Without this gate, `wiki patch <slug> --observation "[issue] ..." --soft`
   // would silently land an unparseable line. See audit findings (2026-05-19).
   {
     const ironcladDeps = { schema: loadSchema(), knownVerbs: knownRelationVerbs(loadSchema()) };
-    const ironcladErrors = ironcladRuleErrors({ body: newBody }, ironcladDeps);
+    const ironcladErrors = ironcladRuleErrors({
+      slug,
+      title: fm.title || slug,
+      type: fm.type || 'note',
+      tags: Array.isArray(fm.tags) ? fm.tags : [],
+      body: newBody,
+      fm,
+    }, ironcladDeps);
     if (ironcladErrors.length) {
-      console.error(`error: ironclad validation failed for ${slug} (closed-set schema vocab; --soft does NOT bypass):`);
+      console.error(`error: ironclad validation failed for ${slug} (schema/data-loss invariant; --soft does NOT bypass):`);
       for (const e of ironcladErrors) {
         console.error(`  [${e.rule}] ${e.message}`);
         if (e.fix) console.error(`    → fix: ${e.fix}`);

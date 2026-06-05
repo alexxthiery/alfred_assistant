@@ -368,6 +368,14 @@ test('validateBody: clean event passes', () => {
   assert.deepEqual(errors, []);
 });
 
+test('validateBody: frontmatter-only event passes', () => {
+  const errors = validateBody({
+    slug: 'lunch-x', title: 'Lunch', type: 'event', tags: ['event'],
+    body: '', fm: { when: '2026-05-20', location: 'Zoom' },
+  }, bodyDeps());
+  assert.deepEqual(errors, []);
+});
+
 test('validateBody: mislabeled-event fires on event-keyword in entity title', () => {
   const errors = validateBody({
     slug: 'monday-meeting-prep', title: 'Monday meeting prep',
@@ -451,12 +459,12 @@ test('validateBody: missing-provenance does NOT fire on notes/todos (non-strict 
   assert.ok(!errors.some((e) => e.rule === 'missing-provenance'));
 });
 
-test('validateBody: empty body produces no errors (only FM-level rules can fire)', () => {
+test('validateBody: empty body on a substantive page returns empty-page', () => {
   const errors = validateBody({
     slug: 'x', title: 'X', type: 'entity', tags: ['person'], body: '', fm: {},
   }, bodyDeps());
-  // No provenance/uncat/invented/event errors when body is empty.
-  assert.deepEqual(errors, []);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].rule, 'empty-page');
 });
 
 // ─── B2: per-item duplicate opt-out ──────────────────────────────────────────

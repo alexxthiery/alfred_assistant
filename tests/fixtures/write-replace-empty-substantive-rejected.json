@@ -1,0 +1,7 @@
+{
+  "_comment": "Regression: wiki write --replace must not be able to empty a substantive page, even with --soft.",
+  "setup": [
+    ["write", "replace-target", "--title", "Replace Target", "--type", "entity", "--tags", "person", "--content", "- [fact] original body survives ^[t:1]", "--soft"]
+  ],
+  "cmd": ["write", "replace-target", "--replace", "--title", "Replace Target", "--type", "entity", "--tags", "person", "--content", "", "--soft"]
+}

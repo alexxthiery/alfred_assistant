@@ -1,7 +1,7 @@
 {
   "_comment": "HR09: pin the dedup-on-merge contract. The merge backlink rewrite path collapses microsyntax lines that become identical after [[source]] -> [[target]] substitution. A 'collider' page mentioning both bob-jones and bob via the same one-way verb (mentions) should end up with exactly ONE - mentions [[bob]] line after the merge. See audit/12 § test-coverage.",
   "setup": [
-    ["write", "collider", "--title", "Collider", "--type", "entity", "--content", "seed page"],
+    ["write", "collider", "--title", "Collider", "--type", "entity", "--tags", "person", "--content", "- [fact] seed page ^[t:1]", "--soft"],
     ["patch", "collider", "--relation", "mentions [[bob-jones]]"],
     ["patch", "collider", "--relation", "mentions [[bob]]"]
   ],

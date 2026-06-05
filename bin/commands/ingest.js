@@ -24,7 +24,7 @@ const { resolveSlugCandidates } = require('../lib/resolve.js');
 const { captureReplaySpec, captureReplayResult, missingRequiredReplayMsgId } = require('../lib/replay-capture.js');
 const { buildTitleMap, autolinkSlug } = require('../lib/autolink-runtime.js');
 const { regenerateIndex, appendLog } = require('../lib/page-io.js');
-const { warnHooks } = require('../lib/write-validate.js');
+const { validateBody, warnHooks } = require('../lib/write-validate.js');
 const { auditSlug } = require('../lib/audit-runtime.js');
 
 const loadSchema = () => _loadSchema(SCHEMA_PATH);
@@ -264,6 +264,43 @@ function cmdIngest(args) {
     }
     console.error(`# ingest aborted before any writes: ${e.message}`);
     process.exit(2);
+  }
+
+  // Final strict validation over the actual staged markdown. validateIngestSpec
+  // checks the JSON shape; this checks the rendered pages before the atomic
+  // flush so ingest cannot create pages that write/patch would reject.
+  {
+    const renderedErrors = [];
+    for (const [p, content] of stagedWrites) {
+      const slug = path.basename(p).replace(/\.md$/, '');
+      const { fm, body } = parseFrontmatter(content);
+      const errs = validateBody({
+        slug,
+        title: String(fm.title || slug),
+        type: fm.type || 'note',
+        tags: Array.isArray(fm.tags) ? fm.tags : [],
+        body,
+        fm,
+      });
+      for (const e of errs) renderedErrors.push({ slug, ...e });
+    }
+    if (renderedErrors.length) {
+      if (replayMsgId && !args.replay) {
+        captureReplayResult(replayMsgId, {
+          exitCode: 3,
+          errors: renderedErrors.map((e) => `${e.slug}: [${e.rule}] ${e.message}`),
+          created: [],
+          modified: [],
+          skipped: [],
+        });
+      }
+      console.error('# ingest rendered-page validation failed:');
+      for (const e of renderedErrors) {
+        console.error(`  - ${e.slug}: [${e.rule}] ${e.message}`);
+        if (e.fix) console.error(`    → fix: ${e.fix}`);
+      }
+      process.exit(3);
+    }
   }
 
   // ─── DRY-RUN (E3) ─────────────────────────────────────────────────────

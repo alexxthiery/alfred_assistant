@@ -80,17 +80,38 @@ function cmdWrite(args) {
   else if (args.content) body = args.content;
 
   // Ironclad-rule check: closed-set schema vocabulary violations (unknown
-  // [category] prefixes, unknown relation verbs) cannot be bypassed by --soft.
+  // [category] prefixes, unknown relation verbs) and destructive empty-page
+  // writes cannot be bypassed by --soft.
   // Compute the prospective full body so append mode is also checked end-to-end.
   let ironcladBodyText = body;
+  let ironcladFm = {};
+  let ironcladType = explicitType || 'note';
+  let ironcladTags = tags;
+  let ironcladTitle = args.title || slug;
   if (isAppend) {
     const cur = parseFrontmatter(fs.readFileSync(filePath, 'utf-8'));
+    ironcladFm = { ...cur.fm };
+    ironcladType = ironcladFm.type || 'note';
+    ironcladTags = Array.isArray(ironcladFm.tags) ? ironcladFm.tags : [];
+    ironcladTitle = ironcladFm.title || slug;
     ironcladBodyText = cur.body.trimEnd() + (body ? '\n\n' + body : '') + '\n';
+  } else {
+    ironcladFm = { ...args };
+    if (args.derived_from && typeof args.derived_from === 'string') {
+      ironcladFm.derived_from = args.derived_from.split(',').map((s) => s.trim()).filter(Boolean);
+    }
   }
   const ironcladDeps = { schema: loadSchema(), knownVerbs: knownRelationVerbs(loadSchema()) };
-  const ironcladErrors = ironcladRuleErrors({ body: ironcladBodyText }, ironcladDeps);
+  const ironcladErrors = ironcladRuleErrors({
+    slug,
+    title: ironcladTitle,
+    type: ironcladType,
+    tags: ironcladTags,
+    body: ironcladBodyText,
+    fm: ironcladFm,
+  }, ironcladDeps);
   if (ironcladErrors.length) {
-    console.error('error: ironclad validation failed (closed-set schema vocab; --soft does NOT bypass):');
+    console.error('error: ironclad validation failed (schema/data-loss invariant; --soft does NOT bypass):');
     for (const e of ironcladErrors) {
       console.error(`  [${e.rule}] ${e.message}`);
       if (e.fix) console.error(`    → fix: ${e.fix}`);

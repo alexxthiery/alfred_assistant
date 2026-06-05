@@ -57,15 +57,21 @@ function normalizeFactLine(line) {
 }
 
 const STRICT_PROV_TYPES = new Set(['entity', 'event', 'concept', 'synthesis']);
+// Some schema event keywords are intentionally broad. On todos, "review" is
+// often an action ("finish the review") rather than a scheduled event. Keep
+// the todo guard for unambiguous event words like meeting/appointment.
+const TODO_EVENT_KEYWORD_EXEMPTIONS = new Set(['review']);
 // SUBSTANTIVE_TYPES drives the `empty-page` rule: pages of these types are
-// expected to carry at least one observation or relation.
+// expected to carry at least one observation or relation. Events are excluded:
+// a calendar event's core content lives in frontmatter (`when`, optional
+// location/attendees), and its body is notes/agenda/relations if present.
 // `question` is included because an empty question page is just a title with
 // no thinking — the whole point of the type is to accrete hypotheses /
 // evidence over time. But `question` is intentionally NOT in
 // STRICT_PROV_TYPES: a fresh `[hypothesis]` on a question page may
 // legitimately have no provenance yet (it's a candidate answer awaiting
 // evidence).
-const SUBSTANTIVE_TYPES = new Set(['entity', 'event', 'concept', 'question']);
+const SUBSTANTIVE_TYPES = new Set(['entity', 'concept', 'question']);
 
 const AUDIT_RULES = [
   {
@@ -86,6 +92,11 @@ const AUDIT_RULES = [
       for (const kw of schema.eventKeywords) {
         const re = new RegExp(`\\b${kw}\\b`, 'i');
         if (re.test(titleLower)) hits.push(kw);
+      }
+      if (type === 'todo') {
+        for (let i = hits.length - 1; i >= 0; i--) {
+          if (TODO_EVENT_KEYWORD_EXEMPTIONS.has(hits[i])) hits.splice(i, 1);
+        }
       }
       if (!hits.length) return null;
       return {
@@ -195,6 +206,7 @@ const AUDIT_RULES = [
       const EPISTEMIC = EPISTEMIC_RE;
       const offenders = [];
       for (const o of obs) {
+        if (o.superseded) continue;
         if (o.category !== 'fact') continue;
         const fm = o.body.match(FUTURE);
         const em = o.body.match(EPISTEMIC);
@@ -347,10 +359,16 @@ const AUDIT_RULES = [
   {
     name: 'empty-page',
     severity: 'medium',
-    strict: false,
+    strict: true,
+    ironclad: true,
     check: ({ type, body }) => {
       if (!SUBSTANTIVE_TYPES.has(type)) return null;
-      if (!body) return { detail: `no body; type=${type} expected to have at least one [fact] or typed relation`, message: '' };
+      if (!body) {
+        return {
+          detail: `no body; type=${type} expected to have at least one observation or typed relation`,
+          message: `type=${type} page has no body. Add at least one categorized observation, typed relation, or the explicit stub template \`Stub. ^[source]\`.`,
+        };
+      }
       // Stub template (`Stub. ^[source]`) is exempt — intentionally minimal.
       // C2: greedy `.+` (not `[^\]]+`) so a provenance marker containing a
       // wikilink — e.g. `^[gmail:...:[[someone]]-x]` — whose `]]` would
@@ -456,10 +474,10 @@ function strictRuleErrors(input, deps) {
 }
 
 // Run only `ironclad: true` rules. Used by cmdWrite + cmdPatch to enforce
-// schema-syntax violations (unknown categories, unknown verbs) BEFORE the
-// `--soft` short-circuit. `--soft` bypasses everyday strict rules
-// (missing-provenance, mislabeled-event, etc.) but not these — the vocabulary
-// is closed-set and a `--soft` bypass would produce unparseable artefacts.
+// schema/data-loss invariants BEFORE the `--soft` short-circuit. `--soft`
+// bypasses everyday strict rules (missing-provenance, mislabeled-event, etc.)
+// but not these — bypassing them would produce unparseable artefacts or empty
+// graph pages.
 function ironcladRuleErrors(input, deps) {
   const errors = [];
   for (const rule of AUDIT_RULES) {

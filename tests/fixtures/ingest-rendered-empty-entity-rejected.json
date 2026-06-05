@@ -1,0 +1,13 @@
+{
+  "_comment": "Regression: ingest validates rendered staged pages before flush. A syntactically non-empty facts[] array whose item has no body must not create an empty entity page.",
+  "source": "test:rendered-empty",
+  "entities": [
+    {
+      "slug": "empty-rendered-entity",
+      "title": "Empty Rendered Entity",
+      "type": "entity",
+      "tags": ["person"],
+      "facts": [{}]
+    }
+  ]
+}

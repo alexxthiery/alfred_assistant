@@ -83,7 +83,7 @@ Iteration of every page goes through `forEachPage` (from `bin/lib/vault.js`), no
 
 There are two layers of validation, distinguished by when they fire.
 
-- Write-time strict subset (`validateBody` / `strictRuleErrors` in `bin/lib/ingest.js` and `bin/lib/audit.js`): runs before a `wiki write` / `wiki patch` / `wiki ingest` writes to disk. Blocks the write on any rule whose `strict: true` flag is set. Bypassable with `--soft` (write) or by editing the file directly. Strict rules are a minimal subset of all audit rules.
+- Write-time strict subset (`validateBody` / `strictRuleErrors` in `bin/lib/ingest.js` and `bin/lib/audit.js`): runs before a `wiki write` / `wiki patch` / `wiki ingest` writes to disk. Blocks the write on any rule whose `strict: true` flag is set. Ordinary strict rules are bypassable with `--soft` during migrations; `ironclad: true` rules are not bypassable because they protect schema syntax or destructive empty-page writes. Strict rules are a minimal subset of all audit rules.
 - Audit-time scored set (`auditPage` / `auditSlug` / `auditAll`): runs after a write (the write/patch/ingest handlers call `postWriteAudit` -> `auditSlug` in `bin/lib/audit-runtime.js` on touched pages and print a score) and on demand (`wiki audit <slug>` / `wiki audit --all`). Reports all rules with severity, never blocks. The full set is the source of truth for "what counts as quality".
 
 The two share one rule table (`AUDIT_RULES` in `bin/lib/audit.js`). Adding a new rule means adding one entry with `{name, severity, strict, check}`; both call sites pick it up automatically.

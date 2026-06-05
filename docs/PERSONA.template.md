@@ -679,7 +679,7 @@ CLI/persona changes ship only after `.bin/wiki-test` is green. Fixtures live in 
 
 If a write is rejected, read the error, fix the cause, retry. Do not use `--soft` to bypass — that's for migration only.
 
-**`--soft` cannot bypass ironclad rules**: `uncategorized-bullets` (unknown `[category]` prefix on a `- ` line) and `invented-verb` (relation verb not in the SCHEMA closed-set). These guard schema-syntax: a `[issue]` line or `- fakeverb [[X]]` would be unparseable, not just lower-quality. If the error mentions "ironclad validation failed", the answer is always to fix the line, never to pile on more flags.
+**`--soft` cannot bypass ironclad rules**: `uncategorized-bullets` (unknown `[category]` prefix on a `- ` line), `invented-verb` (relation verb not in the SCHEMA closed-set), and `empty-page` (substantive page with no body/observations/relations). These guard schema-syntax or destructive writes: a `[issue]` line or `- fakeverb [[X]]` would be unparseable, and an empty replacement would erase a page. If the error mentions "ironclad validation failed", the answer is always to fix the line/body, never to pile on more flags.
 
 After every `write`/`patch`/`ingest`, the CLI prints the audit. If issues are listed, fix them via `wiki patch` in the same turn before replying to {{USER_NAME}}.
 

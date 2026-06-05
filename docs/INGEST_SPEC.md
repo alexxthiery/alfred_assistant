@@ -30,6 +30,9 @@ create/modify/skip plan, touching nothing.
   `wiki replay`. Set `WIKI_REQUIRE_REPLAY_MSG_ID=1` in environments where missing
   replay provenance should fail before any write.
 - At least one of `stubs` / `entities` / `events` / `patches` must be non-empty.
+- After the JSON shape passes, ingest renders every staged page and runs the
+  same strict page validator used by `wiki write`/`wiki patch` before flushing.
+  If rendered content is empty or invalid, no files are written.
 
 ## Observation arrays
 

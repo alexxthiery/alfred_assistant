@@ -1,0 +1,9 @@
+{
+  "exitCode": 3,
+  "errors": ["ingest rendered-page validation failed", "empty-rendered-entity", "empty-page", "has no body"],
+  "wikiAssertions": {
+    "empty-rendered-entity": {
+      "fileExists": false
+    }
+  }
+}

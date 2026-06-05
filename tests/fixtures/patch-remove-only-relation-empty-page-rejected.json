@@ -1,0 +1,8 @@
+{
+  "_comment": "Regression: wiki patch --remove-relation must not empty a substantive page, even with --soft.",
+  "setup": [
+    ["write", "target-place", "--title", "Target Place", "--type", "entity", "--tags", "org", "--content", "- [fact] target exists ^[t:1]", "--soft"],
+    ["write", "relation-only", "--title", "Relation Only", "--type", "entity", "--tags", "person", "--content", "- located_in [[target-place]]", "--soft"]
+  ],
+  "cmd": ["patch", "relation-only", "--remove-relation", "located_in [[target-place]]", "--soft"]
+}

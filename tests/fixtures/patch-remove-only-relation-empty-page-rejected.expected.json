@@ -1,0 +1,9 @@
+{
+  "exitCode": 3,
+  "stderrContains": ["ironclad validation failed", "empty-page", "--soft does NOT bypass"],
+  "wikiAssertions": {
+    "relation-only": {
+      "bodyContains": ["located_in [[target-place]]"]
+    }
+  }
+}

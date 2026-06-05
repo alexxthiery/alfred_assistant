@@ -1,0 +1,10 @@
+{
+  "exitCode": 3,
+  "stderrContains": ["ironclad validation failed", "empty-page", "has no body", "--soft does NOT bypass"],
+  "wikiAssertions": {
+    "replace-target": {
+      "bodyContains": ["original body survives"],
+      "bodyMissing": ["no body"]
+    }
+  }
+}
