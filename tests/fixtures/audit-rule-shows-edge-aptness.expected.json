@@ -1,0 +1,8 @@
+{
+  "exitCode": 2,
+  "stdoutContains": [
+    "# pages failing rule \"edge-aptness\": 1",
+    "edge-source",
+    "extends [[edge-target]]"
+  ]
+}

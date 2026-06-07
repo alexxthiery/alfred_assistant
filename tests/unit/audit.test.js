@@ -324,8 +324,20 @@ test('invented-verb: silent when all verbs are in schema', () => {
 test('multi-fact-observation: fires on a crammed >=4-clause observation', () => {
   const r = findRule('multi-fact-observation');
   const crammed = '- [fact] the system uses a critic for value. the actor is the proposal. weights stay exact. parameters move slowly ^[t:1]';
-  const out = r.check({ body: crammed }, deps());
+  const out = r.check({ type: 'entity', body: crammed }, deps());
   assert.ok(out, 'four distinct clauses should be flagged as multi-fact');
+});
+
+test('multi-fact-observation: ignores superseded observations', () => {
+  const r = findRule('multi-fact-observation');
+  const superseded = '- ~~[fact] the system uses a critic for value. the actor is the proposal. weights stay exact. parameters move slowly~~ [until 2026-06-08] ^[t:1]';
+  assert.equal(r.check({ type: 'entity', body: superseded }, deps()), null);
+});
+
+test('multi-fact-observation: skips dense concept cards', () => {
+  const r = findRule('multi-fact-observation');
+  const denseConcept = '- [claim] The estimator defines a twist. The first term is the likelihood ratio. The second term normalizes the proposal. The resulting weight is unbiased. This is one atomic concept card, not biographical cramming ^[t:1]';
+  assert.equal(r.check({ type: 'concept', body: denseConcept }, deps()), null);
 });
 
 test('multi-fact-observation: silent on a long but self-contained single idea', () => {
@@ -333,12 +345,12 @@ test('multi-fact-observation: silent on a long but self-contained single idea', 
   // One long, precise sentence with notation (>120 chars, but ONE idea) — must NOT flag.
   const longSingle = '- [fact] ACT-SMC defines its twist as the prior-reference log-density-ratio u_t(x_t)=log p(x_t|y_{t+1:T}) minus log p(x_t), the smoothing marginal relative to the prior marginal at time t ^[t:1]';
   assert.ok(longSingle.length > 130);
-  assert.equal(r.check({ body: longSingle }, deps()), null);
+  assert.equal(r.check({ type: 'entity', body: longSingle }, deps()), null);
 });
 
 test('multi-fact-observation: silent on short observations', () => {
   const r = findRule('multi-fact-observation');
-  assert.equal(r.check({ body: '- [fact] short' }, deps()), null);
+  assert.equal(r.check({ type: 'entity', body: '- [fact] short' }, deps()), null);
 });
 
 test('sectioned-idea-page: fires on a concept page with ## sub-headers (fat page)', () => {

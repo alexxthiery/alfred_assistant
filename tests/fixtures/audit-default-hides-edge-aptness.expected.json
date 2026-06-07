@@ -1,0 +1,11 @@
+{
+  "exitCode": 2,
+  "stdoutContains": [
+    "## by rule",
+    "## top offenders",
+    "lonely"
+  ],
+  "stdoutNotContains": [
+    "edge-aptness"
+  ]
+}

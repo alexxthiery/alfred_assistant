@@ -327,18 +327,20 @@ const AUDIT_RULES = [
     severity: 'low',
     strict: false,
     // Targets CRAMMING (several INDEPENDENT facts in one observation), not
-    // length or sentence count. A dense, self-contained idea is often several
-    // sentences that elaborate ONE point ("X is Y. This means Z. Therefore W.")
-    // — those later sentences are continuations, not new facts, and must NOT be
-    // flagged (C3: the cold-read card standard mandates exactly this density).
-    // We count only INDEPENDENT sentences (a sentence that opens with a back-
-    // referential / connective word is treated as elaboration of the prior
-    // idea) and flag only when >=4 independent assertions share one observation.
-    check: ({ body }) => {
+    // length or sentence count. This rule is for biographical/event/note debt
+    // where multiple addressable facts get buried in one bullet. It deliberately
+    // skips concept pages: a dense atomic concept card may need definition,
+    // equation, intuition, consequence, and example in one [claim].
+    //
+    // We also skip superseded observations; strikethrough lines are history, not
+    // current cleanup work.
+    check: ({ type, body }) => {
       if (!body) return null;
+      if (type === 'concept') return null;
       const CONTINUATION = /^(this|these|those|that|it|its|they|such|therefore|thus|hence|so|because|since|which|where|when|while|as|then|here|also|moreover|furthermore|equivalently|in other words|in particular|for example|e\.g\.|i\.e\.|that is)\b/i;
       const crammed = [];
       for (const o of parseObservations(body)) {
+        if (o.superseded) continue;
         const segs = o.body
           .split(/[.;]\s+/)
           .map((s) => s.trim())

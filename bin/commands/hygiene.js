@@ -136,7 +136,8 @@ function cmdAudit(args) {
       console.log('');
       console.log('## top offenders');
       for (const p of dirty.slice(0, 20)) {
-        console.log(`  score=${p.score}\t${p.slug}\t(${p.issues.map((i) => i.rule).join(', ')})`);
+        const visibleIssues = p.issues.filter((i) => i.severity !== 'advisory');
+        console.log(`  score=${p.score}\t${p.slug}\t(${visibleIssues.map((i) => i.rule).join(', ')})`);
       }
       if (dirty.length > 20) console.log(`  ... ${dirty.length - 20} more`);
     }

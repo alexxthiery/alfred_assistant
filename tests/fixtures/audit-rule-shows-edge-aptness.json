@@ -1,0 +1,8 @@
+{
+  "_comment": "The query-only edge-aptness advisory remains available when explicitly requested via --rule.",
+  "setup": [
+    ["write", "edge-target", "--title", "Edge Target", "--type", "concept", "--tags", "idea", "--content", "- [claim] target ^[t:1]", "--hooks", "beta"],
+    ["write", "edge-source", "--title", "Edge Source", "--type", "concept", "--tags", "idea", "--content", "- [claim] source ^[t:1]\n- extends [[edge-target]]", "--hooks", "alpha"]
+  ],
+  "cmd": ["audit", "--all", "--rule", "edge-aptness"]
+}
