@@ -69,13 +69,18 @@ The `type:` frontmatter field must be one of these. The CLI refuses unknown type
 | `decision` | one explicit choice by Alice | `decided_on: YYYY-MM-DD`; optional `supersedes: [slug]` | — |
 | `source` | one ingested document | `raw_path`, `sha256`, `ingested_at`, `kind` | — |
 | `synthesis` | a cross-cutting analysis stitching multiple pages | `derived_from: [slug, slug, ...]` (≥2 entries) | — |
-| `todo` | one task | `status: open\|doing\|done\|abandoned`; optional `due`, `priority` | — |
+| `todo` | one task or reminder | `status: open\|doing\|done\|abandoned`; optional `due`, `priority: high\|med\|low`, `remind_at`, `notify` | — |
 | `note` | catch-all (use sparingly; lint nags) | — | — |
 | `event` | one calendar event (meeting, appointment, deadline, trip) | `when: YYYY-MM-DD` or ISO8601; optional `duration`, `location`, `attendees: [slug, ...]`, `recurrence` | — |
 | `question` | one open question that accretes hypotheses, evidence, dead-ends, and partial answers over time. Never "answered" — relabeled as `concept` if it stabilizes. Title in interrogative form (e.g. "why does X happen"). | — | ≥1 observation (typically `[hypothesis]` or `[fact]`) |
 | `view` | a saved DuckDB query that materialises a topical slice through the vault on demand. The page body holds a fenced ```` ```sql ```` block; `wiki render <slug>` executes it. Replaces hand-maintained aggregator pages with a query you re-evaluate against current state. | a fenced ```` ```sql ```` block in the body (advisory: `view-needs-query` audit warns if absent) | — |
 
 The CLI rejects `type: note` for pages whose `tags` include `person`, `org`, or `tool` — use `entity` instead.
+
+Todo conventions:
+- A reminder is not a separate object type. It is a `type: todo` page with `remind_at: YYYY-MM-DDTHH:MM+08:00`; `notify` defaults to `[telegram, email]`.
+- A background/ongoing todo is a derived view: `status: open` and neither overdue nor due today. Do not encode a separate `mode` field.
+- All todo mutations use `wiki todo` (`add`, `update`, `classify`, `done`, `reopen`, `abandon`, `defer`). Never hand-edit `wiki/todo-*.md`.
 
 ## Tag taxonomy (closed set, CLI-enforced)
 
@@ -604,7 +609,10 @@ This table lists every frontmatter field the CLI actively reads. **`stable`** fi
 | `recurrence`     | string      | —                           | agenda, event                          | stable        | Informal: daily, weekly, monthly, yearly                       |
 | `status`         | enum        | type=todo                   | todo, list, sql                        | stable        | One of: open, doing, done, abandoned                           |
 | `due`            | ISO date    | —                           | todo, agenda                           | stable        | YYYY-MM-DD                                                     |
-| `priority`       | enum        | —                           | todo                                   | stable        | Free-form; convention: low / medium / high                     |
+| `priority`       | enum        | —                           | todo                                   | stable        | One of: high, med, low                                         |
+| `remind_at`      | ISO datetime| —                           | todo, reminder-dispatch                | stable        | Timed reminder fire time; include timezone offset              |
+| `reminded_at`    | ISO datetime| —                           | todo, reminder-dispatch                | stable        | Writer-stamped when reminder dispatcher fires                  |
+| `notify`         | string list | —                           | todo, reminder-dispatch                | stable        | Channels: telegram, email                                      |
 | `done_at`        | ISO datetime| —                           | todo                                   | stable        | Writer-stamped when status flips to done                       |
 | `decided_on`     | ISO date    | type=decision               | write, list                            | stable        | YYYY-MM-DD                                                     |
 | `supersedes`     | slug list   | —                           | write, lint                            | stable        | Decision that retires another decision                         |

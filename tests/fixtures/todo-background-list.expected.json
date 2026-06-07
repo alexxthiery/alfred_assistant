@@ -1,0 +1,11 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "todo-no-due-background",
+    "todo-future-background"
+  ],
+  "stdoutNotContains": [
+    "todo-due-today-action",
+    "todo-overdue-action"
+  ]
+}

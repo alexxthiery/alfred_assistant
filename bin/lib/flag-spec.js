@@ -104,7 +104,7 @@ function knownFlags(verb, helpText) {
 // Omitting a value flag leaves it unguarded but never breaks anything.
 const VALUE_REQUIRED_FLAGS = new Set([
   // identity / content
-  'title', 'summary', 'content', 'type', 'tags', 'alias', 'add-tag', 'remove-tag',
+  'title', 'summary', 'content', 'type', 'tags', 'tag', 'alias', 'add-tag', 'remove-tag',
   'hooks', 'remove-hooks', 'remove-alias',
   // observations / relations
   'observation', 'relation', 'remove-relation', 'supersede', 'provenance',

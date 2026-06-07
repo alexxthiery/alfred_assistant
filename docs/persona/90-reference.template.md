@@ -4,7 +4,7 @@
 read:    list  search  recent  preview  print  context  sources  related  agenda  timeline
 write:   ingest  patch  write  link  mv  delete  merge   (ingest is preferred for new content)
 graph:   links  backlinks  relations  observations  autolink  resolve  path  hubs  place  stubs
-todo:    todo add  todo list  todo done  todo defer
+todo:    todo add  todo list  todo update  todo classify  todo done  todo reopen  todo abandon  todo defer
 health:  audit  lint  sync-ids  size  reindex  groom
 git:     diff  revert    (wiki diff [--since "1 day ago"], wiki revert [HEAD|<sha>])
 series:  measure         (wiki measure <series> --date=YYYY-MM-DD --field=value …)

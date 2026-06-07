@@ -12,7 +12,12 @@ const os = require('os');
 const REPO = path.resolve(__dirname, '..');
 const FIXTURES_DIR = path.join(REPO, 'tests', 'fixtures');
 const TEMPLATE_VAULT = path.join(REPO, 'tests', 'vault');
-const WIKI_BIN = path.join(REPO, 'bin', 'wiki');
+function repoBin(name) {
+  const sourcePath = path.join(REPO, 'bin', name);
+  if (fs.existsSync(sourcePath)) return sourcePath;
+  return path.join(REPO, '.bin', name);
+}
+const WIKI_BIN = repoBin('wiki');
 
 function copyDir(src, dst) {
   fs.mkdirSync(dst, { recursive: true });
@@ -113,7 +118,7 @@ function runFixture(name) {
     // cmd; setup steps above still run `wiki`. Lets a fixture exercise the seam
     // between wiki's output and a downstream consumer that parses it.
     const res = (isCli && spec.bin)
-      ? spawnSync('node', [path.join(REPO, 'bin', spec.bin), ...args], {
+      ? spawnSync('node', [repoBin(spec.bin), ...args], {
           cwd: tmp, env: { ...process.env, ...envOverrides, WIKI_ROOT: tmp }, encoding: 'utf-8',
         })
       : runWikiInTemp(tmp, args, envOverrides);

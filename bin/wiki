@@ -3,7 +3,7 @@
 //
 // Read:  list, search, recent, print, sources, related
 // Write: write, link, mv, delete
-// Todo:  todo {add,list,done,defer}
+// Todo:  todo {add,list,update,classify,done,reopen,abandon,defer}
 // Graph: links, backlinks, relations, observations, autolink
 // Health: lint, sync-ids, size, reindex
 //
@@ -313,7 +313,7 @@ if (args['no-auto-commit']) {
 // `todo` is write-class, but its `list` subcommand is read-only — tamper-
 // checking it would block a pure read on a dirty vault (e.g. the reminder
 // dispatcher's `todo list --reminders` failing → reminders silently don't
-// fire). Exempt the read-only subcommand; todo add/done/defer still check.
+// fire). Exempt the read-only subcommand; todo writes still check.
 const isReadOnlyTodo = (verb === 'todo' && args._[0] === 'list');
 if (WRITE_VERBS.has(verb) && !isReadOnlyTodo) tamperCheck({ accept: !!args['accept-tamper'] });
 // --accept-tamper means "fold the accepted out-of-band edit into this write's

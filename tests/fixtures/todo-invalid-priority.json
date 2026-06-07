@@ -1,0 +1,4 @@
+{
+  "env": { "WIKI_NO_AUTO_COMMIT": "1" },
+  "cmd": ["todo", "add", "Bad priority", "--priority", "urgent"]
+}

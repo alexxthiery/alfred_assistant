@@ -1,0 +1,4 @@
+{
+  "env": { "WIKI_NO_AUTO_COMMIT": "1" },
+  "cmd": ["write", "todo-missing-status", "--title", "Missing status", "--type", "todo", "--tags", "work", "--content", ""]
+}

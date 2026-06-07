@@ -1,0 +1,4 @@
+{
+  "exitCode": 3,
+  "stderrContains": ["--priority must be high|med|low"]
+}

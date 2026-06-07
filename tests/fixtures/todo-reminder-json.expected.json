@@ -1,0 +1,10 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "\"slug\": \"todo-contact-accountant\"",
+    "\"remind_at\": \"2026-06-08T09:00+08:00\"",
+    "\"notify\": [",
+    "\"telegram\"",
+    "\"email\""
+  ]
+}

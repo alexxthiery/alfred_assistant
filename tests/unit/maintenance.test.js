@@ -152,6 +152,15 @@ test('applyExtraFrontmatter: multiple fields in one call', () => {
   assert.equal(fm.priority, 'high');
 });
 
+test('validateExtraFieldValue: todo status/due/priority are typed', () => {
+  assert.equal(validateExtraFieldValue('status', 'doing').value, 'doing');
+  assert.equal(validateExtraFieldValue('due', '2026-06-01').value, '2026-06-01');
+  assert.equal(validateExtraFieldValue('priority', 'medium').value, 'med');
+  assert.ok(validateExtraFieldValue('status', 'blocked').error);
+  assert.ok(validateExtraFieldValue('due', 'next friday').error);
+  assert.ok(validateExtraFieldValue('priority', 'urgent').error);
+});
+
 // ─── reminder fields: remind_at / reminded_at validation, notify list ────────
 
 test('validateExtraFieldValue: remind_at accepts ISO8601 datetime with offset', () => {

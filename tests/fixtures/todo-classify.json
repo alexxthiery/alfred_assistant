@@ -1,0 +1,7 @@
+{
+  "env": { "WIKI_NO_AUTO_COMMIT": "1" },
+  "setup": [
+    ["todo", "add", "Draft report", "--tags", "work"]
+  ],
+  "cmd": ["todo", "classify", "todo-draft-report", "--add-tag", "research", "--priority", "high"]
+}

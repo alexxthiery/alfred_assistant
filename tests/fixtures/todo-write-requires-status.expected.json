@@ -1,0 +1,4 @@
+{
+  "exitCode": 3,
+  "stderrContains": ["todo-status-required"]
+}

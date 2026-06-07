@@ -1,0 +1,13 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["classified: todo-draft-report"],
+  "wikiAssertions": {
+    "todo-draft-report": {
+      "bodyContains": [
+        "tags: [research, work]",
+        "priority: high",
+        "status: open"
+      ]
+    }
+  }
+}

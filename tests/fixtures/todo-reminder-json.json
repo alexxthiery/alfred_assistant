@@ -1,0 +1,7 @@
+{
+  "env": { "WIKI_NO_AUTO_COMMIT": "1" },
+  "setup": [
+    ["todo", "add", "Contact accountant", "--due", "2026-06-08", "--remind_at", "2026-06-08T09:00+08:00", "--tags", "finance"]
+  ],
+  "cmd": ["todo", "list", "--reminders", "--json", "--asof", "2026-06-07"]
+}

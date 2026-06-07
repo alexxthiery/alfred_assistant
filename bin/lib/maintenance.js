@@ -22,7 +22,7 @@
 'use strict';
 
 const { firstBodyLine } = require('./graph.js');
-const { isISO8601DateTime } = require('./date.js');
+const { isISODate, isISO8601DateTime } = require('./date.js');
 
 const EXTRA_FIELDS = [
   'status', 'due', 'priority', 'decided_on', 'supersedes', 'derived_from',
@@ -107,6 +107,28 @@ function formatLogLine(timestamp, op, detail) {
 // confidence); error is a human-readable string when invalid.
 function validateExtraFieldValue(name, raw) {
   switch (name) {
+    case 'status': {
+      const v = String(raw).trim().toLowerCase();
+      if (!['open', 'doing', 'done', 'abandoned'].includes(v)) {
+        return { error: `--status must be open|doing|done|abandoned (got "${v}")` };
+      }
+      return { value: v };
+    }
+    case 'due': {
+      const v = String(raw).trim();
+      if (!isISODate(v)) {
+        return { error: `--due must be YYYY-MM-DD (got "${v}")` };
+      }
+      return { value: v };
+    }
+    case 'priority': {
+      let v = String(raw).trim().toLowerCase();
+      if (v === 'medium') v = 'med';
+      if (!['high', 'med', 'low'].includes(v)) {
+        return { error: `--priority must be high|med|low (got "${v}")` };
+      }
+      return { value: v };
+    }
     case 'born': {
       const v = String(raw).trim();
       if (!/^(\d{4}-\d{2}-\d{2}|\d{2}-\d{2})$/.test(v)) {

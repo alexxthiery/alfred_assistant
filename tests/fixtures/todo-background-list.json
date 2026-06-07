@@ -1,0 +1,10 @@
+{
+  "env": { "WIKI_NO_AUTO_COMMIT": "1" },
+  "setup": [
+    ["todo", "add", "No due background", "--tags", "work"],
+    ["todo", "add", "Future background", "--due", "2026-07-01", "--tags", "work"],
+    ["todo", "add", "Due today action", "--due", "2026-06-07", "--tags", "work"],
+    ["todo", "add", "Overdue action", "--due", "2026-06-01", "--tags", "work"]
+  ],
+  "cmd": ["todo", "list", "--background", "--asof", "2026-06-07"]
+}

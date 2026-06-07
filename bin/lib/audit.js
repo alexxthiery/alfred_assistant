@@ -33,6 +33,7 @@ const { ENTITY_KIND_TAGS } = require('./schema.js');
 const { parseRelations, parseObservations, extractWikilinks, aliasesOf } = require('./graph.js');
 const { detectSecrets } = require('./secrets.js');
 const { FUTURE_TENSE_RE, EPISTEMIC_RE } = require('./capture-classifier.js');
+const { isISODate, isISO8601DateTime } = require('./date.js');
 
 // HR-OOB-C: lowercase + hyphenate to produce the slug a string would resolve
 // to (mirrors bin/wiki slug conventions: lowercase, whitespace→hyphen,
@@ -62,16 +63,14 @@ const STRICT_PROV_TYPES = new Set(['entity', 'event', 'concept', 'synthesis']);
 // the todo guard for unambiguous event words like meeting/appointment.
 const TODO_EVENT_KEYWORD_EXEMPTIONS = new Set(['review']);
 // SUBSTANTIVE_TYPES drives the `empty-page` rule: pages of these types are
-// expected to carry at least one observation or relation. Events are excluded:
-// a calendar event's core content lives in frontmatter (`when`, optional
-// location/attendees), and its body is notes/agenda/relations if present.
+// expected to carry at least one observation or relation.
 // `question` is included because an empty question page is just a title with
 // no thinking — the whole point of the type is to accrete hypotheses /
 // evidence over time. But `question` is intentionally NOT in
 // STRICT_PROV_TYPES: a fresh `[hypothesis]` on a question page may
 // legitimately have no provenance yet (it's a candidate answer awaiting
 // evidence).
-const SUBSTANTIVE_TYPES = new Set(['entity', 'concept', 'question']);
+const SUBSTANTIVE_TYPES = new Set(['entity', 'event', 'concept', 'question']);
 
 const AUDIT_RULES = [
   {
@@ -117,7 +116,7 @@ const AUDIT_RULES = [
     // Dynamic / ... sections). A deliberate multi-section overview is
     // `type: synthesis`, which is exempt. Only `concept` is targeted; person/org
     // entities have their own (sectioned) conventions and are out of scope.
-    check: ({ type, body }) => {
+    check: ({ type, body, fm }) => {
       if (type !== 'concept') return null;
       if (!body || !/^\s{0,3}#{2,}\s+\S/m.test(body)) return null;
       return {
@@ -206,8 +205,8 @@ const AUDIT_RULES = [
       const EPISTEMIC = EPISTEMIC_RE;
       const offenders = [];
       for (const o of obs) {
-        if (o.superseded) continue;
         if (o.category !== 'fact') continue;
+        if (o.superseded) continue;
         const fm = o.body.match(FUTURE);
         const em = o.body.match(EPISTEMIC);
         if (!fm && !em) continue;
@@ -236,7 +235,7 @@ const AUDIT_RULES = [
     name: 'view-needs-query',
     severity: 'medium',
     strict: false,
-    check: ({ type, body }) => {
+    check: ({ type, body, fm }) => {
       if (type !== 'view') return null;
       if (!body) return { detail: 'type=view page has empty body — no SQL to run.', message: 'type=view page has empty body. Add a ```sql fenced block; `wiki render` will execute the first one.' };
       if (/```\s*sql\b/i.test(body)) return null;
@@ -361,12 +360,13 @@ const AUDIT_RULES = [
     severity: 'medium',
     strict: true,
     ironclad: true,
-    check: ({ type, body }) => {
+    check: ({ type, body, fm }) => {
       if (!SUBSTANTIVE_TYPES.has(type)) return null;
+      if (type === 'event' && (!body || !body.trim()) && fm && fm.when) return null;
       if (!body) {
         return {
-          detail: `no body; type=${type} expected to have at least one observation or typed relation`,
-          message: `type=${type} page has no body. Add at least one categorized observation, typed relation, or the explicit stub template \`Stub. ^[source]\`.`,
+          detail: `has no body; type=${type} expected to have at least one [fact] or typed relation`,
+          message: `type=${type} page has no body; expected at least one [fact] or typed relation`,
         };
       }
       // Stub template (`Stub. ^[source]`) is exempt — intentionally minimal.
@@ -408,6 +408,138 @@ const AUDIT_RULES = [
       return {
         detail: `type=event but 'event' tag missing`,
         message: `type=event requires tag "event" in --tags`,
+      };
+    },
+  },
+
+  {
+    name: 'todo-status-required',
+    severity: 'high',
+    strict: true,
+    check: ({ type, fm }) => {
+      if (type !== 'todo') return null;
+      if (fm && fm.status) return null;
+      return {
+        detail: `type=todo but status missing`,
+        message: `type=todo requires status: open|doing|done|abandoned`,
+        fix: `wiki todo update <slug> --status open`,
+      };
+    },
+  },
+
+  {
+    name: 'todo-status-value',
+    severity: 'high',
+    strict: true,
+    check: ({ type, fm }) => {
+      if (type !== 'todo' || !fm || !fm.status) return null;
+      const v = String(fm.status);
+      if (['open', 'doing', 'done', 'abandoned'].includes(v)) return null;
+      return {
+        detail: `todo status "${v}" is not open|doing|done|abandoned`,
+        message: `todo status must be open|doing|done|abandoned (got "${v}")`,
+        fix: `wiki todo update <slug> --status open`,
+      };
+    },
+  },
+
+  {
+    name: 'todo-due-date',
+    severity: 'high',
+    strict: true,
+    check: ({ type, fm }) => {
+      if (type !== 'todo' || !fm || !fm.due) return null;
+      if (isISODate(String(fm.due))) return null;
+      return {
+        detail: `todo due "${fm.due}" is not YYYY-MM-DD`,
+        message: `todo due must be YYYY-MM-DD (got "${fm.due}")`,
+        fix: `wiki todo update <slug> --clear-due   # or --due YYYY-MM-DD`,
+      };
+    },
+  },
+
+  {
+    name: 'todo-priority-value',
+    severity: 'medium',
+    strict: true,
+    check: ({ type, fm }) => {
+      if (type !== 'todo' || !fm || !fm.priority) return null;
+      const v = String(fm.priority);
+      if (['high', 'med', 'low'].includes(v)) return null;
+      return {
+        detail: `todo priority "${v}" is not high|med|low`,
+        message: `todo priority must be high|med|low (got "${v}")`,
+        fix: `wiki todo classify <slug> --clear-priority   # or --priority high|med|low`,
+      };
+    },
+  },
+
+  {
+    name: 'todo-reminder-datetime',
+    severity: 'high',
+    strict: true,
+    check: ({ type, fm }) => {
+      if (type !== 'todo' || !fm) return null;
+      const bad = [];
+      if (fm.remind_at && !isISO8601DateTime(String(fm.remind_at))) bad.push(`remind_at=${fm.remind_at}`);
+      if (fm.reminded_at && !isISO8601DateTime(String(fm.reminded_at))) bad.push(`reminded_at=${fm.reminded_at}`);
+      if (!bad.length) return null;
+      return {
+        detail: `todo reminder datetime invalid: ${bad.join(', ')}`,
+        message: `todo reminder fields must be ISO8601 datetimes: ${bad.join(', ')}`,
+        fix: `wiki todo update <slug> --clear-remind   # or --remind_at YYYY-MM-DDTHH:MM+08:00`,
+      };
+    },
+  },
+
+  {
+    name: 'todo-date-in-title-without-due',
+    severity: 'low',
+    strict: false,
+    check: ({ title, type, fm }) => {
+      if (type !== 'todo' || !title || !fm) return null;
+      if ((fm.status || 'open') !== 'open') return null;
+      if (fm.due) return null;
+      const s = String(title);
+      const looksDated =
+        /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2}\b/i.test(s) ||
+        /\b\d{4}-\d{2}-\d{2}\b/.test(s) ||
+        /\b\d{1,2}\/\d{4}\b/.test(s) ||
+        /\bQ[1-4]\s+\d{4}\b/i.test(s);
+      if (!looksDated) return null;
+      return {
+        detail: `open todo title looks date-bearing but has no structured due date`,
+        message: `Open todo title appears to contain a date, but frontmatter has no due. Add one with \`wiki todo defer <slug> --to YYYY-MM-DD\` if this is actionable.`,
+      };
+    },
+  },
+
+  {
+    name: 'todo-open-untagged',
+    severity: 'low',
+    strict: false,
+    check: ({ type, tags, fm }) => {
+      if (type !== 'todo' || !fm) return null;
+      if ((fm.status || 'open') !== 'open') return null;
+      if (Array.isArray(tags) && tags.length) return null;
+      return {
+        detail: `open todo has no classification tag`,
+        message: `Open todo has no tag. Use \`wiki todo classify <slug> --add-tag <existing-tag>\` so views can slice it.`,
+      };
+    },
+  },
+
+  {
+    name: 'todo-done-without-done-at',
+    severity: 'low',
+    strict: false,
+    check: ({ type, fm }) => {
+      if (type !== 'todo' || !fm) return null;
+      if (fm.status !== 'done') return null;
+      if (fm.done_at) return null;
+      return {
+        detail: `done todo has no done_at timestamp`,
+        message: `Done todo has no done_at timestamp. This is legacy data; no action needed unless timeline precision matters.`,
       };
     },
   },
@@ -474,10 +606,10 @@ function strictRuleErrors(input, deps) {
 }
 
 // Run only `ironclad: true` rules. Used by cmdWrite + cmdPatch to enforce
-// schema/data-loss invariants BEFORE the `--soft` short-circuit. `--soft`
-// bypasses everyday strict rules (missing-provenance, mislabeled-event, etc.)
-// but not these — bypassing them would produce unparseable artefacts or empty
-// graph pages.
+// schema-syntax violations (unknown categories, unknown verbs) BEFORE the
+// `--soft` short-circuit. `--soft` bypasses everyday strict rules
+// (missing-provenance, mislabeled-event, etc.) but not these — the vocabulary
+// is closed-set and a `--soft` bypass would produce unparseable artefacts.
 function ironcladRuleErrors(input, deps) {
   const errors = [];
   for (const rule of AUDIT_RULES) {
