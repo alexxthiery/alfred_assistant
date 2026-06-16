@@ -398,6 +398,9 @@ test('bloated-card: counts mixed categories, not just facts', () => {
   }
   const out = r.check({ body: lines.join('\n') }, deps());
   assert.ok(out, 'mixed-category obs at threshold should fire');
+  // Pin the count, not just the firing — a bug that fires with the wrong
+  // count (e.g., only counts facts) would otherwise pass.
+  assert.match(out.detail, new RegExp(`^${OBSERVATION_BLOAT_THRESHOLD} active observations`));
 });
 
 test('bloated-card: recognises canonical real-world strikethrough format', () => {
@@ -487,6 +490,87 @@ test('event-tag: silent when event tag present', () => {
   const r = findRule('event-tag');
   const out = r.check({ type: 'event', tags: ['event', 'family'] }, deps());
   assert.equal(out, null);
+});
+
+// ─── todo-* rules ──────────────────────────────────────────────────────────
+// Eight todo audit rules previously had zero direct unit tests. Each check
+// function is small; the tests assert fire-and-silent on the right inputs.
+
+test('todo-status-required: fires when type=todo and fm.status absent', () => {
+  const r = findRule('todo-status-required');
+  assert.ok(r.check({ type: 'todo', fm: {} }, deps()));
+  assert.equal(r.check({ type: 'todo', fm: { status: 'open' } }, deps()), null);
+  assert.equal(r.check({ type: 'entity', fm: {} }, deps()), null);
+});
+
+test('todo-status-value: fires on invalid status, silent on valid', () => {
+  const r = findRule('todo-status-value');
+  assert.ok(r.check({ type: 'todo', fm: { status: 'pending' } }, deps()));
+  for (const v of ['open', 'doing', 'done', 'abandoned']) {
+    assert.equal(r.check({ type: 'todo', fm: { status: v } }, deps()), null, `valid: ${v}`);
+  }
+  assert.equal(r.check({ type: 'todo', fm: {} }, deps()), null, 'no status falls to status-required');
+});
+
+test('todo-due-date: fires on malformed due, silent on ISO date', () => {
+  const r = findRule('todo-due-date');
+  assert.ok(r.check({ type: 'todo', fm: { due: '2026/06/17' } }, deps()));
+  assert.ok(r.check({ type: 'todo', fm: { due: 'tomorrow' } }, deps()));
+  assert.equal(r.check({ type: 'todo', fm: { due: '2026-06-17' } }, deps()), null);
+  assert.equal(r.check({ type: 'todo', fm: {} }, deps()), null, 'no due → silent');
+});
+
+test('todo-priority-value: fires on invalid priority, silent on valid', () => {
+  const r = findRule('todo-priority-value');
+  assert.ok(r.check({ type: 'todo', fm: { priority: 'urgent' } }, deps()));
+  for (const v of ['high', 'med', 'low']) {
+    assert.equal(r.check({ type: 'todo', fm: { priority: v } }, deps()), null, `valid: ${v}`);
+  }
+});
+
+test('todo-reminder-datetime: fires on non-ISO8601, silent on valid datetimes', () => {
+  const r = findRule('todo-reminder-datetime');
+  assert.ok(r.check({ type: 'todo', fm: { remind_at: '2026-06-17' } }, deps()),
+    'date without time → invalid');
+  assert.ok(r.check({ type: 'todo', fm: { reminded_at: 'noon' } }, deps()));
+  assert.equal(r.check({ type: 'todo', fm: { remind_at: '2026-06-17T14:00+08:00' } }, deps()), null);
+});
+
+test('todo-date-in-title-without-due: fires on date-bearing title with no due', () => {
+  const r = findRule('todo-date-in-title-without-due');
+  // Open + dated title + no fm.due → fires
+  assert.ok(r.check({
+    type: 'todo', title: 'Review by 2026-08-01', fm: { status: 'open' }, tags: ['x'],
+  }, deps()));
+  assert.ok(r.check({
+    type: 'todo', title: 'Plan for Q3 2026', fm: { status: 'open' }, tags: ['x'],
+  }, deps()));
+  // Same dated title but has due → silent
+  assert.equal(r.check({
+    type: 'todo', title: 'Review by 2026-08-01', fm: { status: 'open', due: '2026-08-01' }, tags: ['x'],
+  }, deps()), null);
+  // Closed status → silent (rule only nudges open todos)
+  assert.equal(r.check({
+    type: 'todo', title: 'Review by 2026-08-01', fm: { status: 'done' }, tags: ['x'],
+  }, deps()), null);
+});
+
+test('todo-open-untagged: fires on open todo with no tags', () => {
+  const r = findRule('todo-open-untagged');
+  assert.ok(r.check({ type: 'todo', fm: { status: 'open' }, tags: [] }, deps()));
+  assert.ok(r.check({ type: 'todo', fm: { status: 'open' } }, deps()), 'missing tags = same as empty');
+  assert.equal(r.check({ type: 'todo', fm: { status: 'open' }, tags: ['work'] }, deps()), null);
+  assert.equal(r.check({ type: 'todo', fm: { status: 'done' }, tags: [] }, deps()), null, 'closed → silent');
+});
+
+test('todo-done-without-done-at: fires when status=done and done_at missing', () => {
+  const r = findRule('todo-done-without-done-at');
+  assert.ok(r.check({ type: 'todo', fm: { status: 'done' } }, deps()));
+  assert.equal(r.check({
+    type: 'todo', fm: { status: 'done', done_at: '2026-06-17T10:00+08:00' },
+  }, deps()), null);
+  assert.equal(r.check({ type: 'todo', fm: { status: 'open' } }, deps()), null, 'open → silent');
+  assert.equal(r.check({ type: 'entity', fm: {} }, deps()), null, 'non-todo → silent');
 });
 
 // ─── auditPage integration ─────────────────────────────────────────────────
