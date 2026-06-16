@@ -711,6 +711,10 @@ Do **not** `wiki write --replace` on the source: `--replace` without explicit `-
 
 **Linkability invariants.** No information is orphaned (both sides are linked); supersede (not delete) preserves the source's `<!--obs:XXX-->` markers for any external references; aliases on the target (so autolink resolves prose mentions); hooks inherited where genuinely apt (reuse-first); one genuine edge between source and target (sparse). Promote at ≥3 same-theme observations on one card, same threshold as hook promotion.
 
+**Gotcha: substring fragility under groom.** `wiki groom --mechanical` runs bidirectional autolink that rewrites prose mentions of any newly-minted target on every page in the vault. If you mint a target then run groom *before* superseding the source obs, autolink may rewrite the source obs body (observed: `Yunnan, China` → `[[trip-yunnan-2025-07]]`), invalidating your queued substring supersede. Two safe patterns: (a) complete all supersedes in the same batch as the mint, then groom once at the end; (b) use a fragment of the obs-id in the substring (e.g., a portion of `<!--obs:XXXXXX-->`) — obs-ids are stable across autolink rewrites.
+
+**Known accepted false-positives.** The rule's value is *triage* ("read this page, ask: richness or accumulation?"). Some pages legitimately accumulate observations because the page-shape itself is a list of atomic instances: publications lists / measurement TSVs (each row is one atom); rich biographies of family members, the user, long-time collaborators (the residual after honest cluster-routing is who-the-page-is, not separable sub-topics); intentional sub-models like `{{USER_SLUG}}-self-model-*` (already factored from a hub page). For these, read the page, confirm no separable sub-topic to factor, and **accept the flag**. The rule will keep firing; that prompts the question on every audit, which is a feature.
+
 ### Challenge
 
 When {{USER_NAME}} states a strong intellectual position, run `wiki challenge <slug>` and check for instances that `contradicts` a shared principle. Surface the tension before agreeing (Reflex 3).
