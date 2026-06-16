@@ -168,11 +168,33 @@ test('exact-duplicate-observation: silent when an existing obs is superseded and
 });
 
 test('exact-duplicate-observation: ignores inline date/provenance/confidence tags when comparing canonical form', () => {
-  // Same body content, different provenance + date markers → still duplicate.
+  // Behavioral claim: canonicalisation strips date markers + provenance + confidence
+  // before comparing, so two facts with same prose but different metadata duplicate.
+  // Plausible bugs:
+  //   - strips only some markers (e.g., dates but not provenance) → duplicates leak through
+  //   - off-by-N detail count (rule fires but reports the wrong number of dups)
+  //   - the rule wrongly fires on a non-duplicate pair after the canonicaliser drops
+  //     a distinguishing token
+  // Independent oracle: the canonical body "X happened" appears twice in the body,
+  //   so the rule's detail should report exactly 1 duplicate group.
   const r = findRule('exact-duplicate-observation');
   const body = '- [fact] X happened [since 2024-01] ^[t:1]\n- [fact] X happened [on 2025-06] ^[t:2]';
   const out = r.check({ body }, deps());
-  assert.ok(out);
+  assert.ok(out, 'two facts with same prose body must be flagged regardless of date/prov differences');
+  // Oracle 1: the rule names the category of the duplicate so the agent knows
+  //   which categorisation tier matters (a [fact] dup vs a [hypothesis] dup
+  //   has different remediation).
+  assert.match(out.detail, /\[fact\]/,
+    'detail must name the category of the duplicated observation');
+  // Oracle 2: the duplicated body text appears in detail/message so the agent
+  //   can locate the right line for supersede. Pins behavioural contract,
+  //   independent of internal layout.
+  assert.match(out.detail + ' ' + out.message, /X happened/,
+    'detail/message should surface the duplicated body text');
+  // Oracle 3: the fix hint suggests the supersede path (not just --force-duplicate),
+  //   so the agent's default reflex is to revise rather than bypass.
+  assert.match(out.fix, /supersede/,
+    'fix hint should mention --supersede as the proper revision path');
 });
 
 test('speculative-shape-fact: fires on future-tense [fact] (will) → suggests [prediction]', () => {
@@ -468,10 +490,28 @@ test('empty-page: silent on non-substantive types', () => {
   assert.equal(out, null);
 });
 
-test('event-when: fires on type=event missing fm.when', () => {
+test('event-when: fires on type=event missing fm.when and names the missing field', () => {
+  // Behavioral claim: an event page must have a fm.when (the canonical date);
+  //   without it, agenda queries can't place the event.
+  // Plausible bugs:
+  //   - rule fires but message is generic ("frontmatter incomplete"), agent
+  //     can't tell what to add
+  //   - rule fires on non-event types
+  //   - rule misses when=null or when=""
+  // Oracle: the contract is "type=event requires when:YYYY-MM-DD"; the rule's
+  //   message should name the missing field explicitly.
   const r = findRule('event-when');
   const out = r.check({ type: 'event', fm: {} }, deps());
-  assert.ok(out);
+  assert.ok(out, 'type=event + no fm.when must fire');
+  // Oracle: message names the missing field "when" so the agent's fix is obvious
+  // (vs a generic "frontmatter incomplete" which would not be actionable).
+  assert.match(out.message, /when/i, 'message must name the missing "when" field');
+  // Boundary: explicit null and empty string must also fire (otherwise the
+  // rule could be bypassed by `wiki write --when ""`).
+  assert.ok(r.check({ type: 'event', fm: { when: null } }, deps()),
+    'when=null must fire — empty value defeats agenda placement');
+  assert.ok(r.check({ type: 'event', fm: { when: '' } }, deps()),
+    'when="" must fire — empty value defeats agenda placement');
 });
 
 test('event-when: silent on non-event types', () => {
@@ -497,19 +537,64 @@ test('event-tag: silent when event tag present', () => {
 // function is small; the tests assert fire-and-silent on the right inputs.
 
 test('todo-status-required: fires when type=todo and fm.status absent', () => {
+  // Behavioral claim: a type=todo page must declare a status; the rule emits a
+  // strict-high alert when status is missing, with a remediation fix.
+  // Plausible bugs:
+  //   - inverted predicate (fires on entity, not todo)
+  //   - returns silently with no detail (alert exists but is useless)
+  //   - drops the `fix` hint (user / agent left without a remediation path)
+  //   - severity demoted to low (alert becomes ignorable)
   const r = findRule('todo-status-required');
-  assert.ok(r.check({ type: 'todo', fm: {} }, deps()));
-  assert.equal(r.check({ type: 'todo', fm: { status: 'open' } }, deps()), null);
-  assert.equal(r.check({ type: 'entity', fm: {} }, deps()), null);
+  // Oracle: behavior is fire-and-silent across type × status_present combinations.
+  const fired = r.check({ type: 'todo', fm: {} }, deps());
+  assert.ok(fired, 'must fire on type=todo + no status');
+  // Oracle: the contract carries a status-specific message AND a wiki-todo fix.
+  // Independent of the rule's internal regex / string layout.
+  assert.match(fired.message, /status/i, 'message must name what is missing');
+  assert.match(fired.fix, /wiki\s+todo/, 'fix must be a wiki-todo CLI command');
+  // Negative: type=todo with status is silent.
+  assert.equal(r.check({ type: 'todo', fm: { status: 'open' } }, deps()), null,
+    'type=todo + status=open must be silent (rule scope is missing status only)');
+  // Negative: non-todo never fires (rule scope is type=todo).
+  assert.equal(r.check({ type: 'entity', fm: {} }, deps()), null,
+    'type=entity (no status) must be silent — rule does not apply');
+  // Boundary: severity contract — todo-status-required is strict + high.
+  assert.equal(r.severity, 'high', 'todo-status-required is high-severity (writes blocked)');
+  assert.equal(r.strict, true, 'todo-status-required blocks writes (strict mode)');
 });
 
-test('todo-status-value: fires on invalid status, silent on valid', () => {
+test('todo-status-value: rejects values outside the documented set, reports the bad value', () => {
+  // Behavioral claim: status must be one of the documented values; an invalid
+  // value is reported with the bad value echoed back so the agent can fix it.
+  // Plausible bugs:
+  //   - rule accepts arbitrary strings (predicate inverted)
+  //   - rule fires but doesn't echo the offending value in detail
+  //   - rule expands the valid set silently (e.g., accepts "pending")
+  // Independent oracle: the documented valid set is "open|doing|done|abandoned"
+  //   per the rule's own error message — testing that the rule's message
+  //   reveals what it considers valid (which is testable WITHOUT importing the
+  //   set from the implementation).
   const r = findRule('todo-status-value');
-  assert.ok(r.check({ type: 'todo', fm: { status: 'pending' } }, deps()));
+  const fired = r.check({ type: 'todo', fm: { status: 'pending' } }, deps());
+  assert.ok(fired, 'must fire on unrecognised status');
+  // Oracle 1: the rule echoes back the value that triggered it (so the agent
+  //   knows what to change). Pins behavioral contract, not internal layout.
+  assert.match(fired.detail, /pending/, 'detail must echo the offending value');
+  // Oracle 2: the message names the documented valid set so callers know what
+  //   IS allowed. Independent of any internal valid-list constant.
+  assert.match(fired.message, /open\|doing\|done\|abandoned/,
+    'message must enumerate the valid options (open|doing|done|abandoned)');
+  // Boundary: each documented value is accepted.
   for (const v of ['open', 'doing', 'done', 'abandoned']) {
-    assert.equal(r.check({ type: 'todo', fm: { status: v } }, deps()), null, `valid: ${v}`);
+    assert.equal(r.check({ type: 'todo', fm: { status: v } }, deps()), null,
+      `documented status "${v}" must be accepted`);
   }
-  assert.equal(r.check({ type: 'todo', fm: {} }, deps()), null, 'no status falls to status-required');
+  // Scope: rule doesn't fire when status is absent — that's status-required's job.
+  assert.equal(r.check({ type: 'todo', fm: {} }, deps()), null,
+    'no status falls under todo-status-required, not todo-status-value');
+  // Scope: rule doesn't fire on non-todo types.
+  assert.equal(r.check({ type: 'entity', fm: { status: 'whatever' } }, deps()), null,
+    'rule scope is type=todo only');
 });
 
 test('todo-due-date: fires on malformed due, silent on ISO date', () => {
