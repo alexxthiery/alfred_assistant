@@ -65,7 +65,13 @@ function serializeFrontmatter(fm, body) {
     lines.push(Array.isArray(v) ? `${k}: [${v.join(', ')}]` : `${k}: ${v}`);
   }
   lines.push('---');
-  return lines.join('\n') + '\n' + body.replace(/^\n+/, '');
+  // Body: strip leading newlines (parseFrontmatter may leave one) AND trailing
+  // whitespace, then re-append exactly one newline if body is non-empty.
+  // Prevents trailing blank lines from accumulating across patch operations
+  // (every patch re-serializes the file; without trimming, slack compounds).
+  const trimmedBody = body.replace(/^\n+/, '').replace(/\s*$/, '');
+  const normalizedBody = trimmedBody ? trimmedBody + '\n' : '';
+  return lines.join('\n') + '\n' + normalizedBody;
 }
 
 // Apply migrations to a single parsed page. Returns { fm, body, fromVersion, toVersion }

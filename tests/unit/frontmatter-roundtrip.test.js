@@ -144,7 +144,10 @@ test('boundary: alias containing `]` happens to round-trip (single slice)', () =
 });
 
 test('boundary: parser tolerates body without trailing newline', () => {
-  const text = serializeFrontmatter({ id: 'x' }, 'body without trailing newline');
+  // Build input directly: serializeFrontmatter now normalizes the trailing
+  // newline (adds one if missing). The parser still needs to tolerate input
+  // that lacks one — e.g., a hand-written page or upstream data source.
+  const text = '---\nid: x\nschema_version: 1\n---\nbody without trailing newline';
   const out = parseFrontmatter(text);
   assert.equal(out.body, 'body without trailing newline');
 });

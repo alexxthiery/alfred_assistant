@@ -164,6 +164,24 @@ test('serializeFrontmatter: strips leading blank lines from body', () => {
   assert.equal(out.split('---').slice(2).join('---'), '\nactual body\n');
 });
 
+test('serializeFrontmatter: normalizes trailing whitespace to a single newline', () => {
+  // Guards against the accumulation pattern: every patch passes the existing
+  // body through serializeFrontmatter; without trailing-trim, blank lines
+  // compound until heavily-edited pages have 5-15 trailing blank lines.
+  const out = serializeFrontmatter({ id: 'x' }, 'body\n\n\n\n');
+  assert.equal(out.split('---').slice(2).join('---'), '\nbody\n');
+});
+
+test('serializeFrontmatter: adds a trailing newline if body lacks one', () => {
+  const out = serializeFrontmatter({ id: 'x' }, 'body');
+  assert.equal(out.split('---').slice(2).join('---'), '\nbody\n');
+});
+
+test('serializeFrontmatter: empty body emits no extra newline', () => {
+  const out = serializeFrontmatter({ id: 'x' }, '');
+  assert.equal(out.split('---').slice(2).join('---'), '\n');
+});
+
 // ─── migratePage ───────────────────────────────────────────────────────────
 
 test('migratePage: unversioned page is stamped to current', () => {
