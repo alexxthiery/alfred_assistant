@@ -182,6 +182,26 @@ test('serializeFrontmatter: empty body emits no extra newline', () => {
   assert.equal(out.split('---').slice(2).join('---'), '\n');
 });
 
+test('serializeFrontmatter: preserves internal whitespace, only trims at ends', () => {
+  // The regex \s*$ matches at end-of-string, not within. This test pins that:
+  // internal blank lines are part of the document's intentional structure.
+  const out = serializeFrontmatter({ id: 'x' }, 'line1\n\nline2\n');
+  assert.equal(out.split('---').slice(2).join('---'), '\nline1\n\nline2\n');
+});
+
+test('serializeFrontmatter: round-trip is idempotent — re-serializing yields same bytes', () => {
+  // The 448-file vault normalization we ran would silently corrupt files if
+  // serialize(parse(...)) weren't a fixed point on its own output. This test
+  // pins the property formally.
+  const original = serializeFrontmatter(
+    { id: 'x', title: 'X', type: 'entity' },
+    'body line 1\n- [fact] obs ^[t:1]\n',
+  );
+  const { fm, body } = parseFrontmatter(original);
+  const re = serializeFrontmatter(fm, body);
+  assert.equal(re, original, 'serialize(parse(serialize(...))) must equal the first serialize');
+});
+
 // ─── migratePage ───────────────────────────────────────────────────────────
 
 test('migratePage: unversioned page is stamped to current', () => {

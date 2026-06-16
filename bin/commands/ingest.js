@@ -110,7 +110,7 @@ function cmdIngest(args) {
   forEachPage(({ fm }) => { for (const h of (Array.isArray(fm.hooks) ? fm.hooks : [])) if (typeof h === 'string' && h) hookVocab.add(h); });
   for (const e of entities) for (const h of (Array.isArray(e.hooks) ? e.hooks : [])) if (typeof h === 'string' && h) hookVocab.add(h);
   for (const p of patches) for (const h of (Array.isArray(p.add_hooks) ? p.add_hooks : [])) if (typeof h === 'string' && h) hookVocab.add(h);
-  const created = [], modified = [], skipped = [];
+  const created = [], modified = [], skipped = [], warnings = [];
   /** @type {Map<string,string>} absolute-path -> file content */
   const stagedWrites = new Map();
   const stagedExists = (p) => stagedWrites.has(p) || fs.existsSync(p);
@@ -187,8 +187,24 @@ function cmdIngest(args) {
     const { fm, body } = parseFrontmatter(stagedRead(wikiPath(p.slug)));
     let newBody = body;
     const additions = [];
-    if (Array.isArray(p.supersede)) {
+    // Surface malformed `supersede` early — silent no-op was a real gotcha:
+    // a string or array-of-strings reaches here, fails Array.isArray or fails
+    // .match lookup, and the entire supersede block silently skips while the
+    // rest of the patch reports success. Validate input shape loudly.
+    if (p.supersede != null && !Array.isArray(p.supersede)) {
+      console.error(
+        `patches[${p.slug}]: 'supersede' must be an array of {match: "<substring>"} objects, got ${typeof p.supersede}`,
+      );
+      warnings.push({ slug: p.slug, kind: 'supersede-shape' });
+    } else if (Array.isArray(p.supersede)) {
       for (const sup of p.supersede) {
+        if (typeof sup !== 'object' || sup == null || typeof sup.match !== 'string') {
+          console.error(
+            `patches[${p.slug}]: each 'supersede' entry must be {match: "<substring>"}; got ${JSON.stringify(sup)} — skipped`,
+          );
+          warnings.push({ slug: p.slug, kind: 'supersede-entry' });
+          continue;
+        }
         const needle = sup.match;
         const lines = newBody.split('\n');
         const matches = [];
@@ -472,6 +488,12 @@ function cmdIngest(args) {
   if (created.length) console.log(`  created: ${created.join(', ')}`);
   if (modified.length) console.log(`  modified: ${modified.join(', ')}`);
   if (skipped.length) console.log(`  skipped (already exist): ${skipped.join(', ')}`);
+  if (warnings.length) {
+    // Surface in the summary so the agent doesn't have to scan stderr for
+    // silent-skip cases (malformed `supersede` shape, etc.). The detail was
+    // already written to stderr at the call site.
+    console.log(`  warnings: ${warnings.length} (${warnings.map((w) => `${w.kind}@${w.slug}`).join(', ')})`);
+  }
   if (autolinkFailures.length) {
     console.error('');
     console.error(`# autolink failures: ${autolinkFailures.length}/${touched.length}`);

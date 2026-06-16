@@ -386,6 +386,37 @@ test('bloated-card: silent on empty body', () => {
   assert.equal(r.check({ body: null }, deps()), null);
 });
 
+test('bloated-card: counts mixed categories, not just facts', () => {
+  // The rule sums all categorized observations regardless of category.
+  // This guards against a refactor that accidentally restricts to one category.
+  const { OBSERVATION_BLOAT_THRESHOLD } = require(path.resolve(__dirname, '..', '..', 'bin', 'lib', 'audit.js'));
+  const r = findRule('bloated-card');
+  const cats = ['fact', 'hypothesis', 'opinion', 'claim', 'decision', 'idea', 'todo'];
+  const lines = [];
+  for (let i = 0; i < OBSERVATION_BLOAT_THRESHOLD; i++) {
+    lines.push(`- [${cats[i % cats.length]}] obs ${i} ^[t:1]`);
+  }
+  const out = r.check({ body: lines.join('\n') }, deps());
+  assert.ok(out, 'mixed-category obs at threshold should fire');
+});
+
+test('bloated-card: recognises canonical real-world strikethrough format', () => {
+  // The real-world form is `- ~~[fact] body ^[prov] <!--obs:XXX-->~~ [until YYYY-MM-DD]`
+  // with [until ...] OUTSIDE the strikethrough markers. Earlier tests use a
+  // different form; this one pins parser-rule compatibility against the
+  // canonical syntax the CLI actually emits.
+  const { OBSERVATION_BLOAT_THRESHOLD } = require(path.resolve(__dirname, '..', '..', 'bin', 'lib', 'audit.js'));
+  const r = findRule('bloated-card');
+  const lines = [];
+  for (let i = 0; i < OBSERVATION_BLOAT_THRESHOLD; i++) {
+    lines.push(`- ~~[fact] obs ${i} ^[telegram:2026-05-01] <!--obs:a${i.toString().padStart(5, '0')}-->~~ [until 2026-06-16]`);
+  }
+  lines.push(`- [fact] one active ^[t:1]`);
+  // 20 superseded + 1 active = only 1 active, below threshold — rule must NOT fire.
+  assert.equal(r.check({ body: lines.join('\n') }, deps()), null,
+    'canonical strikethrough must be detected as superseded; otherwise rule wrongly fires');
+});
+
 test('sectioned-idea-page: fires on a concept page with ## sub-headers (fat page)', () => {
   const r = findRule('sectioned-idea-page');
   const fat = '## Static\n- [claim] a ^[t:1]\n## Dynamic\n- [claim] b ^[t:1]';

@@ -1,0 +1,16 @@
+{
+  "_comment": "Asserts that ingest patches with malformed `supersede` (string or other non-array) surface a 'warnings: ...' line in the summary, not silently no-op. Prior behavior: Array.isArray check returned false, the whole supersede block silently skipped, and the agent had no signal in stdout that the supersede didn't run.",
+  "source": "test:2026-06-17",
+  "entities": [
+    {
+      "slug": "supersede-shape-test",
+      "title": "Supersede shape test",
+      "type": "note",
+      "tags": ["meta"],
+      "facts": [{"body": "seed observation"}]
+    }
+  ],
+  "patches": [
+    {"slug": "supersede-shape-test", "supersede": "should-be-array-not-string"}
+  ]
+}

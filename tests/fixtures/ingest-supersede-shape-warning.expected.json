@@ -1,0 +1,10 @@
+{
+  "exitCode": 0,
+  "created": ["supersede-shape-test"],
+  "modified": ["supersede-shape-test"],
+  "skipped": [],
+  "stdoutContains": [
+    "warnings:",
+    "supersede-shape@supersede-shape-test"
+  ]
+}
