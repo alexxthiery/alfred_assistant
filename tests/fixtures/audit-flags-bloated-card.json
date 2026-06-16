@@ -1,0 +1,15 @@
+{
+  "_comment": "Integration test for the bloated-card audit rule. Seeds a vault with a page carrying 20 active categorized observations (the threshold) and asserts that `wiki audit --all --rule bloated-card` surfaces it. Guards against drift between parseObservations / the rule check and the post-write audit summary the agent reads after every write.",
+  "setup": [
+    [
+      "write",
+      "bloated-test-page",
+      "--title", "Bloated test page",
+      "--type", "note",
+      "--content",
+      "- [fact] obs 01 ^[t:1]\n- [fact] obs 02 ^[t:1]\n- [fact] obs 03 ^[t:1]\n- [fact] obs 04 ^[t:1]\n- [fact] obs 05 ^[t:1]\n- [fact] obs 06 ^[t:1]\n- [fact] obs 07 ^[t:1]\n- [fact] obs 08 ^[t:1]\n- [fact] obs 09 ^[t:1]\n- [fact] obs 10 ^[t:1]\n- [fact] obs 11 ^[t:1]\n- [fact] obs 12 ^[t:1]\n- [fact] obs 13 ^[t:1]\n- [fact] obs 14 ^[t:1]\n- [fact] obs 15 ^[t:1]\n- [fact] obs 16 ^[t:1]\n- [fact] obs 17 ^[t:1]\n- [fact] obs 18 ^[t:1]\n- [fact] obs 19 ^[t:1]\n- [fact] obs 20 ^[t:1]",
+      "--soft"
+    ]
+  ],
+  "cmd": ["audit", "--all", "--rule", "bloated-card"]
+}

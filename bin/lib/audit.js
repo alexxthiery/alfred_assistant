@@ -72,6 +72,14 @@ const TODO_EVENT_KEYWORD_EXEMPTIONS = new Set(['review']);
 // evidence).
 const SUBSTANTIVE_TYPES = new Set(['entity', 'event', 'concept', 'question']);
 
+// Observation count at which a page is flagged as bloated. A high count of
+// active categorized observations on one page is structural drift away from
+// atomic-concept-per-page: the card has become a log of disparate sub-topics
+// that should each live on their own page. Surfaced via the `bloated-card`
+// audit rule (which fires in every post-write summary), the `wiki review`
+// section, and the rubric's append-time check in `persona/pipeline.md`.
+const OBSERVATION_BLOAT_THRESHOLD = 20;
+
 const AUDIT_RULES = [
   {
     name: 'mislabeled-event',
@@ -353,6 +361,37 @@ const AUDIT_RULES = [
       return {
         detail: `${crammed.length} observation(s) pack >=4 independent assertions (multi-fact suspect)`,
         message: `${crammed.length} observation(s) look multi-fact (>=4 independent assertions) — split so each idea is independently addressable. A single long, self-contained idea (sentences that elaborate one point) is fine.`,
+      };
+    },
+  },
+
+  {
+    // Flags cards whose accumulated, currently-active categorized observations
+    // exceed OBSERVATION_BLOAT_THRESHOLD. The atomicity rule catches the
+    // *structural* form of "one big page" (entity-grouping, ##-sectioned
+    // concepts), but cards started atomic and silently grew a log of disparate
+    // sub-topics need their own signal. Non-scoring and advisory — same posture
+    // as multi-fact-observation — because the right fix is a per-cluster
+    // promotion ritual (the agent's judgment), not auto-action. Discoverable
+    // via three orthogonal surfaces that all point at the same playbook:
+    //   1. the post-write audit summary the CLI prints after every write,
+    //   2. `wiki audit --all --rule bloated-card` (this rule),
+    //   3. the `## Bloated cards` section in `wiki review`.
+    name: 'bloated-card',
+    severity: 'low',
+    strict: false,
+    check: ({ body }) => {
+      if (!body) return null;
+      const obs = parseObservations(body);
+      const active = obs.filter((o) => !o.superseded).length;
+      if (active < OBSERVATION_BLOAT_THRESHOLD) return null;
+      return {
+        detail: `${active} active observations on one page (>= ${OBSERVATION_BLOAT_THRESHOLD})`,
+        message: `page has ${active} active observations (>= ${OBSERVATION_BLOAT_THRESHOLD}); ` +
+          `inspect for sub-topic clusters that should be promoted to their own pages ` +
+          `(time-series → \`wiki measure\`, qualitative cluster → \`type: concept\`, ` +
+          `events → \`type: event\`, sub-facets of a hub → sub-page with \`part_of\`). ` +
+          `See the bloat remediation playbook in \`persona/pipeline.md\`.`,
       };
     },
   },
@@ -915,6 +954,7 @@ function auditVault({ pages, schema, knownVerbs }) {
 module.exports = {
   AUDIT_RULES,
   STRICT_CROSS_PAGE_RULES,
+  OBSERVATION_BLOAT_THRESHOLD,
   auditPage,
   auditVault,
   strictRuleErrors,

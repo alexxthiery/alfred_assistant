@@ -173,6 +173,20 @@ test('formatBrief: ONGOING lists background todos, soonest-due first, undated la
   assert.ok(!body.includes('—'), 'no em dashes');
 });
 
+test('formatBrief: ONGOING shows every background todo, not just MAX_PER_SECTION', () => {
+  const background = Array.from({ length: MAX_PER_SECTION + 3 }, (_, i) => ({
+    slug: `todo-${i}`,
+    title: `Background ${i}`,
+    due: null,
+    priority: null,
+  }));
+  const body = formatBrief({ date: '2026-05-19', background });
+  assert.match(body, new RegExp(`ONGOING \\(${background.length}\\)\\n`));
+  assert.ok(!body.includes('showing'), body);
+  assert.ok(body.includes('- Background 0'));
+  assert.ok(body.includes(`- Background ${background.length - 1}`));
+});
+
 test('formatBrief: ONGOING omitted when no background todos', () => {
   const body = formatBrief({ date: '2026-05-19', dueToday: [{ slug: 'todo-c', title: 'C', due: '2026-05-19', priority: null }] });
   assert.ok(!/ONGOING/.test(body));

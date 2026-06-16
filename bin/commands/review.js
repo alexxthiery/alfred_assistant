@@ -11,6 +11,7 @@ const fs = require('fs');
 const { forEachPage, wikiPath, SCHEMA_PATH } = require('../lib/vault.js');
 const { aliasesOf, parseRelations, parseObservations } = require('../lib/graph.js');
 const { loadSchema: _loadSchema } = require('../lib/schema.js');
+const { OBSERVATION_BLOAT_THRESHOLD } = require('../lib/audit.js');
 
 const loadSchema = () => _loadSchema(SCHEMA_PATH);
 
@@ -284,6 +285,32 @@ function cmdReview(args) {
       items: dilutedHooks.slice(0, 15).map((e) => ({
         head: `${e.hook} (${e.n} atoms)`,
         lines: [`sample: ${hookSamples.get(e.hook).join(', ')}`],
+      })),
+    });
+  }
+
+  // ── Bloated cards: too many active observations on one page ──────────────
+  // The observation-level analogue of Diluted hooks. A card with many active
+  // categorized observations has drifted from atomic-concept-per-page into a
+  // log of disparate sub-topics that each deserve their own page. The fix is
+  // the bloat remediation playbook in persona/pipeline.md — read the card,
+  // cluster its observations by shape (time-series → wiki measure, qualitative
+  // → type=concept, events → type=event, hub-facet → sub-page with part_of),
+  // mint targets, and supersede on the source. Same `wiki audit --all --rule
+  // bloated-card` shortlist surfaces here for the periodic review pass.
+  const bloated = [];
+  for (const p of all) {
+    const active = parseObservations(p.body).filter((o) => !o.superseded).length;
+    if (active >= OBSERVATION_BLOAT_THRESHOLD) bloated.push({ slug: p.slug, n: active });
+  }
+  bloated.sort((x, y) => y.n - x.n || x.slug.localeCompare(y.slug));
+  if (bloated.length) {
+    sections.push({
+      title: 'Bloated cards (consider observation-level promotion)',
+      note: `Pages with >= ${OBSERVATION_BLOAT_THRESHOLD} active categorized observations. Each is a candidate for the bloat remediation playbook (\`persona/pipeline.md\`): cluster the observations by shape and promote each cluster to its own page (time-series → \`wiki measure\`, qualitative cluster → \`type: concept\`, events → \`type: event\`, sub-facets of a hub → sub-page with \`part_of\`). Same shortlist as \`wiki audit --all --rule bloated-card\`.`,
+      items: bloated.slice(0, 15).map((e) => ({
+        head: `${e.slug} (${e.n} active observations)`,
+        lines: [],
       })),
     });
   }

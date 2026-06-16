@@ -14,6 +14,10 @@
 # A Telegram-only assistant (e.g. a kid's, no email account) just omits
 # EMAIL_FROM. Errors only if NEITHER channel is configured.
 #
+# Channel failures are isolated: an SMTP outage must not suppress Telegram.
+# Failures are logged to <vault>/cache/daily-brief/send.log and retried once
+# after DAILY_BRIEF_RETRY_AFTER_SECONDS (default: 10800 = 3 hours).
+#
 # Config (edit or set in the environment / launchd plist):
 #   ALFRED_VAULT      vault path (contains .bin/)
 #   ENV_FILE          a file (sourced) exporting any of: EMAIL_FROM +
@@ -22,37 +26,116 @@
 set -euo pipefail
 ALFRED_VAULT="${ALFRED_VAULT:-$HOME/my-vault}"
 ENV_FILE="${ENV_FILE:-$HOME/nanoclaw/.env}"
+RETRY_AFTER_SECONDS="${DAILY_BRIEF_RETRY_AFTER_SECONDS:-10800}"
+RETRY_ON_FAILURE="${DAILY_BRIEF_RETRY_ON_FAILURE:-1}"
 
 # Secrets are sourced from a file, never hardcoded here.
 [ -f "$ENV_FILE" ] && set -a && . "$ENV_FILE" && set +a
 
+LOG_DIR="$ALFRED_VAULT/cache/daily-brief"
+LOG_FILE="$LOG_DIR/send.log"
+mkdir -p "$LOG_DIR" 2>/dev/null || true
+
+log_msg() {
+  local line
+  line="$(date -u '+%Y-%m-%dT%H:%M:%SZ') run-daily-brief: $*"
+  echo "$line" >&2
+  printf '%s\n' "$line" >> "$LOG_FILE" 2>/dev/null || true
+}
+
+summarize_output() {
+  local file="$1"
+  if [ ! -s "$file" ]; then
+    printf '(no output)'
+    return
+  fi
+  tail -n 12 "$file" | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g'
+}
+
+if ! [[ "$RETRY_AFTER_SECONDS" =~ ^[0-9]+$ ]]; then
+  log_msg "invalid DAILY_BRIEF_RETRY_AFTER_SECONDS=$RETRY_AFTER_SECONDS; using 10800"
+  RETRY_AFTER_SECONDS=10800
+fi
+
 want_email=0; [ -n "${EMAIL_FROM:-}" ] && want_email=1
 want_telegram=0; [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ] && want_telegram=1
 if [ "$want_email" -eq 0 ] && [ "$want_telegram" -eq 0 ]; then
-  echo "run-daily-brief: no channel configured — set EMAIL_FROM (email) and/or TELEGRAM_BOT_TOKEN+TELEGRAM_CHAT_ID (Telegram) in $ENV_FILE" >&2
+  log_msg "no channel configured — set EMAIL_FROM (email) and/or TELEGRAM_BOT_TOKEN+TELEGRAM_CHAT_ID (Telegram) in $ENV_FILE"
   exit 1
 fi
 
 # Compose the brief ONCE, then fan out to the configured channel(s). --tz makes
 # "today" the user's local date even if the runtime zone differs (UTC container).
-TZ_ARG=""; [ -n "${TZ:-}" ] && TZ_ARG="--tz $TZ"
-BRIEF="$("$ALFRED_VAULT/.bin/daily-brief" $TZ_ARG)"
+TZ_ARGS=()
+[ -n "${TZ:-}" ] && TZ_ARGS=(--tz "$TZ")
+BRIEF="$("$ALFRED_VAULT/.bin/daily-brief" "${TZ_ARGS[@]}")"
 
 if [ "$want_email" -eq 1 ]; then
   # Subject reflects the actual counts (e.g. "Daily brief: 2 overdue, 1 due
   # (Mon 25 May)"). Computed in a second, cheap pass (--no-sync/--no-log) that
   # reuses the same composer; falls back to a plain subject if it fails.
-  SUBJECT="$("$ALFRED_VAULT/.bin/daily-brief" $TZ_ARG --print-subject --no-sync --no-log 2>/dev/null)"
+  SUBJECT="$("$ALFRED_VAULT/.bin/daily-brief" "${TZ_ARGS[@]}" --print-subject --no-sync --no-log 2>/dev/null || true)"
   [ -n "$SUBJECT" ] || SUBJECT="Daily brief, $(date +%F)"
+fi
+
+send_email() {
   printf '%s\n' "$BRIEF" | "$ALFRED_VAULT/.bin/email-digest" \
     --subject "$SUBJECT" \
     --to "$EMAIL_FROM"
+}
+
+send_telegram() {
+  printf '%s\n' "$BRIEF" | "$ALFRED_VAULT/.bin/telegram-send"
+}
+
+attempt_channel() {
+  local channel="$1"
+  local tmp status summary
+  tmp="$(mktemp -t "alfred-daily-brief-${channel}.XXXXXX")"
+  if "send_${channel}" >"$tmp" 2>&1; then
+    summary="$(summarize_output "$tmp")"
+    log_msg "$channel send ok: $summary"
+    rm -f "$tmp"
+    return 0
+  else
+    status=$?
+  fi
+  summary="$(summarize_output "$tmp")"
+  log_msg "$channel send failed exit=$status: $summary"
+  rm -f "$tmp"
+  return "$status"
+}
+
+failed_channels=()
+if [ "$want_email" -eq 1 ]; then
+  if ! attempt_channel email; then
+    failed_channels+=("email")
+  fi
+fi
+if [ "$want_telegram" -eq 1 ]; then
+  if ! attempt_channel telegram; then
+    failed_channels+=("telegram")
+  fi
 fi
 
-# Telegram is best-effort + non-fatal: a Telegram failure must not fail the job
-# (when email is also configured, it already went). Same brief body, lands in
-# the assistant's chat.
-if [ "$want_telegram" -eq 1 ]; then
-  printf '%s\n' "$BRIEF" | "$ALFRED_VAULT/.bin/telegram-send" \
-    || echo "run-daily-brief: Telegram note failed (non-fatal)" >&2
+if [ "${#failed_channels[@]}" -gt 0 ] && [ "$RETRY_ON_FAILURE" != "0" ]; then
+  log_msg "retrying failed channel(s) in ${RETRY_AFTER_SECONDS}s: ${failed_channels[*]}"
+  sleep "$RETRY_AFTER_SECONDS"
+
+  still_failed=()
+  for channel in "${failed_channels[@]}"; do
+    if ! attempt_channel "$channel"; then
+      still_failed+=("$channel")
+    fi
+  done
+  failed_channels=("${still_failed[@]}")
+elif [ "${#failed_channels[@]}" -gt 0 ]; then
+  log_msg "retry disabled; failed channel(s): ${failed_channels[*]}"
 fi
+
+if [ "${#failed_channels[@]}" -gt 0 ]; then
+  log_msg "giving up; failed channel(s): ${failed_channels[*]}"
+  exit 1
+fi
+
+log_msg "all configured channels delivered"

@@ -1,21 +1,23 @@
 # Daily morning brief
 
-A cron-scheduled task that fires every morning at 07:00 (your timezone), runs `bin/daily-brief`, and emails you a short summary via Gmail SMTP. Unlike the [weekly digest](WEEKLY-DIGEST.md), composition is **deterministic**: a tiny Node script (`bin/daily-brief`) calls the underlying CLI verbs and emits byte-identical output for identical vault state. Alfred is not in the format loop.
+A cron/launchd-scheduled task that fires every morning at 07:00 (your timezone), runs `bin/daily-brief`, and sends you a short summary by email and/or Telegram depending on configured credentials. Unlike the [weekly digest](WEEKLY-DIGEST.md), composition is **deterministic**: a tiny Node script (`bin/daily-brief`) calls the underlying CLI verbs and emits byte-identical output for identical vault state. Alfred is not in the format loop.
 
-Trust the channel: even an empty day sends a "clean slate" email. Silence means the cron didn't fire; silence is never "nothing to report".
+Trust the channel: even an empty day sends a "clean slate" brief. Silence means either the scheduler did not fire or delivery failed after composition; check `<vault>/cache/daily-brief/YYYY-MM-DD.txt` first, then `<vault>/cache/daily-brief/send.log`.
 
-The email is plain text, formatted for a human reader: the two action sections (overdue, due today) always render so a structured "nothing" still proves the cron fired; each row leads with the todo title (not its internal slug); overdue items show relative aging ("3 days overdue (was 22 May)"); and the subject line carries the counts (`Daily brief: 2 overdue, 1 due (Mon 25 May)`).
+The brief is plain text, formatted for a human reader: the two action sections (overdue, due today) always render so a structured "nothing" still proves the composer ran; each row leads with the todo title (not its internal slug); overdue items show relative aging ("3 days overdue (was 22 May)"); and the email subject line carries the counts (`Daily brief: 2 overdue, 1 due (Mon 25 May)`).
 
 ## Pieces
 
 | Piece | Where | Purpose |
 |---|---|---|
-| Cron task | nanoclaw `schedule_task` (07:00 daily, your timezone) | Fires the routine |
+| Cron task | OS launchd/cron (07:00 daily, your timezone) | Fires the routine |
 | Composer | `bin/daily-brief` (Node, ~120 lines) | Runs six `wiki` subprocesses (step 0 `sync-ids` + five reads), parses output, emits formatted body |
 | Pure formatter | `bin/lib/daily-brief.js` | Parses verb output + formats body. No I/O. Unit-tested |
-| `bin/email-digest` | This repo (shared with weekly) | Bash wrapper around `curl --url 'smtps://smtp.gmail.com:465'` |
-| Persona routine | `docs/PERSONA.template.md` § "Daily routine" | One short paragraph: pipe `daily-brief` into `email-digest`. No composition by Alfred |
+| `run-daily-brief.sh` | `integrations/scheduling/` | Composes once, fans out to configured channels, logs delivery, retries failed channels once |
+| `bin/email-digest` / `bin/telegram-send` | This repo | Send wrappers around Gmail SMTP and the Telegram Bot API |
+| Persona routine | `docs/PERSONA.template.md` § "Daily routine" | Points at the host job. No composition by Alfred |
 | Cache log | `<vault>/cache/daily-brief/YYYY-MM-DD.txt` | Every emitted body persisted; `ls` answers "did it fire?" |
+| Send log | `<vault>/cache/daily-brief/send.log` | Channel success/failure and retry result, with no secrets |
 
 ## What runs, in order
 
@@ -25,24 +27,26 @@ The email is plain text, formatted for a human reader: the two action sections (
 4. **Step 3 — `wiki todo list --open`.** All open todos; those that are neither overdue nor due today become the ONGOING (background) section. Fired timed reminders whose due date has passed are hidden from the brief, but remain visible in `wiki todo list --open`.
 5. **Step 4 — `wiki agenda today --asof $(today)`.** Exact-date events for today only. Historical events from prior years are not shown.
 6. **Step 5 — `wiki agenda --on $(today)`.** Birthdays sharing today's MM-DD. Its event output is intentionally ignored here because `--on` is an on-this-day/history query.
-7. **Compose** the deterministic body (see § What the email contains) and emit to stdout.
+7. **Compose** the deterministic body (see § What the brief contains) and emit to stdout.
 8. **Persist** a copy to `<vault>/cache/daily-brief/YYYY-MM-DD.txt` unless `--no-log`.
+9. **Fan out** the same composed body to email and/or Telegram. Channel failures are isolated: a Gmail outage must not suppress Telegram.
+10. **Retry** any failed channel once after `DAILY_BRIEF_RETRY_AFTER_SECONDS` (default `10800`, i.e. 3 hours). The retry reuses the same body and subject; it does not re-query the vault.
 
 Steps 0 and 6 can be skipped with `--no-sync` and `--no-log` respectively (used by tests, never in production).
 
-## What the email contains
+## What the brief contains
 
-Each section is capped at 5 items (a `, showing 5` note appears when more exist):
+The action and date-sensitive sections are capped at 5 items (a `, showing 5` note appears when more exist). ONGOING is the full open background list:
 
 - **OVERDUE (N)** — open todos whose `due:` is in the past, oldest first; each shows relative aging. **Always rendered** (says `Nothing overdue.` when empty).
 - **DUE TODAY (N)** — open todos whose `due:` matches today. **Always rendered** (says `Nothing due.` when empty).
 - **EVENTS (N)** — `type=event` pages whose `when:` is today's exact date. Shown only when present. Use `wiki agenda --on` manually for on-this-day historical events and anniversaries.
 - **BIRTHDAYS (N)** — pages with `born:` sharing today's MM-DD. Year-known entries show `(turns N)`. Shown only when present.
-- **ONGOING (N)** — open todos that are neither overdue nor due today (future-dated, undated, or scheduled reminders still in flight): the background work. Soonest due first, undated last; due date shown as a trailing tag. Shown only when present.
+- **ONGOING (N)** — all open todos that are neither overdue nor due today (future-dated, undated, or scheduled reminders still in flight): the background work. Soonest due first, undated last; due date shown as a trailing tag. Shown only when present and not capped.
 
 Rows lead with the human title/name, not the internal slug, and contain no `[[wikilinks]]`. If everything is empty, the body collapses to one line: `Clean slate. Nothing overdue, nothing due, no events, no birthdays.`
 
-The email **subject** carries the actionable counts, e.g. `Daily brief: 2 overdue, 1 due (Mon 25 May)`, or `Daily brief: clear (Mon 25 May)` on a quiet day. The host wrapper computes it via `bin/daily-brief --print-subject` (a second, cheap pass).
+The email **subject** carries the actionable counts, e.g. `Daily brief: 2 overdue, 1 due (Mon 25 May)`, or `Daily brief: clear (Mon 25 May)` on a quiet day. The host wrapper computes it via `bin/daily-brief --print-subject` (a second, cheap pass). Telegram receives the same body; it has no separate subject.
 
 ## Sample output
 
@@ -137,11 +141,14 @@ you mark it done or otherwise clean it up. See `docs/REMINDERS.md`.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| No email on a morning | `nanoclaw` task table lost the cron | Re-bootstrap |
+| No email or Telegram, and no `cache/daily-brief/YYYY-MM-DD.txt` | OS scheduler did not fire, or the composer failed before writing the cache | Check `launchctl print gui/$UID/com.alfred.daily-brief` and `/tmp/alfred-daily-brief.err`; reinstall/kickstart the launchd job if missing |
+| `cache/daily-brief/YYYY-MM-DD.txt` exists but no delivery arrived | Channel send failed after composition | Check `cache/daily-brief/send.log`; failed channels retry once after 3 hours by default |
+| Email missing but Telegram arrived | Gmail SMTP/network/credential failure isolated to email | Check `send.log` and run `bin/email-digest --dry-run --subject t --to "$EMAIL_FROM"` |
+| Telegram missing but email arrived | Telegram Bot API/network/chat-id failure isolated to Telegram | Check `send.log` and run `bin/telegram-send --dry-run` |
 | Email arrives but is "clean slate" when you expected entries | The vault doesn't know yet | `wiki patch <slug> --born MM-DD`, `wiki todo add … --due …`, or `wiki write … --type event --when …` |
 | `daily-brief: \`wiki ...\` failed` | `wiki` binary not resolvable from `daily-brief`'s neighbourhood | Ensure both are in the same `.bin/` (deploy.sh handles this; verify with `ls -la <vault>/.bin/`) |
 | Birthday in MM-DD form not firing | Stored as `born: "07-14"` (quoted) — same; check shape regex matches `/^\d{2}-\d{2}$/` | `wiki patch <slug> --born 07-14` (unquoted YAML scalar) |
-| Yesterday's brief missing from `cache/daily-brief/` | Either cron didn't fire (re-bootstrap) or `--no-log` was passed | Inspect nanoclaw task history |
+| Yesterday's brief missing from `cache/daily-brief/` | Either launchd/cron didn't fire or `--no-log` was passed | Inspect launchd/cron history |
 
 ## Why we mint defensively (step 0)
 

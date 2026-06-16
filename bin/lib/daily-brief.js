@@ -204,8 +204,7 @@ function formatBrief({ date, overdue = [], dueToday = [], events = [], birthdays
       if (!b.due) return -1;
       return a.due.localeCompare(b.due);
     });
-    const { shown, omitted } = capSection(sorted);
-    sections.push(`ONGOING (${background.length})${omitted ? `, showing ${shown.length}` : ''}\n${shown.map(fmtBackgroundRow).join('\n')}`);
+    sections.push(`ONGOING (${background.length})\n${sorted.map(fmtBackgroundRow).join('\n')}`);
   }
   return `${header}\n\n${sections.join('\n\n')}\n`;
 }

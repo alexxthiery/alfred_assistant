@@ -353,6 +353,39 @@ test('multi-fact-observation: silent on short observations', () => {
   assert.equal(r.check({ type: 'entity', body: '- [fact] short' }, deps()), null);
 });
 
+test('bloated-card: fires at the threshold (>= OBSERVATION_BLOAT_THRESHOLD active observations)', () => {
+  const { OBSERVATION_BLOAT_THRESHOLD } = require(path.resolve(__dirname, '..', '..', 'bin', 'lib', 'audit.js'));
+  const r = findRule('bloated-card');
+  const body = Array.from({ length: OBSERVATION_BLOAT_THRESHOLD }, (_, i) => `- [fact] obs ${i} ^[t:1]`).join('\n');
+  const out = r.check({ body }, deps());
+  assert.ok(out, 'should fire at exactly threshold observations');
+  assert.match(out.detail, new RegExp(`${OBSERVATION_BLOAT_THRESHOLD} active observations`));
+  assert.match(out.message, /bloat remediation playbook/);
+});
+
+test('bloated-card: silent just below the threshold', () => {
+  const { OBSERVATION_BLOAT_THRESHOLD } = require(path.resolve(__dirname, '..', '..', 'bin', 'lib', 'audit.js'));
+  const r = findRule('bloated-card');
+  const body = Array.from({ length: OBSERVATION_BLOAT_THRESHOLD - 1 }, (_, i) => `- [fact] obs ${i} ^[t:1]`).join('\n');
+  assert.equal(r.check({ body }, deps()), null);
+});
+
+test('bloated-card: ignores superseded observations (only active counts)', () => {
+  const { OBSERVATION_BLOAT_THRESHOLD } = require(path.resolve(__dirname, '..', '..', 'bin', 'lib', 'audit.js'));
+  const r = findRule('bloated-card');
+  // Same total observations as threshold, but all but one are superseded → should be silent.
+  const lines = [];
+  for (let i = 0; i < OBSERVATION_BLOAT_THRESHOLD - 1; i++) lines.push(`- ~~[fact] old ${i} [until 2024-01-01]~~ ^[t:1]`);
+  lines.push(`- [fact] still active ^[t:1]`);
+  assert.equal(r.check({ body: lines.join('\n') }, deps()), null);
+});
+
+test('bloated-card: silent on empty body', () => {
+  const r = findRule('bloated-card');
+  assert.equal(r.check({ body: '' }, deps()), null);
+  assert.equal(r.check({ body: null }, deps()), null);
+});
+
 test('sectioned-idea-page: fires on a concept page with ## sub-headers (fat page)', () => {
   const r = findRule('sectioned-idea-page');
   const fat = '## Static\n- [claim] a ^[t:1]\n## Dynamic\n- [claim] b ^[t:1]';

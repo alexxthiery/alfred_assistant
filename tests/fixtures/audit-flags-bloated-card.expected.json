@@ -1,0 +1,8 @@
+{
+  "exitCode": 2,
+  "stdoutContains": [
+    "bloated-card",
+    "bloated-test-page",
+    "20 active observations"
+  ]
+}
