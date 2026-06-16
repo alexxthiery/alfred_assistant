@@ -98,11 +98,24 @@ test('mislabeled-entity: silent on type=entity (correct labeling)', () => {
   assert.equal(out, null);
 });
 
-test('uncategorized-bullets: fires on bare bullets', () => {
+test('uncategorized-bullets: fires on bare bullets and reports the offending example', () => {
+  // Behavioral claim: any `- ` bullet that is neither a `[category]` observation
+  // nor a `verb [[target]]` relation is uncategorized; the rule surfaces ONE
+  // example so the agent can fix it.
+  // Plausible bugs:
+  //   - rule miscounts (treats categorized lines as bare, fires falsely)
+  //   - rule fires but examples is empty (agent can't locate the bad line)
+  //   - the bare line "- bare bullet" is not in examples (rule found a different
+  //     line — silent miscategorisation)
   const r = findRule('uncategorized-bullets');
   const out = r.check({ body: '- bare bullet\n- [fact] real ^[t:1]\n- works_at [[example-corp]]' }, deps());
-  assert.ok(out);
-  assert.ok(out.examples && out.examples.length === 1);
+  assert.ok(out, 'must fire when a bare bullet sits among valid lines');
+  assert.equal(out.examples.length, 1, 'exactly one bare line in the input, exactly one example');
+  // Independent oracle: the example must point at the actual bare line, not at
+  // the [fact] or relation line. A bug that flagged the wrong line would slip
+  // through a `length === 1` check alone.
+  assert.match(String(out.examples[0]), /bare bullet/,
+    'example must surface the actual offending line text');
 });
 
 test('uncategorized-bullets: silent when all bullets are categorized or relation', () => {
@@ -214,12 +227,18 @@ test('speculative-shape-fact: fires on epistemic-uncertainty [fact] (might) → 
 });
 
 test('speculative-shape-fact: fires on "I think Z is going to work"', () => {
-  // Mixed trigger words: "i think" pulls toward hypothesis, "going to" toward
-  // prediction. Either suggestion is fine; main thing is the rule fires.
+  // Behavioral claim: mixed-signal trigger ("i think" + "going to") fires the
+  // rule; the suggested category should be either [hypothesis] (for "i think")
+  // or [prediction] (for "going to") — either is a valid recommendation.
+  // Plausible bug: rule fires but suggests a category that's neither
+  // hypothesis nor prediction (e.g., generic "rethink"). Test pins that the
+  // recommendation surface lands on one of the documented epistemic categories.
   const r = findRule('speculative-shape-fact');
   const body = '- [fact] I think Z is going to work ^[t:1]';
   const out = r.check({ body }, deps());
-  assert.ok(out);
+  assert.ok(out, 'mixed-signal speculative fact must fire');
+  assert.match(out.message, /hypothesis|prediction/i,
+    'message must recommend one of the documented epistemic alternatives');
 });
 
 test('speculative-shape-fact: silent on assertion-shaped [fact] ("X is the case")', () => {
@@ -344,10 +363,20 @@ test('invented-verb: silent when all verbs are in schema', () => {
 });
 
 test('multi-fact-observation: fires on a crammed >=4-clause observation', () => {
+  // Behavioral claim: an observation packing ≥4 independent assertions is
+  // flagged for splitting; the rule's detail should report the assertion count
+  // so the agent knows how much there is to factor.
+  // Plausible bugs:
+  //   - rule fires but reports count <4 (off-by-N, agent thinks it's fine)
+  //   - rule reports the wrong threshold (>=3 or >=5 — silent contract drift)
   const r = findRule('multi-fact-observation');
   const crammed = '- [fact] the system uses a critic for value. the actor is the proposal. weights stay exact. parameters move slowly ^[t:1]';
   const out = r.check({ type: 'entity', body: crammed }, deps());
   assert.ok(out, 'four distinct clauses should be flagged as multi-fact');
+  // Oracle: detail reports a number >=4 (the assertion count). A bug that
+  // reports 0 or 2 would slip past assert.ok alone.
+  assert.match(out.detail, /\b([4-9]|\d{2,})\b/,
+    'detail must report a count of ≥4 independent assertions');
 });
 
 test('multi-fact-observation: ignores superseded observations', () => {
@@ -467,9 +496,19 @@ test('sectioned-idea-page: silent on a flat atomic concept card', () => {
 });
 
 test('empty-page: fires on substantive type with no obs or relations', () => {
+  // Behavioral claim: substantive pages (entity/concept/synthesis) must have
+  // either observations or typed relations — pure prose is insufficient.
+  // Plausible bug: rule fires on a clearly-non-empty body (e.g., the prose
+  // alone counts as "content"), or rule emits message that doesn't tell the
+  // agent what shape is missing.
   const r = findRule('empty-page');
   const out = r.check({ type: 'entity', body: 'just prose, no bullets' }, deps());
-  assert.ok(out);
+  assert.ok(out, 'entity with no observations and no relations must fire');
+  // Oracle: message names what the rule expects (observations or relations).
+  // Without this, a regression that emits a generic "page too thin" message
+  // leaves the agent unable to act.
+  assert.match(out.message, /observation|relation/i,
+    'message must name what is missing (observations or relations)');
 });
 
 test('empty-page: silent on frontmatter-only event records', () => {
@@ -521,9 +560,15 @@ test('event-when: silent on non-event types', () => {
 });
 
 test('event-tag: fires on type=event missing "event" tag', () => {
+  // Behavioral claim: every type=event page must carry the "event" tag (so
+  // tag-filter views surface it). The rule names "event" in its message.
+  // Plausible bug: rule fires but generic message doesn't tell the agent
+  // which tag to add.
   const r = findRule('event-tag');
   const out = r.check({ type: 'event', tags: ['family'] }, deps());
-  assert.ok(out);
+  assert.ok(out, 'type=event with non-event tags must fire');
+  // Oracle: message names the missing tag explicitly.
+  assert.match(out.message, /event/i, 'message must name the missing "event" tag');
 });
 
 test('event-tag: silent when event tag present', () => {
