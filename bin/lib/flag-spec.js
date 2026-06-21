@@ -118,6 +118,8 @@ const VALUE_REQUIRED_FLAGS = new Set([
   'on', 'by', 'since', 'until', 'days', 'limit', 'max-hops', 'threshold',
   'only', 'date', 'birth', 'window', 'month-day', 'to', 'asof',
   'allow-duplicate-slug', 'rule',
+  // export
+  'ext',
 ]);
 
 // Value-required flags that were passed with no value (boolean `true`).

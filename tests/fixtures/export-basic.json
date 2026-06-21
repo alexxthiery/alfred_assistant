@@ -1,0 +1,3 @@
+{
+  "cmd": ["export", "q2-summary", "--content", "hello deliverable"]
+}

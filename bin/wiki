@@ -35,6 +35,7 @@ const { cmdIngest } = require('./commands/ingest.js');
 const { cmdPredict, cmdHypothesize, cmdCapture } = require('./commands/epistemic.js');
 const { cmdTodo } = require('./commands/todo.js');
 const { cmdMeasure } = require('./commands/measure.js');
+const { cmdExport } = require('./commands/export.js');
 const { cmdReplay } = require('./commands/replay.js');
 const { cmdDiff, cmdRevert } = require('./commands/git.js');
 const { cmdBless, cmdAudit, cmdFixLinks, cmdGroom, cmdSize, cmdSyncIds, cmdReindex, cmdPreflight, cmdMigrate } = require('./commands/hygiene.js');
@@ -176,6 +177,7 @@ function printGlobalHelp() {
       'REPLAY': 'REPLAY (re-run captured Telegram-driven ingests — catch persona/CLI drift)',
       'REVIEW': 'REVIEW (discovery + health digest — run weekly-ish)',
       'MEASUREMENTS': 'MEASUREMENTS (tabular time-series — growth, BP, fitness, labs)',
+      'OUTPUT': 'OUTPUT (free-form deliverables to output/ — gitignored, not graph content)',
     }[section] || section;
     console.error(sectionHeader);
     for (const v of verbs) for (const l of v.lines) console.error(l);
@@ -223,6 +225,8 @@ const cmds = {
   'persona-lint': cmdPersonaLint, migrate: cmdMigrate, preflight: cmdPreflight, bless: cmdBless,
   // measurements (tabular time-series)
   measure: cmdMeasure,
+  // output (free-form deliverables — gitignored, not graph content)
+  export: cmdExport,
   // review (discovery + health digest)
   review: cmdReview,
   // replay (B2 — re-run captured Telegram-driven specs)

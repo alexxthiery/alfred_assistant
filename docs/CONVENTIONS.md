@@ -109,6 +109,19 @@ Every write-class verb (`write`, `patch`, `ingest`, `predict`, `hypothesize`, `c
 
 Tamper-check runs once at the start of every write-class verb. It refuses to proceed if `wiki/`, `raw/`, `SCHEMA.md`, or `.bin/` files have been edited outside the CLI since the last auto-commit. The race between the tamper-check and the very write that follows is documented in `AGENTS.md § safe-edit invariants`.
 
+## Output directory (`output/`)
+
+`output/` at the vault root is untracked free-form space for Alfred-authored deliverables: one-off summaries, exports, generated reports. It is gitignored by convention. `examples/example-vault/.gitignore` ships the entry, and every vault's own `.gitignore` should carry it too.
+
+The single writer for `output/` is the `wiki export` verb (`bin/commands/export.js`), not raw `fs` writes — consistent with "the CLI is the only writer." It sanitizes the filename via `bin/lib/output-export.js` (no separators, no `..` traversal, no hidden files, so the file always stays inside `output/`), refuses empty bodies, and resolves collisions. It is intentionally **not** a write-class verb: `output/` is gitignored, so the verb does not auto-commit and is not tamper-checked.
+
+Why gitignored, not merely left untracked:
+
+- Auto-commit stages only `wiki/` and `raw/`, so it would never commit `output/` on its own. But a later `wiki bless` or `--accept-tamper` runs `git add -A`. Git honors `.gitignore`, so a gitignored `output/` cannot be swept into a wiki commit. That is the safety guarantee.
+- It is outside the tamper-check filter (`wiki/`, `raw/`, `SCHEMA.md`, `.bin/`), so writing there never blocks the next write-class verb.
+
+Consequences: files in `output/` have no git history and are not indexed by `wiki search` / `wiki sql`. Durable knowledge belongs in the graph (`wiki write`, e.g. a `type=synthesis` page), not here. `output/` is for artifacts that are genuinely not graph-shaped.
+
 ## Documentation pointers
 
 | Audience | Read |

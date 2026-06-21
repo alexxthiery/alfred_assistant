@@ -70,6 +70,7 @@ Every verb's handler lives in exactly one module. To change a verb's behavior, o
 | `bin/commands/todo.js` | todo |
 | `bin/commands/graph.js` | links, backlinks, relations, observations, autolink, resolve, path, hubs, hooks, process, timeline, stubs, place |
 | `bin/commands/measure.js` | measure |
+| `bin/commands/export.js` | export (free-form deliverables to gitignored `output/`; filename safety in `bin/lib/output-export.js`) |
 | `bin/commands/replay.js` | replay |
 | `bin/commands/sql.js` | sql |
 | `bin/commands/lint.js` | lint |

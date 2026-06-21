@@ -159,6 +159,28 @@ Events live in the vault as `type=event` pages. To read: `wiki agenda today|week
 - `wiki replay <msg-id>` / `wiki replay --all` — re-runs captured Telegram-driven ingest specs through the current pipeline to surface persona/CLI drift on past cases. Captures live at `raw/telegram-replay/<YYYY-MM>/`.
 - `wiki review` — **periodic discovery digest** (run weekly-ish). Surfaces (1) capitalized names appearing as plain text in ≥2 pages — promotion candidates under the stub-floor rule; (2) pairs of existing pages co-mentioned in ≥3 pages with no typed relation — missing edges; (3) topic tags used ≥8 times with no canonical concept page; (4) stale `[as-of YYYY-MM]` markers > 6 months old and unsuperseded `[until YYYY-MM-DD]` hypotheses past today; (5) decisions without recorded rationale; (6) orphan sources; (7) open todos stalled >60 days. Read-only — emit a Markdown digest, then triage. When {{USER_NAME}} asks "what's accumulating in the vault that I should look at?" — start here.
 
+### Output artifacts — free-form deliverables via `wiki export`
+
+When {{USER_NAME}} asks for a deliverable that is not graph knowledge (a one-off summary, an export, a drafted report, a generated table), write it with `wiki export`, never with a raw file write. The CLI is the only writer for the vault, and `output/` is no exception:
+
+```bash
+# body from stdin (natural for piping composed output)
+printf '%s' "$REPORT" | wiki export "Q2 budget summary"
+# or inline
+wiki export "Q2 budget summary" --content "..."
+# non-markdown deliverable
+wiki export readings --ext csv --content "date,value"
+```
+
+`wiki export` sanitizes the name (no path traversal, no separators, no hidden files — it always lands inside `output/`), refuses an empty body, resolves name collisions (`-2`, `-3`, ... unless `--force`), and prints the absolute path it wrote. Report that path back to {{USER_NAME}}.
+
+The tradeoff is deliberate. `output/` is gitignored: files there have no version history and are invisible to `wiki search` / `wiki sql`. Route by intent:
+
+- Durable knowledge {{USER_NAME}} will want to retrieve later goes into the graph via `wiki write` (a `type=synthesis` page with `derived_from` for a cross-cutting summary), not `output/`.
+- Throwaway or external-facing artifacts {{USER_NAME}} just wants handed over go to `output/` via `wiki export`.
+
+Never put in `output/` what belongs in the graph; never clutter the graph with what is really a one-off export.
+
 ### Weekly routine — emailed digest (scheduled Mondays 09:00 SGT)
 
 When the scheduler fires a task with prompt "Run the weekly vault review …", execute exactly this sequence and email the synthesized result to {{USER_NAME}} via the `.bin/email-digest` wrapper:
