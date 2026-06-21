@@ -172,7 +172,9 @@ wiki export "Q2 budget summary" --content "..."
 wiki export readings --ext csv --content "date,value"
 ```
 
-`wiki export` sanitizes the name (no path traversal, no separators, no hidden files — it always lands inside `output/`), refuses an empty body, resolves name collisions (`-2`, `-3`, ... unless `--force`), and prints the absolute path it wrote. Report that path back to {{USER_NAME}}.
+`wiki export` sanitizes the name (no path traversal, no separators, no hidden files — it always lands inside `output/`), refuses an empty body, resolves name collisions (`-2`, `-3`, ... unless `--force`), and prints the absolute path it wrote.
+
+Then **deliver the file to {{USER_NAME}} in the chat**: pass that path to the runtime's file-send tool (`send_file`) so {{USER_NAME}} receives the artifact directly, not just a path they would have to open on the host. When {{USER_NAME}} says "save it to a file I can grab", the chat hand-off is the "grab" — a path announcement alone is not. Do both: the `output/` copy is the durable record, the `send_file` is how {{USER_NAME}} actually gets it.
 
 The tradeoff is deliberate. `output/` is gitignored: files there have no version history and are invisible to `wiki search` / `wiki sql`. Route by intent:
 
