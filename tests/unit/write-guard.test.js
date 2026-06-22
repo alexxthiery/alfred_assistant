@@ -52,6 +52,33 @@ test('allows a Bash `wiki patch` (no redirect)', () => {
   assert.equal(r.status, 0);
 });
 
+test('denies a Bash wiki patch with unescaped dollar amount inside double quotes', () => {
+  const r = run({ tool_name: 'Bash', tool_input: { command: 'wiki patch foo --observation "[fact] Budget ~$400M"' } });
+  assert.equal(r.status, 2);
+  assert.match(r.stdout, /observation-stdin/);
+});
+
+test('allows a Bash wiki patch with escaped dollar amount inside double quotes', () => {
+  const r = run({ tool_name: 'Bash', tool_input: { command: 'wiki patch foo --observation "[fact] Budget ~\\$400M"' } });
+  assert.equal(r.status, 0);
+});
+
+test('allows a Bash wiki patch with dollar amount inside single quotes', () => {
+  const r = run({ tool_name: 'Bash', tool_input: { command: "wiki patch foo --observation '[fact] Budget ~$400M'" } });
+  assert.equal(r.status, 0);
+});
+
+test('allows a Bash wiki patch using --observation-stdin with a single-quoted heredoc', () => {
+  const r = run({ tool_name: 'Bash', tool_input: { command: "wiki patch foo --observation-stdin <<'EOF'\n[fact] Budget ~$400M\nEOF" } });
+  assert.equal(r.status, 0);
+});
+
+test('denies a Bash wiki predict with unescaped dollar amount in the quoted body arg', () => {
+  const r = run({ tool_name: 'Bash', tool_input: { command: 'wiki predict foo "Budget ~$400M" --by 2027-06' } });
+  assert.equal(r.status, 2);
+  assert.match(r.stdout, /--stdin\/--file/);
+});
+
 test('allows a Bash read of a wiki page (cat, no write)', () => {
   const r = run({ tool_name: 'Bash', tool_input: { command: 'cat /v/wiki/foo.md' } });
   assert.equal(r.status, 0);

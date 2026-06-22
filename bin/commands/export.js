@@ -35,23 +35,34 @@ function readStdin() {
 function cmdExport(args) {
   const name = args._[0];
   if (!name) {
-    console.error('Usage: wiki export <name> [--content "..."] [--ext md] [--force]');
+    console.error('Usage: wiki export <name> [--content "..." | --file <path>] [--ext md] [--force]');
     console.error('  Writes a free-form deliverable to <vault-root>/output/<name>.<ext>.');
-    console.error('  Body comes from stdin by default, or --content "...".');
+    console.error('  Body comes from stdin by default, or --content "..." / --file <path>.');
     console.error('  output/ is gitignored: no version history, not searchable. Durable');
     console.error('  knowledge belongs in the graph via `wiki write`, not here.');
     process.exit(1);
   }
 
-  // Body: --content wins if given; otherwise read piped stdin. Never block on a
-  // TTY waiting for input — if there is no content source, fail with guidance.
+  // Body: explicit content/file wins; otherwise read piped stdin. Never block on
+  // a TTY waiting for input — if there is no content source, fail with guidance.
   let content;
-  if (args.content !== undefined && args.content !== true) {
+  if (args.file !== undefined && args.file !== false && args.content !== undefined && args.content !== false) {
+    console.error('error: choose exactly one of --content, --file, or piped stdin for export body');
+    process.exit(1);
+  }
+  if (args.file !== undefined && args.file !== false) {
+    const p = String(args.file);
+    if (!fs.existsSync(p)) {
+      console.error(`error: file not found: ${p}`);
+      process.exit(1);
+    }
+    content = fs.readFileSync(p, 'utf-8');
+  } else if (args.content !== undefined && args.content !== true) {
     content = String(args.content);
   } else if (!process.stdin.isTTY) {
     content = readStdin();
   } else {
-    console.error('error: no body provided. Pipe content via stdin or pass --content "..."');
+    console.error('error: no body provided. Pipe content via stdin or pass --content "..." / --file <path>');
     process.exit(1);
   }
   if (!content.trim()) {

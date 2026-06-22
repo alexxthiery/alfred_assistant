@@ -1,0 +1,7 @@
+{
+  "exitCode": 3,
+  "stderrContains": ["ironclad validation failed for alice", "shell-expanded-currency-artifact", "~00M", "--soft does NOT bypass"],
+  "wikiAssertions": {
+    "alice": { "bodyMissing": ["Budget ~00M this year"] }
+  }
+}

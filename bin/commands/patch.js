@@ -8,7 +8,6 @@
 'use strict';
 
 const fs = require('fs');
-const path = require('path');
 const { nowISO, wikiPath, forEachPage, SCHEMA_PATH } = require('../lib/vault.js');
 const { knownRelationVerbs, loadSchema: _loadSchema } = require('../lib/schema.js');
 const { parseFrontmatter, serializeFrontmatter } = require('../lib/frontmatter.js');
@@ -20,6 +19,7 @@ const { computeMissingInverses, groupByTarget } = require('../lib/inverse-closur
 const { validateExtraFieldValue, aliasValueError, aliasWarnings } = require('../lib/maintenance.js');
 const { autolinkSlug } = require('../lib/autolink-runtime.js');
 const { readPageForWrite, regenerateIndex, appendLog } = require('../lib/page-io.js');
+const { readTextSource } = require('../lib/text-input.js');
 const { validateBody, warnHooks } = require('../lib/write-validate.js');
 const { postWriteAudit } = require('../lib/audit-runtime.js');
 
@@ -28,10 +28,15 @@ const loadSchema = () => _loadSchema(SCHEMA_PATH);
 function cmdPatch(args) {
   const slug = args._[0];
   if (!slug) {
-    console.error('Usage: wiki patch <slug> [--observation "[fact] body #tag"] [--relation "verb [[target]]"]');
+    console.error('Usage: wiki patch <slug> [--observation "[fact] body #tag" | --observation-file <path> | --observation-stdin] [--relation "verb [[target]]"]');
     console.error('              [--add-tag <tag>] [--remove-tag <tag>] [--alias <name>]');
-    console.error('              [--summary "..."] [--title "..."] [--born YYYY-MM-DD | MM-DD]');
+    console.error('              [--summary "..." | --summary-file <path> | --summary-stdin] [--title "..."] [--born YYYY-MM-DD | MM-DD]');
     console.error('              [--visibility private|personal|public] [--sensitive true|false] [--confidence 0.0-1.0]');
+    process.exit(1);
+  }
+  const stdinConsumers = ['observation-stdin', 'summary-stdin'].filter((flag) => !!args[flag]);
+  if (stdinConsumers.length > 1) {
+    console.error('error: only one patch field can read from stdin per invocation');
     process.exit(1);
   }
   const p = wikiPath(slug);
@@ -45,6 +50,25 @@ function cmdPatch(args) {
 
   const ops = [];
   let newBody = body;
+  let observationInput = null;
+  let summaryInput = null;
+  try {
+    observationInput = readTextSource(args, {
+      inlineFlag: 'observation',
+      stdinFlag: 'observation-stdin',
+      fileFlag: 'observation-file',
+      label: 'observation text',
+    });
+    summaryInput = readTextSource(args, {
+      inlineFlag: 'summary',
+      stdinFlag: 'summary-stdin',
+      fileFlag: 'summary-file',
+      label: 'summary text',
+    });
+  } catch (e) {
+    console.error(`error: ${e.message}`);
+    process.exit(1);
+  }
 
   // Supersede an old observation (do this BEFORE appending the replacement)
   if (args.supersede) {
@@ -67,8 +91,8 @@ function cmdPatch(args) {
   }
 
   // Append observation
-  if (args.observation) {
-    const obs = String(args.observation).trim();
+  if (observationInput !== null) {
+    const obs = String(observationInput).trim();
     // Allow "fact: body" or full "- [fact] body" or just "[fact] body"
     let line;
     if (/^- \[/.test(obs)) line = obs;
@@ -173,8 +197,8 @@ function cmdPatch(args) {
   }
 
   // Summary
-  if (args.summary !== undefined && args.summary !== false) {
-    fm.summary = String(args.summary);
+  if (summaryInput !== null) {
+    fm.summary = String(summaryInput).trim();
     ops.push('summary');
   }
 

@@ -157,3 +157,15 @@ test('e2e: write-core flag inherited by a write verb is not rejected', () => {
     fs.rmSync(v, { recursive: true, force: true });
   }
 });
+
+test('e2e: generic --stdin is rejected on patch (must use field-specific stdin flags)', () => {
+  const v = fs.mkdtempSync(path.join(os.tmpdir(), 'vault-flag-'));
+  try {
+    cpDir(TEMPLATE, v);
+    const r = wiki(v, ['patch', 'alice', '--stdin']);
+    assert.equal(r.status, 2, `expected exit 2, got ${r.status} (stderr: ${r.stderr})`);
+    assert.match(r.stderr, /unknown flag --stdin/);
+  } finally {
+    fs.rmSync(v, { recursive: true, force: true });
+  }
+});

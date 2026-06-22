@@ -44,9 +44,9 @@ const FREEFORM_VERBS = new Set(['measure']);
 const WRITE_CORE_FLAGS = new Set([
   ...EXTRA_FIELDS,
   'add-tag', 'alias', 'allow-duplicates', 'allow-duplicate-slug', 'allow-secret', 'append', 'content',
-  'file', 'force-alias', 'force-duplicate', 'no-alias', 'no-anchor', 'observation',
+  'force-alias', 'force-duplicate', 'no-alias', 'no-anchor', 'observation',
   'provenance', 'relation', 'remove-relation', 'remove-tag', 'remove-hooks', 'remove-alias', 'replace', 'replay',
-  'soft', 'stdin', 'summary', 'supersede', 'tags', 'title', 'type', 'dry-run',
+  'soft', 'summary', 'supersede', 'tags', 'title', 'type', 'dry-run',
   'today', 'on', 'dedupe',
 ]);
 
@@ -61,7 +61,14 @@ const WRITE_CLASS_VERBS = new Set([
 //   groom --propose/--apply: read only to report "not implemented" (mechanical
 //     is the sole mode), so they are accepted but not advertised.
 const VERB_EXTRA_FLAGS = {
+  write: ['stdin', 'file'],
+  ingest: ['stdin', 'file'],
+  predict: ['stdin', 'file'],
+  hypothesize: ['stdin', 'file'],
+  capture: ['stdin', 'file'],
+  export: ['file'],
   groom: ['propose', 'apply'],
+  patch: ['observation-file', 'observation-stdin', 'summary-file', 'summary-stdin'],
 };
 
 // Code-only flags a verb reads but does not enumerate in its one-line help.
@@ -79,7 +86,7 @@ function extraValidFlags(verb) {
 function flagsFromHelpText(helpText) {
   const text = String(helpText || '').replace(/<!--[\s\S]*?-->/g, ' ');
   const out = new Set();
-  for (const m of text.matchAll(/--([a-z][a-z0-9-]*)/g)) {
+  for (const m of text.matchAll(/--([a-z][a-z0-9_-]*)/g)) {
     out.add(m[1]);
   }
   return out;
@@ -107,13 +114,13 @@ const VALUE_REQUIRED_FLAGS = new Set([
   'title', 'summary', 'content', 'type', 'tags', 'tag', 'alias', 'add-tag', 'remove-tag',
   'hooks', 'remove-hooks', 'remove-alias',
   // observations / relations
-  'observation', 'relation', 'remove-relation', 'supersede', 'provenance',
+  'observation', 'observation-file', 'relation', 'remove-relation', 'supersede', 'provenance', 'file',
   // typed frontmatter + external links
   'born', 'visibility', 'confidence', 'source', 'location', 'duration',
   'recurrence', 'attendees', 'derived_from', 'supersedes', 'decided_on',
   'raw_path', 'sha256', 'homepage', 'scholar', 'orcid', 'github', 'linkedin',
   'twitter', 'arxiv', 'email', 'status', 'due', 'priority',
-  'remind_at', 'reminded_at', 'notify',
+  'remind_at', 'reminded_at', 'notify', 'summary-file',
   // dates / numbers / selectors
   'on', 'by', 'since', 'until', 'days', 'limit', 'max-hops', 'threshold',
   'only', 'date', 'birth', 'window', 'month-day', 'to', 'asof',

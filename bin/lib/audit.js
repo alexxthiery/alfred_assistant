@@ -57,6 +57,27 @@ function normalizeFactLine(line) {
   return s;
 }
 
+// Shell-expanded currency artifacts: Bash turns "$400M" inside double quotes
+// into "00M" (positional parameter $4 + literal "00M"), and "~$400M" into
+// "~00M". Catch the corrupted token on write so bad shell quoting cannot land
+// silently in the vault.
+function findShellExpandedCurrencyArtifact(text) {
+  const s = String(text || '');
+  const patterns = [
+    /(^|[^0-9A-Za-z$])(~(?:0{0,2})[KMBT])\b/g,   // ~M, ~0M, ~00M
+    /(^|[^0-9A-Za-z$])(0{1,2}[KMBT])\b/g,        // 0M, 00M
+  ];
+  for (const re of patterns) {
+    let m;
+    while ((m = re.exec(s)) !== null) {
+      const token = m[2];
+      if (!token) continue;
+      return token;
+    }
+  }
+  return null;
+}
+
 const STRICT_PROV_TYPES = new Set(['entity', 'event', 'concept', 'synthesis']);
 // Some schema event keywords are intentionally broad. On todos, "review" is
 // often an action ("finish the review") rather than a scheduled event. Keep
@@ -81,6 +102,25 @@ const SUBSTANTIVE_TYPES = new Set(['entity', 'event', 'concept', 'question']);
 const OBSERVATION_BLOAT_THRESHOLD = 20;
 
 const AUDIT_RULES = [
+  {
+    // Shell quoting footgun: `wiki patch --observation "... ~$400M ..."` run
+    // through Bash expands `$4` before the CLI sees it, yielding `~00M`.
+    // This is data corruption, not a style issue, so treat it as ironclad.
+    name: 'shell-expanded-currency-artifact',
+    severity: 'high',
+    strict: true,
+    ironclad: true,
+    check: ({ body }) => {
+      if (!body) return null;
+      const token = findShellExpandedCurrencyArtifact(body);
+      if (!token) return null;
+      return {
+        detail: `suspicious zero-only magnitude token "${token}" (shell-expanded currency artifact)`,
+        message: `Found suspicious token "${token}". This often comes from passing a literal dollar amount through Bash double quotes, e.g. "$400M" -> "00M" or "~$400M" -> "~00M". Escape literal dollars as \\$400M, single-quote the observation/content text, or use a single-quoted heredoc before retrying.`,
+      };
+    },
+  },
+
   {
     name: 'mislabeled-event',
     severity: 'high',

@@ -210,6 +210,30 @@ test('exact-duplicate-observation: ignores inline date/provenance/confidence tag
     'fix hint should mention --supersede as the proper revision path');
 });
 
+test('shell-expanded-currency-artifact: fires on ~00M produced by Bash dollar expansion', () => {
+  const r = findRule('shell-expanded-currency-artifact');
+  const body = '- [claim] (Source) AUM ~00M confirmed; planning to request additional ~00M from P72. ^[telegram:1]';
+  const out = r.check({ body }, deps());
+  assert.ok(out, 'must reject the corrupted ~00M token');
+  assert.match(out.detail, /~00M/);
+  assert.match(out.message, /\\\$400M/);
+});
+
+test('shell-expanded-currency-artifact: fires on 00M without tilde', () => {
+  const r = findRule('shell-expanded-currency-artifact');
+  const body = '- [fact] Budget 00M this year. ^[t:1]';
+  const out = r.check({ body }, deps());
+  assert.ok(out, '00M is the same shell-expansion artifact family');
+  assert.match(out.detail, /00M/);
+});
+
+test('shell-expanded-currency-artifact: silent on legitimate ~$400M amount', () => {
+  const r = findRule('shell-expanded-currency-artifact');
+  const body = '- [claim] AUM ~$400M confirmed. ^[t:1]';
+  const out = r.check({ body }, deps());
+  assert.equal(out, null);
+});
+
 test('speculative-shape-fact: fires on future-tense [fact] (will) → suggests [prediction]', () => {
   const r = findRule('speculative-shape-fact');
   const body = '- [fact] X will happen by 2027 ^[t:1]';

@@ -1,0 +1,4 @@
+{
+  "_comment": "Regression: shell-expanded money like ~00M must be rejected at write time before it lands in the vault. This catches Bash double-quote expansion of ~$400M -> ~00M.",
+  "cmd": ["patch", "alice", "--observation", "[fact] Budget ~00M this year ^[telegram:2026-06-22]"]
+}

@@ -88,6 +88,22 @@ test('export: --ext controls the extension', () => {
   assert.equal(out[0], path.join(OUTPUT_DIR, 'data.csv'));
 });
 
+test('export: --file reads deliverable body from disk', () => {
+  const src = path.join(TMP, 'body.txt');
+  fs.writeFileSync(src, 'body from file\n');
+  const { out, exitCode } = run({ _: ['from-file'], file: src });
+  assert.equal(exitCode, 0);
+  assert.equal(fs.readFileSync(out[0], 'utf-8'), 'body from file\n');
+});
+
+test('export: conflicting --content and --file is rejected', () => {
+  const src = path.join(TMP, 'conflict.txt');
+  fs.writeFileSync(src, 'x\n');
+  const { exitCode, err } = run({ _: ['conflict'], content: 'inline', file: src });
+  assert.equal(exitCode, 1);
+  assert.match(err.join('\n'), /choose exactly one of --content, --file, or piped stdin/);
+});
+
 test('export: missing <name> is a usage error (exit 1)', () => {
   const { exitCode, err } = run({ _: [] });
   assert.equal(exitCode, 1);

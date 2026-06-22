@@ -22,13 +22,14 @@ const { validateAliasArg, applyExtraFrontmatter, aliasWarnings } = require('../l
 const { mintIdsForBody } = require('../lib/obsid.js');
 const { extractWikilinks, backlinkRegex } = require('../lib/graph.js');
 const { redactSecrets } = require('../lib/secrets.js');
+const { readTextSource } = require('../lib/text-input.js');
 
 const loadSchema = () => _loadSchema(SCHEMA_PATH);
 
 function cmdWrite(args) {
   const slug = args._[0];
   if (!slug) {
-    console.error('Usage: wiki write <slug> --title "..." --type <type> [--tags a,b] [--content "..." | --stdin] [--append|--replace]');
+    console.error('Usage: wiki write <slug> --title "..." --type <type> [--tags a,b] [--content "..." | --file <path> | --stdin] [--append|--replace]');
     console.error(`  types: ${[...KNOWN_TYPES].join('|')}`);
     process.exit(1);
   }
@@ -76,8 +77,18 @@ function cmdWrite(args) {
   }
 
   let body = '';
-  if (args.stdin) body = fs.readFileSync(0, 'utf-8');
-  else if (args.content) body = args.content;
+  try {
+    const bodyInput = readTextSource(args, {
+      inlineFlag: 'content',
+      fileFlag: 'file',
+      stdinFlag: 'stdin',
+      label: 'page body',
+    });
+    if (bodyInput !== null) body = bodyInput;
+  } catch (e) {
+    console.error(`error: ${e.message}`);
+    process.exit(1);
+  }
 
   // Ironclad-rule check: closed-set schema vocabulary violations (unknown
   // [category] prefixes, unknown relation verbs) and destructive empty-page

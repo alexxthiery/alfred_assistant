@@ -17,6 +17,10 @@
 
 const WIKI_RE = /\/wiki\/[^/\s]+\.md\b/;                 // a vault wiki page path
 const REDIRECT_RE = /(>>?|\btee\b|\bsed\b\s+-i|\bawk\b\s+-i|\bdd\b\s+of=|\bcp\b|\bmv\b|\brm\b)/; // write-ish bash ops
+const DOUBLE_QUOTED_WIKI_TEXT_DOLLAR_RE =
+  /\bwiki\s+(?:patch|write)\b[\s\S]*?--(?:observation|content|summary)\s+"(?:[^"\\]|\\.)*(?<!\\)\$\d(?:[^"\\]|\\.)*"/;
+const DOUBLE_QUOTED_EPISTEMIC_TEXT_DOLLAR_RE =
+  /\bwiki\s+(?:predict|hypothesize|capture)\b\s+\S+\s+"(?:[^"\\]|\\.)*(?<!\\)\$\d(?:[^"\\]|\\.)*"/;
 
 function deny(reason) {
   process.stdout.write(JSON.stringify({
@@ -47,6 +51,9 @@ process.stdin.on('end', () => {
   } else if (tool === 'Bash') {
     const cmd = inp.command || '';
     if (WIKI_RE.test(cmd) && REDIRECT_RE.test(cmd)) deny(MSG);
+    if (DOUBLE_QUOTED_WIKI_TEXT_DOLLAR_RE.test(cmd) || DOUBLE_QUOTED_EPISTEMIC_TEXT_DOLLAR_RE.test(cmd)) {
+      deny('Blocked: literal dollar amount inside double-quoted `wiki` text will be shell-expanded before the CLI sees it (e.g. "~$400M" -> "~00M"). Prefer stdin/file input where supported (`wiki write|predict|hypothesize|capture --stdin/--file`, `wiki patch --observation-stdin`, `wiki patch --summary-file`), or escape as `\\$400M` / single-quote the text.');
+    }
   }
   process.exit(0); // allow
 });

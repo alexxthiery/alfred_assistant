@@ -29,7 +29,11 @@ const { DISPATCH_VERBS } = require('../../bin/lib/verb-metadata.js');
 const ROOT = path.resolve(__dirname, '..', '..');
 const WIKI_SRC = fs.readFileSync(path.join(ROOT, 'bin', 'wiki'), 'utf-8');
 const READ_SRC = fs.readFileSync(path.join(ROOT, 'bin', 'verbs', 'read.js'), 'utf-8');
-const SOURCES = [WIKI_SRC, READ_SRC];
+const COMMAND_SRCS = fs.readdirSync(path.join(ROOT, 'bin', 'commands'))
+  .filter((f) => f.endsWith('.js'))
+  .sort()
+  .map((f) => fs.readFileSync(path.join(ROOT, 'bin', 'commands', f), 'utf-8'));
+const SOURCES = [WIKI_SRC, READ_SRC, ...COMMAND_SRCS];
 
 // ─── parse source blocks used below ─────────────────────────────────────────
 function topLevelBracketBlock(src, opener) {
@@ -66,7 +70,17 @@ function indexFunctions() {
     let m;
     while ((m = re.exec(src)) !== null) {
       const name = m[1];
-      const braceStart = src.indexOf('{', m.index);
+      const parenStart = src.indexOf('(', m.index);
+      let parenDepth = 0;
+      let braceStart = -1;
+      for (let i = parenStart; i < src.length; i++) {
+        if (src[i] === '(') parenDepth++;
+        else if (src[i] === ')' && --parenDepth === 0) {
+          braceStart = src.indexOf('{', i);
+          break;
+        }
+      }
+      if (braceStart < 0) continue;
       let depth = 0;
       for (let i = braceStart; i < src.length; i++) {
         if (src[i] === '{') depth++;
@@ -103,11 +117,11 @@ function flagsReadByFn(fnName, visited = new Set()) {
   if (!body || visited.has(fnName)) return new Set();
   visited.add(fnName);
   const out = directFlags(body);
-  const spreadsArgs = /\.\.\.args\b/.test(body) || /=\s*args\b/.test(body);
+  const spreadsArgs = /\.\.\.args\b/.test(body) || /=\s*args\b(?![.\[])/.test(body);
   for (const name of Object.keys(FUNCS)) {
     if (name === fnName) continue;
     if (!new RegExp(`\\b${name}\\b`).test(body)) continue;
-    const threaded = spreadsArgs || new RegExp(`\\b${name}\\s*\\(\\s*args\\b`).test(body);
+    const threaded = spreadsArgs || new RegExp(`\\b${name}\\s*\\([^)]*\\bargs\\b`).test(body);
     if (threaded) for (const f of flagsReadByFn(name, visited)) out.add(f);
   }
   return out;

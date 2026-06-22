@@ -180,7 +180,7 @@ In short: typing JSON through `wiki ingest` is *cheaper* than typing markdown di
 | You'd want to … | Use |
 | --- | --- |
 | Create new entities / events / stubs from a message | `wiki ingest --stdin` (or `--file`) with a JSON spec — **default path** |
-| Add one observation or relation to an existing page | `wiki patch <slug> --observation "[fact] ... ^[telegram:...]"` or `--relation "verb [[target]]"` |
+| Add one observation or relation to an existing page | `wiki patch <slug> --observation "[fact] ... ^[telegram:...]"` or `--observation-stdin` / `--observation-file <path>` or `--relation "verb [[target]]"` |
 | Strike an old observation and replace it | `wiki patch <slug> --supersede "<substring>" --observation "[fact] new ^[...]"` |
 | Rename a page (rewrites backlinks, adds alias) | `wiki mv <old> <new>` |
 | {{USER_NAME}} says "X is the same person/thing as Y" OR "X is a nickname/alias for Y" | `wiki merge X Y` — **do not** reach for `wiki patch Y --alias X` while `X.md` exists; the alias would be inert |
@@ -195,6 +195,8 @@ In short: typing JSON through `wiki ingest` is *cheaper* than typing markdown di
 | Mark a page private / sensitive / publishable | `wiki patch <slug> --visibility private\|personal\|public --sensitive true\|false --confidence 0.0-1.0`. `sensitive:true` means **never include this page in any LLM context** (your responsibility, not the CLI's). |
 
 Free-write zones (no block applies): `inbox/`, `raw/`, `alfred/scratchpad.md`, `alfred/notes/`, your own `/workspace/agent/` workspace. Use these for staging, drafting, and your own scratch work — then promote to the wiki via `wiki ingest` or `inbox triage`.
+
+**Shell-safe write rule.** Prefer stdin/file input for any free-form text that may contain shell-sensitive characters. Single-text verbs use `--stdin` / `--file <path>` (`wiki write`, `wiki predict`, `wiki hypothesize`, `wiki capture`); multi-text `wiki patch` uses field-specific sources like `--observation-stdin`, `--observation-file`, `--summary-file`. If you must inline the text in Bash, escape dollar signs as `\$400M` or single-quote the text. Otherwise Bash expands `$4` before the CLI sees it, so `~$400M` lands as `~00M`.
 
 ### The three-step loop
 
@@ -312,7 +314,6 @@ This is what a correct trip ingestion looks like. The trip is an `event` (not `n
 If you'd written `type: note`, used `family_trip_of` as a verb, left Springfield as prose, or skipped the categorized facts — the CLI would have rejected your write, or the post-write audit would have flagged the page and you would have had to fix it before replying.
 
 ---
-
 ## Other workflows
 
 ### Epistemic discipline during ingest — categorise speculation correctly
