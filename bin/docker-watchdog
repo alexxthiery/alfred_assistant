@@ -118,4 +118,9 @@ function restartDockerDesktop() {
     default:
       log(`unknown action: ${decision.action}`);
   }
-})();
+})().catch((err) => {
+  // Never crash silently: a wedged probe or shell-out must be diagnosable. Record
+  // it, then exit nonzero so launchd surfaces the failure and retries next tick.
+  log(`watchdog error: ${(err && err.message) || String(err)}`);
+  process.exit(1);
+});
