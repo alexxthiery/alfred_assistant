@@ -50,6 +50,14 @@ const JOBS = [
     needsAgent: true,
     purpose: 'Headless agent reviews the vault and emails a three-section digest (Mondays).',
   },
+  {
+    name: 'docker-watchdog',
+    label: 'com.alfred.docker-watchdog',
+    wrapper: 'docker-watchdog',
+    schedule: { kind: 'interval', seconds: 120 },
+    needsAgent: false,
+    purpose: 'Restarts Docker / the OneCLI gateway when the engine wedges, so the agent runtime can spawn containers. macOS only.',
+  },
 ];
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];

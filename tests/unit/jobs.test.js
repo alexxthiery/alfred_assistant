@@ -25,6 +25,16 @@ test('JOBS manifest: every job has the fields the verb and validator rely on', (
   }
 });
 
+test('JOBS manifest: docker-watchdog is registered as a 2-min interval job', () => {
+  const wd = JOBS.find((j) => j.name === 'docker-watchdog');
+  assert.ok(wd, 'docker-watchdog job must be in the manifest so `wiki jobs --check` tracks it');
+  assert.equal(wd.label, 'com.alfred.docker-watchdog');
+  assert.equal(wd.wrapper, 'docker-watchdog');
+  assert.deepEqual(wd.schedule, { kind: 'interval', seconds: 120 });
+  assert.equal(wd.needsAgent, false);
+  assert.equal(scheduleToText(wd.schedule), 'every 2 min');
+});
+
 test('scheduleToText: calendar daily, calendar weekday, interval', () => {
   assert.equal(scheduleToText({ kind: 'calendar', hour: 7, minute: 0 }), '07:00 daily');
   assert.equal(scheduleToText({ kind: 'calendar', hour: 9, minute: 5, weekday: 1 }), 'Mon 09:05');

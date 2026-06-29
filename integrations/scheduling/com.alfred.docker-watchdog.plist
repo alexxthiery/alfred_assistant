@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd job for the Docker / OneCLI watchdog (every 2 min).
+  macOS only — it restarts Docker Desktop when the engine wedges. On Linux,
+  dockerd under systemd already self-restarts, so this job is not needed there.
+
+  IMPORTANT: point ProgramArguments at the DEPLOYED worker in your vault's
+  .bin/ (e.g. /Users/YOU/my-vault/.bin/docker-watchdog), NOT the repo copy.
+  A LaunchAgent cannot execute files under ~/Library/CloudStorage (Dropbox/
+  iCloud), and the repo may live there; the deployed .bin/ copy (written by
+  tools/deploy.sh) is a plain path launchd is allowed to run.
+
+  Install:
+    1. Run tools/deploy.sh so <vault>/.bin/docker-watchdog exists.
+    2. Edit the absolute path below to <vault>/.bin/docker-watchdog.
+    3. cp to ~/Library/LaunchAgents/com.alfred.docker-watchdog.plist
+    4. launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.alfred.docker-watchdog.plist
+  Verify with: wiki jobs --check   (should report docker-watchdog: ok)
+
+  No secrets here. The watchdog reads only the gateway port (:10254) and the
+  onecli compose file at ~/.onecli/docker-compose.yml.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.alfred.docker-watchdog</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/YOU/my-vault/.bin/docker-watchdog</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- launchd's default PATH omits /usr/local/bin, where `node` and `docker` live. -->
+    <key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StartInterval</key><integer>120</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/Users/YOU/Library/Logs/docker-onecli-watchdog.out.log</string>
+  <key>StandardErrorPath</key><string>/Users/YOU/Library/Logs/docker-onecli-watchdog.err.log</string>
+</dict>
+</plist>

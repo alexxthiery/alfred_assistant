@@ -1,0 +1,121 @@
+#!/usr/bin/env node
+// docker-watchdog — keep nanoclaw's container backend alive.
+//
+// nanoclaw spawns every agent container (Alfred, etc.) through the OneCLI gateway
+// at http://127.0.0.1:10254, which runs as a docker-compose stack. If Docker's
+// engine crashes (observed 2026-06-27: backend "monitor exited: status 2"), the
+// engine dies while Docker Desktop's UI keeps running — a half-zombie state that
+// does NOT self-heal — and the gateway becomes unreachable until a manual
+// restart, so Alfred goes silent.
+//
+// This worker (run by launchd every 2 min — see
+// integrations/scheduling/com.alfred.docker-watchdog.plist) probes the gateway
+// and, when unreachable, recovers it: nudge the compose stack if the daemon is up,
+// or restart Docker Desktop (macOS) if the daemon is down. The branching decision
+// is the pure, unit-tested core in ./lib/docker-watchdog.js; this file only does
+// I/O and executes the chosen action. Quiet on success; restarts are rate-limited
+// via a state file so it can never thrash.
+//
+// It lives in bin/ (not integrations/) so tools/deploy.sh copies it to the vault's
+// .bin/ — a non-CloudStorage path launchd is actually allowed to execute (a
+// LaunchAgent cannot run scripts out of ~/Library/CloudStorage). Zero deps.
+
+'use strict';
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const http = require('http');
+const { spawnSync } = require('child_process');
+const { decideWatchdogAction, DEFAULT_MIN_RESTART_INTERVAL_MS } = require('./lib/docker-watchdog.js');
+
+const GATEWAY = { host: '127.0.0.1', port: 10254, path: '/api/gateway-url', timeoutMs: 5000 };
+const COMPOSE = path.join(os.homedir(), '.onecli', 'docker-compose.yml');
+const LOG = path.join(os.homedir(), 'Library', 'Logs', 'docker-onecli-watchdog.log');
+const STATE = path.join(os.homedir(), 'Library', 'Caches', 'docker-onecli-watchdog.laststart');
+
+// launchd hands a minimal PATH that omits /usr/local/bin (Docker CLI). Augment it
+// for every shell-out so `docker` / `open` / `osascript` / `sleep` resolve.
+const ENV = { ...process.env, PATH: `/usr/local/bin:/opt/homebrew/bin:${process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin'}` };
+const run = (cmd, args, opts = {}) => spawnSync(cmd, args, { env: ENV, encoding: 'utf-8', ...opts });
+const sleepSync = (s) => run('sleep', [String(s)]);
+
+function log(msg) {
+  const line = `${new Date().toISOString()} ${msg}\n`;
+  try {
+    fs.mkdirSync(path.dirname(LOG), { recursive: true });
+    fs.appendFileSync(LOG, line);
+  } catch { /* logging is best-effort */ }
+}
+
+// Reachable iff the gateway answers with ANY HTTP status; only a failed
+// connection (refused / timeout / DNS) counts as down.
+function gatewayReachable() {
+  return new Promise((resolve) => {
+    const req = http.get(GATEWAY, (res) => { res.resume(); resolve(true); });
+    req.setTimeout(GATEWAY.timeoutMs, () => { req.destroy(); resolve(false); });
+    req.on('error', () => resolve(false));
+  });
+}
+
+function daemonResponding() {
+  return run('docker', ['ps'], { stdio: ['ignore', 'ignore', 'ignore'] }).status === 0;
+}
+
+function msSinceLastRestart() {
+  try {
+    const ts = parseInt(fs.readFileSync(STATE, 'utf-8').trim(), 10);
+    if (Number.isFinite(ts)) return Date.now() - ts;
+  } catch { /* no prior restart */ }
+  return Infinity;
+}
+
+function composeUp(context) {
+  const r = run('docker', ['compose', '-f', COMPOSE, 'up', '-d']);
+  if (r.status === 0) log(`${context}: docker compose up -d ok`);
+  else log(`${context}: docker compose up -d FAILED (${(r.stderr || (r.error && r.error.message) || '').split('\n')[0]})`);
+}
+
+function restartDockerDesktop() {
+  try { fs.mkdirSync(path.dirname(STATE), { recursive: true }); fs.writeFileSync(STATE, String(Date.now())); } catch { /* ignore */ }
+  log('docker daemon DOWN — restarting Docker Desktop');
+  run('osascript', ['-e', 'quit app "Docker"'], { stdio: 'ignore' });
+  sleepSync(3);
+  run('open', ['-a', 'Docker'], { stdio: 'ignore' });
+  for (let i = 0; i < 24; i++) {       // wait up to ~120s for the engine
+    sleepSync(5);
+    if (daemonResponding()) { log(`docker daemon back after ~${(i + 1) * 5}s`); composeUp('post-restart'); return; }
+  }
+  log('docker daemon STILL down after restart attempt — manual intervention may be needed');
+}
+
+(async () => {
+  const reachable = await gatewayReachable();
+  const decision = decideWatchdogAction({
+    gatewayReachable: reachable,
+    daemonResponding: reachable ? true : daemonResponding(),
+    msSinceLastRestart: msSinceLastRestart(),
+    minRestartIntervalMs: DEFAULT_MIN_RESTART_INTERVAL_MS,
+  });
+
+  switch (decision.action) {
+    case 'ok':
+      return; // healthy — stay silent
+    case 'nudge-compose':
+      log(`gateway unreachable — ${decision.reason}`);
+      composeUp('nudge');
+      return;
+    case 'defer-restart':
+      log(`gateway unreachable — ${decision.reason}; deferring`);
+      return;
+    case 'restart-docker':
+      if (process.platform !== 'darwin') {
+        log(`gateway unreachable and daemon down on ${process.platform}; auto-restart is macOS-only (dockerd/systemd should self-restart). No action.`);
+        return;
+      }
+      restartDockerDesktop();
+      return;
+    default:
+      log(`unknown action: ${decision.action}`);
+  }
+})();
