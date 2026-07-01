@@ -1,0 +1,4 @@
+{
+  "_comment": "The same idea page writes successfully once attributed. `--origin original` marks it as the user's own thought, satisfying the unattributed-idea gate. Proves the gate lets attributed ideas through (exit 0, page created).",
+  "cmd": ["write", "leverage-converts-diversification", "--title", "Leverage converts diversification into return", "--type", "concept", "--tags", "finance,idea", "--origin", "original", "--content", "- [hypothesis] combining negatively correlated streams cuts variance but only lifts expected return if the risk budget is held via leverage ^[telegram:2026-05-17]"]
+}

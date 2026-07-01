@@ -238,7 +238,11 @@ function cmdPatch(args) {
   // bin/lib/maintenance.js::validateExtraFieldValue so `wiki write` and
   // `wiki patch` share the contract. reminded_at is the dispatcher's
   // idempotency stamp (set via `wiki patch <slug> --reminded_at <ts>`).
-  for (const f of ['born', 'visibility', 'sensitive', 'confidence', 'remind_at', 'reminded_at']) {
+  // `origin` (attribution) and `year` are validated like the fields above;
+  // origin especially must be patchable so an idea page can be attributed
+  // after the fact (the unattributed-idea fix suggestion, and the backfill of
+  // pre-existing idea pages, both run `wiki patch <slug> --origin ...`).
+  for (const f of ['born', 'visibility', 'sensitive', 'confidence', 'remind_at', 'reminded_at', 'origin', 'year']) {
     if (args[f] === undefined || args[f] === false) continue;
     const { value, error } = validateExtraFieldValue(f, args[f]);
     if (error) { console.error(`error: ${error}`); process.exit(3); }
@@ -246,13 +250,19 @@ function cmdPatch(args) {
     ops.push(`${f}:${value}`);
   }
 
-  // External-link fields (homepage, scholar, orcid, github, etc.)
-  const EXTERNAL_LINK_FIELDS = ['homepage', 'scholar', 'orcid', 'github', 'linkedin', 'twitter', 'arxiv', 'email'];
+  // External-link + bibliographic string fields.
+  const EXTERNAL_LINK_FIELDS = ['homepage', 'scholar', 'orcid', 'github', 'linkedin', 'twitter', 'arxiv', 'email', 'kind', 'url', 'doi'];
   for (const f of EXTERNAL_LINK_FIELDS) {
     if (args[f] !== undefined && args[f] !== false) {
       fm[f] = String(args[f]);
       ops.push(`${f}`);
     }
+  }
+
+  // `author` is a list field (comma-string → array), mirroring `wiki write`.
+  if (args.author !== undefined && args.author !== false) {
+    fm.author = String(args.author).split(',').map((s) => s.trim()).filter(Boolean);
+    ops.push('author');
   }
 
   // Title rename — also adds old title to aliases
@@ -284,7 +294,7 @@ function cmdPatch(args) {
   }
 
   if (ops.length === 0) {
-    console.error('error: nothing to patch. Pass at least one of --observation, --relation, --remove-relation, --add-tag, --remove-tag, --alias, --summary, --title, --born, --visibility, --sensitive, --confidence, --remind_at, --reminded_at, --notify.');
+    console.error('error: nothing to patch. Pass at least one of --observation, --relation, --remove-relation, --add-tag, --remove-tag, --alias, --summary, --title, --born, --visibility, --sensitive, --confidence, --remind_at, --reminded_at, --notify, --origin.');
     process.exit(1);
   }
 

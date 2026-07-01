@@ -1,8 +1,8 @@
 {
   "_comment": "edge-aptness is query-only. Default audit --all should not leak it into by-rule or top-offender summaries even when the same page has a scored issue such as lonely.",
   "setup": [
-    ["write", "edge-target", "--title", "Edge Target", "--type", "concept", "--tags", "idea", "--content", "- [claim] target ^[t:1]", "--hooks", "beta"],
-    ["write", "edge-source", "--title", "Edge Source", "--type", "concept", "--tags", "idea", "--content", "- [claim] source ^[t:1]\n- extends [[edge-target]]", "--hooks", "alpha"]
+    ["write", "edge-target", "--title", "Edge Target", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] target ^[t:1]", "--hooks", "beta"],
+    ["write", "edge-source", "--title", "Edge Source", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] source ^[t:1]\n- extends [[edge-target]]", "--hooks", "alpha"]
   ],
   "cmd": ["audit", "--all"]
 }

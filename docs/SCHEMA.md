@@ -67,7 +67,7 @@ The `type:` frontmatter field must be one of these. The CLI refuses unknown type
 | `entity` | one person, org, product, place, tool | `tags` must include one of: `person`, `org`, `tool`, `paper`, `media` | ≥1 relation OR ≥2 observations |
 | `concept` | one idea, framework, theory, pattern | — | ≥1 relation OR ≥2 observations |
 | `decision` | one explicit choice by Alice | `decided_on: YYYY-MM-DD`; optional `supersedes: [slug]` | — |
-| `source` | one ingested document | `raw_path`, `sha256`, `ingested_at`, `kind` | — |
+| `source` | one work: an ingested document OR a bibliographic reference (book, paper, blog) | `kind`; for an ingested local file also `raw_path`, `sha256`, `ingested_at`; for a pure reference use `url`/`doi`/`arxiv` + optional `author`, `year` | — |
 | `synthesis` | a cross-cutting analysis stitching multiple pages | `derived_from: [slug, slug, ...]` (≥2 entries) | — |
 | `todo` | one task or reminder | `status: open\|doing\|done\|abandoned`; optional `due`, `priority: high\|med\|low`, `remind_at`, `notify` | — |
 | `note` | catch-all (use sparingly; lint nags) | — | — |
@@ -87,7 +87,7 @@ Todo conventions:
 Every tag on every page must be in this list. The CLI rejects writes with unknown tags. To add a new tag, edit this section first.
 
 ```
-person  org  tool  paper  media  project  idea  pattern  principle
+person  org  tool  paper  media  project  idea  opinion  pattern  principle
 meta  health  family  work  research  reading  decision  recurring
 spouse  child  parent  sibling  friend  colleague  client  household
 finance  fitness  travel  food  hobby  event
@@ -223,6 +223,19 @@ Forms:
 - `^[lab:LAB-2026-02-24]` — for facts from external documents not yet ingested
 
 Lint flags `type: entity`, `type: synthesis`, and `type: concept` pages with observations but zero provenance markers. Run `wiki audit` to surface these.
+
+### Intellectual attribution (where an idea came from)
+
+Provenance markers above record *where a fact was captured* (a clipping, a Telegram message). They do not record *which work an idea came from*. A distilled idea, opinion, or principle reformulated from a book, paper, or blog must also record its intellectual origin, so `wiki backlinks <source>` can answer "every idea I drew from that work".
+
+Model the origin two ways, both pointing at a `type: source` node:
+
+- **`- cites [[source-slug]]`** relation in the body — the graph edge; gives backlinks. Preferred when you want the work discoverable as a hub.
+- **`origin:` frontmatter** — a `type: source` slug, or the control word `original` (genuinely your own thought) or `unattributed` (known-external, origin not yet identified — a backfill debt).
+
+The `unattributed-idea` audit rule (strict, high) **blocks writes** of `type: concept` pages tagged `idea`, `opinion`, or `principle` that have observations but none of: an `origin`, a `derived_from` (the instance/principle trail), a `cites` relation, or an inline provenance marker that names the work (`^[arxiv:...]`, `^[doi:...]`, `^[web:...]`, `^[author-year]`). A pure-capture marker (`^[raw/...]`, `^[telegram:...]`, `^[lab:...]`) does not count — it records where the fact was captured, not which work the idea came from. The two control words are escape valves so capture is never forced to invent an attribution — mark `unattributed` and ask, never fabricate. `origin: unattributed` pages are then surfaced by the non-blocking `idea-attribution-pending` rule as a `wiki audit` backfill worklist.
+
+A bibliographic source page is a `type: source` node created without a local file: `wiki write smith-2024 --type source --title "Title (Smith 2024)" --kind paper --url ... --doi ... --author "Smith" --year 2024`.
 
 ## Hard rules
 
@@ -619,7 +632,12 @@ This table lists every frontmatter field the CLI actively reads. **`stable`** fi
 | `raw_path`       | string path | type=source                 | write, audit                           | stable        | Relative path under `raw/`                                     |
 | `sha256`         | hex string  | type=source                 | write                                  | stable        | Content hash of the raw source                                 |
 | `ingested_at`    | ISO datetime| type=source                 | write                                  | stable        | When the source was first triaged                              |
-| `kind`           | string      | type=source                 | write                                  | stable        | Free-form: clipping, paper, lab, transcript, ...               |
+| `kind`           | string      | type=source                 | write                                  | stable        | Free-form: clipping, paper, book, article, blog, talk, video, transcript, lab, note |
+| `origin`         | string      | idea concept pages          | write, audit                           | experimental  | Attribution: a `type=source` slug, or control word `original` / `unattributed`. Enforced by `unattributed-idea`. Slug-shaped. |
+| `url`            | string      | type=source (reference)     | write                                  | experimental  | Canonical link for a bibliographic source                      |
+| `doi`            | string      | type=source (reference)     | write                                  | experimental  | DOI of a bibliographic source (or use `arxiv`)                 |
+| `author`         | string list | type=source (reference)     | write                                  | experimental  | Primary authors of the work                                    |
+| `year`           | integer     | type=source (reference)     | write                                  | experimental  | Publication year (3-4 digits)                                  |
 | `birth`          | ISO date    | measurement-series subjects | measure                                | stable        | Used to derive `age` column in growth-curve TSVs               |
 | `homepage`/`scholar`/`orcid`/`github`/`linkedin`/`twitter`/`arxiv`/`email` | string | — | context, audit | experimental | Structured external links on person entities; see "Structured external-link fields" section |
 | `hooks`          | string list | idea atoms (`type=concept`) | hooks, review, write, ingest           | experimental  | Sparse connective keywords (Luhmann entry points); 1-4 per atom; recurring hooks promote to a `type=concept` page; see "Connective hooks" |

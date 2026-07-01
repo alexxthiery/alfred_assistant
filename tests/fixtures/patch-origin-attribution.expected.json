@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "attr-idea": {
+      "bodyContains": ["origin: attr-src", "a distilled claim about the world"]
+    }
+  }
+}

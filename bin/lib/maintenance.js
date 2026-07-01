@@ -32,9 +32,15 @@ const EXTRA_FIELDS = [
   'born', 'visibility', 'sensitive', 'confidence',
   'hooks',
   'remind_at', 'reminded_at', 'notify',
+  // Attribution / bibliographic. `origin` records the work an idea came from
+  // (a source-page slug, or the control words `original` / `unattributed`);
+  // enforced on idea pages by the `unattributed-idea` audit rule. kind/url/doi/
+  // author/year describe a bibliographic `type: source` node (kind was
+  // previously only settable via ingest, not `wiki write`).
+  'origin', 'kind', 'url', 'doi', 'author', 'year',
 ];
 
-const LIST_FIELDS = new Set(['derived_from', 'supersedes', 'aliases', 'attendees', 'hooks', 'notify']);
+const LIST_FIELDS = new Set(['derived_from', 'supersedes', 'aliases', 'attendees', 'hooks', 'notify', 'author']);
 
 // HR07: parse/serialize round-trip is lossy for aliases containing `,` or `]`
 // (audit/12 § parser-robustness). User chose the reject-at-write path: any
@@ -165,6 +171,25 @@ function validateExtraFieldValue(name, raw) {
         return { error: `--${name} must be ISO8601 datetime YYYY-MM-DDTHH:MM[:SS][±HH:MM|Z] (got "${v}")` };
       }
       return { value: v };
+    }
+    case 'origin': {
+      // A source-page slug, or a control word. Slug shape (lowercase
+      // alphanumeric + hyphens, leading alphanumeric) covers both — the
+      // control words `original`/`unattributed` are themselves slug-shaped.
+      // Rejects empty/whitespace/uppercase/garbage so a typo can't slip in as
+      // a phantom attribution.
+      const v = String(raw).trim();
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(v)) {
+        return { error: `--origin must be a source-page slug, "original", or "unattributed" (lowercase, hyphens; got "${v}")` };
+      }
+      return { value: v };
+    }
+    case 'year': {
+      const v = String(raw).trim();
+      if (!/^\d{3,4}$/.test(v)) {
+        return { error: `--year must be a 3- or 4-digit year (got "${v}")` };
+      }
+      return { value: Number(v) };
     }
     default:
       return { value: raw };

@@ -373,6 +373,146 @@ test('missing-provenance: silent on non-strict types', () => {
   assert.equal(out, null);
 });
 
+// ─── unattributed-idea (strict attribution gate for distilled ideas) ─────────
+// Behavioral claim: a concept page tagged idea/opinion/principle that carries
+// observations must record which work it came from (origin field, derived_from,
+// or a cites relation), else the write is blocked. Plausible bugs the tests
+// guard: gate fires on non-idea concepts (false block), gate misses an
+// unattributed idea (silent gap — the whole point), origin/derived/cites escape
+// hatches not honored (blocks legitimate work), tags only read from one call
+// path (write.js top-level array vs on-disk fm.tags).
+
+test('unattributed-idea: is strict (blocks writes)', () => {
+  const r = findRule('unattributed-idea');
+  assert.equal(r.strict, true);
+  assert.equal(r.severity, 'high');
+});
+
+test('unattributed-idea: fires on idea concept with obs and no attribution', () => {
+  const r = findRule('unattributed-idea');
+  const out = r.check({ type: 'concept', tags: ['finance', 'idea'], body: '- [hypothesis] leverage converts diversification to return', fm: {} }, deps());
+  assert.ok(out, 'must block an unattributed idea card');
+  assert.match(out.detail, /idea/);
+  assert.ok(out.fix, 'offers a fix invocation');
+});
+
+test('unattributed-idea: fires for opinion and principle tags too', () => {
+  const r = findRule('unattributed-idea');
+  for (const tag of ['opinion', 'principle']) {
+    const out = r.check({ type: 'concept', tags: [tag], body: '- [hypothesis] a claim', fm: {} }, deps());
+    assert.ok(out, `must fire for ${tag}`);
+  }
+});
+
+test('unattributed-idea: reads tags from fm.tags when top-level tags absent (on-disk audit path)', () => {
+  const r = findRule('unattributed-idea');
+  const out = r.check({ type: 'concept', body: '- [hypothesis] a claim', fm: { tags: ['idea'] } }, deps());
+  assert.ok(out, 'audit-from-disk path passes tags via fm, rule must still fire');
+});
+
+test('unattributed-idea: silent when origin is set to a source slug', () => {
+  const r = findRule('unattributed-idea');
+  const out = r.check({ type: 'concept', tags: ['idea'], body: '- [hypothesis] a claim', fm: { origin: 'kahneman-tversky-1971' } }, deps());
+  assert.equal(out, null);
+});
+
+test('unattributed-idea: silent when origin=original (genuinely own thought)', () => {
+  const r = findRule('unattributed-idea');
+  const out = r.check({ type: 'concept', tags: ['idea'], body: '- [hypothesis] a claim', fm: { origin: 'original' } }, deps());
+  assert.equal(out, null);
+});
+
+test('unattributed-idea: silent when origin=unattributed (escape valve — not blocked)', () => {
+  // Critical: strict-block with no valve would force fabrication when the
+  // source is unknown at capture. `unattributed` must NOT block here; it is
+  // surfaced instead by idea-attribution-pending.
+  const r = findRule('unattributed-idea');
+  const out = r.check({ type: 'concept', tags: ['idea'], body: '- [hypothesis] a claim', fm: { origin: 'unattributed' } }, deps());
+  assert.equal(out, null);
+});
+
+test('unattributed-idea: empty/whitespace origin does NOT satisfy the gate', () => {
+  const r = findRule('unattributed-idea');
+  const out = r.check({ type: 'concept', tags: ['idea'], body: '- [hypothesis] a claim', fm: { origin: '   ' } }, deps());
+  assert.ok(out, 'a blank origin is not an attribution');
+});
+
+test('unattributed-idea: silent when derived_from present (instance/principle trail)', () => {
+  const r = findRule('unattributed-idea');
+  const out = r.check({ type: 'concept', tags: ['principle'], body: '- [hypothesis] a generalisation', fm: { derived_from: ['some-instance'] } }, deps());
+  assert.equal(out, null);
+});
+
+test('unattributed-idea: silent when a cites relation attributes the idea', () => {
+  const r = findRule('unattributed-idea');
+  const out = r.check({ type: 'concept', tags: ['idea'], body: '- [hypothesis] a claim\n- cites [[risk-parity-aqr-2010]]', fm: {} }, deps());
+  assert.equal(out, null);
+});
+
+test('unattributed-idea: silent on concept without an idea-class tag', () => {
+  const r = findRule('unattributed-idea');
+  const out = r.check({ type: 'concept', tags: ['research'], body: '- [hypothesis] a claim', fm: {} }, deps());
+  assert.equal(out, null, 'research-only literature notes stay advisory, not blocked');
+});
+
+test('unattributed-idea: silent on non-concept types even if idea-tagged', () => {
+  const r = findRule('unattributed-idea');
+  const out = r.check({ type: 'note', tags: ['idea'], body: '- [hypothesis] a claim', fm: {} }, deps());
+  assert.equal(out, null);
+});
+
+test('unattributed-idea: silent when the page has no observations', () => {
+  const r = findRule('unattributed-idea');
+  const out = r.check({ type: 'concept', tags: ['idea'], body: '- about [[something]]', fm: {} }, deps());
+  assert.equal(out, null, 'a relation-only stub has nothing to attribute yet');
+});
+
+test('unattributed-idea: silent when a marker NAMES the work (arxiv/doi/author-year)', () => {
+  // Behavioral claim: a provenance marker that names an external work is
+  // attribution; the page recorded where the idea came from.
+  const r = findRule('unattributed-idea');
+  for (const marker of ['arxiv:2412.05265', 'doi:10.1561/2200000074', 'web:blog+site:2026-05-19', 'frazzini-pedersen-2014']) {
+    const out = r.check({ type: 'concept', tags: ['idea'], body: `- [hypothesis] a claim ^[${marker}]`, fm: {} }, deps());
+    assert.equal(out, null, `marker ${marker} names a work and should satisfy the gate`);
+  }
+});
+
+test('unattributed-idea: still FIRES on pure-capture markers (raw/telegram/vault-synthesis)', () => {
+  // Behavioral claim (the crux): a capture marker records where a fact was
+  // saved, not which work the idea came from — it must NOT satisfy the gate.
+  const r = findRule('unattributed-idea');
+  for (const marker of ['raw/clippings/2026-05-21-adjoint.md', 'telegram:2026-05-17', 'vault-synthesis:2026-05-21', 'lab:LAB-2026-02-24']) {
+    const out = r.check({ type: 'concept', tags: ['idea'], body: `- [hypothesis] a claim ^[${marker}]`, fm: {} }, deps());
+    assert.ok(out, `capture marker ${marker} must not count as attribution`);
+  }
+});
+
+// ─── idea-attribution-pending (backlog surface for the unattributed valve) ───
+
+test('idea-attribution-pending: advisory only (does not block)', () => {
+  const r = findRule('idea-attribution-pending');
+  assert.equal(r.strict, false);
+  assert.equal(r.severity, 'medium');
+});
+
+test('idea-attribution-pending: fires on origin=unattributed idea page', () => {
+  const r = findRule('idea-attribution-pending');
+  const out = r.check({ type: 'concept', tags: ['idea'], fm: { origin: 'unattributed' } }, deps());
+  assert.ok(out, 'unattributed ideas belong on the backfill worklist');
+  assert.match(out.detail, /unattributed/);
+});
+
+test('idea-attribution-pending: silent on attributed and original ideas', () => {
+  const r = findRule('idea-attribution-pending');
+  assert.equal(r.check({ type: 'concept', tags: ['idea'], fm: { origin: 'some-source' } }, deps()), null);
+  assert.equal(r.check({ type: 'concept', tags: ['idea'], fm: { origin: 'original' } }, deps()), null);
+});
+
+test('idea-attribution-pending: silent on non-idea concepts', () => {
+  const r = findRule('idea-attribution-pending');
+  assert.equal(r.check({ type: 'concept', tags: ['research'], fm: { origin: 'unattributed' } }, deps()), null);
+});
+
 test('invented-verb: fires on relation verbs not in knownVerbs', () => {
   const r = findRule('invented-verb');
   const out = r.check({ body: '- frobnicates [[bob]]' }, deps());

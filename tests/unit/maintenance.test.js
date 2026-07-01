@@ -186,3 +186,48 @@ test('applyExtraFrontmatter: notify comma-string splits into a list', () => {
   applyExtraFrontmatter(fm, { notify: 'telegram, email' });
   assert.deepEqual(fm.notify, ['telegram', 'email']);
 });
+
+// ─── origin / bibliographic attribution fields ───────────────────────────────
+
+test('validateExtraFieldValue: origin accepts a source slug and the control words', () => {
+  assert.equal(validateExtraFieldValue('origin', 'kahneman-tversky-1971').value, 'kahneman-tversky-1971');
+  assert.equal(validateExtraFieldValue('origin', 'original').value, 'original');
+  assert.equal(validateExtraFieldValue('origin', 'unattributed').value, 'unattributed');
+});
+
+test('validateExtraFieldValue: origin rejects blanks, uppercase, and free text (no phantom attributions)', () => {
+  // Behavioral claim: only slug-shaped values pass, so a typo or a sentence
+  // cannot land as a bogus source pointer.
+  assert.ok(validateExtraFieldValue('origin', '').error);
+  assert.ok(validateExtraFieldValue('origin', '   ').error);
+  assert.ok(validateExtraFieldValue('origin', 'Kahneman & Tversky 1971').error);
+  assert.ok(validateExtraFieldValue('origin', 'Original').error);
+});
+
+test('validateExtraFieldValue: year accepts 3-4 digit years and coerces to number', () => {
+  assert.equal(validateExtraFieldValue('year', '2019').value, 2019);
+  assert.equal(validateExtraFieldValue('year', '850').value, 850);
+  assert.equal(typeof validateExtraFieldValue('year', '2019').value, 'number');
+});
+
+test('validateExtraFieldValue: year rejects non-year input', () => {
+  assert.ok(validateExtraFieldValue('year', '19').error);
+  assert.ok(validateExtraFieldValue('year', '20195').error);
+  assert.ok(validateExtraFieldValue('year', 'MMXIX').error);
+});
+
+test('applyExtraFrontmatter: author comma-string splits into a list; kind/origin/url/doi pass through', () => {
+  // kind was previously ingest-only; a bibliographic `wiki write --type source`
+  // needs it settable, so it must round-trip like the other passthrough fields.
+  const fm = {};
+  applyExtraFrontmatter(fm, { author: 'Naesseth, Lindsten, Schon', origin: 'elements-of-smc', kind: 'paper', url: 'https://arxiv.org/abs/1903.04797', doi: '10.1561/2200000074' });
+  assert.deepEqual(fm.author, ['Naesseth', 'Lindsten', 'Schon']);
+  assert.equal(fm.origin, 'elements-of-smc');
+  assert.equal(fm.kind, 'paper');
+  assert.equal(fm.url, 'https://arxiv.org/abs/1903.04797');
+  assert.equal(fm.doi, '10.1561/2200000074');
+});
+
+test('applyExtraFrontmatter: invalid origin throws (surfaces as exit-3 at the write layer)', () => {
+  assert.throws(() => applyExtraFrontmatter({}, { origin: 'Not A Slug' }), /origin/);
+});

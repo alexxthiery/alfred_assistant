@@ -1,0 +1,8 @@
+{
+  "_comment": "wiki patch <slug> --origin sets attribution as a standalone operation (the backfill path and the unattributed-idea fix suggestion). An idea page created with origin:unattributed is re-attributed to a real source via `patch --origin <slug>` with no other op — this must not trip the 'nothing to patch' guard.",
+  "setup": [
+    ["write", "attr-src", "--title", "A Source (X 2020)", "--type", "source", "--kind", "paper", "--url", "https://example.org/x", "--content", "- [fact] a source claim ^[telegram:2026-05-20]"],
+    ["write", "attr-idea", "--title", "A distilled idea from somewhere", "--type", "concept", "--tags", "research,idea", "--origin", "unattributed", "--content", "- [hypothesis] a distilled claim about the world ^[telegram:2026-05-20]"]
+  ],
+  "cmd": ["patch", "attr-idea", "--origin", "attr-src"]
+}

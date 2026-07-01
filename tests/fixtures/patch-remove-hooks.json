@@ -1,7 +1,7 @@
 {
   "_comment": "wiki patch --remove-hooks drops a connective hook from a card (set-difference, symmetric to --hooks union). The hygiene path for pruning a card whose own claim does not instantiate an over-applied hook. After removing 'drop-me', the live `wiki hooks` vocabulary no longer lists it; the kept hooks remain.",
   "setup": [
-    ["write", "rh-card", "--title", "RH Card", "--type", "concept", "--tags", "idea", "--content", "- [claim] body ^[telegram:2026-05-20]", "--hooks", "keep-one,drop-me,keep-two"],
+    ["write", "rh-card", "--title", "RH Card", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] body ^[telegram:2026-05-20]", "--hooks", "keep-one,drop-me,keep-two"],
     ["patch", "rh-card", "--remove-hooks", "drop-me"]
   ],
   "cmd": ["hooks"]

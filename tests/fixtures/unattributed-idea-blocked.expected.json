@@ -1,0 +1,7 @@
+{
+  "exitCode": 3,
+  "stderrContains": ["unattributed-idea", "origin"],
+  "wikiAssertions": {
+    "leverage-converts-diversification": { "fileExists": false }
+  }
+}

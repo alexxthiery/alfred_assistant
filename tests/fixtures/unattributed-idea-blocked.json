@@ -1,0 +1,4 @@
+{
+  "_comment": "unattributed-idea strict gate: creating a type=concept page tagged `idea` with an observation but no source attribution (no origin, no derived_from, no cites) must be blocked at write time. The observation carries a ^[telegram:...] capture marker so missing-provenance is satisfied and unattributed-idea is the sole blocker.",
+  "cmd": ["write", "leverage-converts-diversification", "--title", "Leverage converts diversification into return", "--type", "concept", "--tags", "finance,idea", "--content", "- [hypothesis] combining negatively correlated streams cuts variance but only lifts expected return if the risk budget is held via leverage ^[telegram:2026-05-17]"]
+}

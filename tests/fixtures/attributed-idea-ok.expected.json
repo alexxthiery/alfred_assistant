@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "leverage-converts-diversification": {
+      "bodyContains": ["combining negatively correlated streams"]
+    }
+  }
+}

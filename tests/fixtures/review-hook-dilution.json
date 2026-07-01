@@ -1,19 +1,19 @@
 {
   "_comment": "A hook carried by > 12 atoms is over-applied (a semi-stopword that bridges loosely-related cards). wiki review must surface it under 'Diluted hooks (audit, do not promote as-is)' rather than as a clean promotion candidate, so spurious members are pruned before the hook earns a principle page.",
   "setup": [
-    ["write", "dh-01", "--title", "DH 01", "--type", "concept", "--tags", "idea", "--content", "- [claim] one ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
-    ["write", "dh-02", "--title", "DH 02", "--type", "concept", "--tags", "idea", "--content", "- [claim] two ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
-    ["write", "dh-03", "--title", "DH 03", "--type", "concept", "--tags", "idea", "--content", "- [claim] three ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
-    ["write", "dh-04", "--title", "DH 04", "--type", "concept", "--tags", "idea", "--content", "- [claim] four ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
-    ["write", "dh-05", "--title", "DH 05", "--type", "concept", "--tags", "idea", "--content", "- [claim] five ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
-    ["write", "dh-06", "--title", "DH 06", "--type", "concept", "--tags", "idea", "--content", "- [claim] six ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
-    ["write", "dh-07", "--title", "DH 07", "--type", "concept", "--tags", "idea", "--content", "- [claim] seven ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
-    ["write", "dh-08", "--title", "DH 08", "--type", "concept", "--tags", "idea", "--content", "- [claim] eight ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
-    ["write", "dh-09", "--title", "DH 09", "--type", "concept", "--tags", "idea", "--content", "- [claim] nine ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
-    ["write", "dh-10", "--title", "DH 10", "--type", "concept", "--tags", "idea", "--content", "- [claim] ten ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
-    ["write", "dh-11", "--title", "DH 11", "--type", "concept", "--tags", "idea", "--content", "- [claim] eleven ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
-    ["write", "dh-12", "--title", "DH 12", "--type", "concept", "--tags", "idea", "--content", "- [claim] twelve ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
-    ["write", "dh-13", "--title", "DH 13", "--type", "concept", "--tags", "idea", "--content", "- [claim] thirteen ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"]
+    ["write", "dh-01", "--title", "DH 01", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] one ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-02", "--title", "DH 02", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] two ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-03", "--title", "DH 03", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] three ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-04", "--title", "DH 04", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] four ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-05", "--title", "DH 05", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] five ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-06", "--title", "DH 06", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] six ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-07", "--title", "DH 07", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] seven ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-08", "--title", "DH 08", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] eight ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-09", "--title", "DH 09", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] nine ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-10", "--title", "DH 10", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] ten ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-11", "--title", "DH 11", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] eleven ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-12", "--title", "DH 12", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] twelve ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"],
+    ["write", "dh-13", "--title", "DH 13", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] thirteen ^[telegram:2026-05-20]", "--hooks", "over-applied-hook"]
   ],
   "cmd": ["review"]
 }

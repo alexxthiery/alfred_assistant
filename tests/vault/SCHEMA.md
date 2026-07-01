@@ -87,7 +87,7 @@ Todo conventions:
 Every tag on every page must be in this list. The CLI rejects writes with unknown tags. To add a new tag, edit this section first.
 
 ```
-person  org  tool  paper  media  project  idea  pattern  principle
+person  org  tool  paper  media  project  idea  opinion  pattern  principle
 meta  health  family  work  research  reading  decision  recurring
 spouse  child  parent  sibling  friend  colleague  client  household
 finance  fitness  travel  food  hobby  event

@@ -120,6 +120,7 @@ const VALUE_REQUIRED_FLAGS = new Set([
   'recurrence', 'attendees', 'derived_from', 'supersedes', 'decided_on',
   'raw_path', 'sha256', 'homepage', 'scholar', 'orcid', 'github', 'linkedin',
   'twitter', 'arxiv', 'email', 'status', 'due', 'priority',
+  'origin', 'kind', 'url', 'doi', 'author', 'year',
   'remind_at', 'reminded_at', 'notify', 'summary-file',
   // dates / numbers / selectors
   'on', 'by', 'since', 'until', 'days', 'limit', 'max-hops', 'threshold',

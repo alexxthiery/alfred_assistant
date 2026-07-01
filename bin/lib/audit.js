@@ -93,6 +93,37 @@ const TODO_EVENT_KEYWORD_EXEMPTIONS = new Set(['review']);
 // evidence).
 const SUBSTANTIVE_TYPES = new Set(['entity', 'event', 'concept', 'question']);
 
+// Tags that mark a concept page as a distilled idea / opinion / principle —
+// the reformulated higher-level cards that must record which work they came
+// from (intellectual attribution, distinct from the ^[...] capture-provenance
+// enforced by `missing-provenance`). Drives the `unattributed-idea` strict
+// gate and the `idea-attribution-pending` backlog rule.
+const IDEA_TAGS = new Set(['idea', 'opinion', 'principle']);
+
+// Provenance-marker prefixes that are pure capture / internal-synthesis, i.e.
+// they record WHERE a fact was captured, not WHICH external work it names.
+// Any other `^[...]` marker (arxiv:, doi:, web:, http, an author-year slug like
+// `frazzini-pedersen-2014`, ...) is treated as naming the originating work and
+// therefore counts as intellectual attribution for the unattributed-idea gate.
+const CAPTURE_MARKER_PREFIXES = /^(raw|telegram|lab|inbox|maintenance|vault-synthesis|conversation|external)\b/i;
+
+// True iff the body carries a provenance marker that names an external work
+// (as opposed to a pure-capture marker). One such marker is enough.
+function namesExternalWork(body) {
+  const marks = [...String(body || '').matchAll(/\^\[([^\]]+)\]/g)].map((m) => m[1]);
+  return marks.some((m) => !CAPTURE_MARKER_PREFIXES.test(m));
+}
+
+// Normalize the tag list from either the top-level `tags` input (array, as
+// write.js passes it) or `fm.tags` (array on disk, comma-string from raw args).
+// Rules that key off tags must tolerate both call paths.
+function tagListOf(tags, fm) {
+  if (Array.isArray(tags)) return tags;
+  if (fm && Array.isArray(fm.tags)) return fm.tags;
+  if (fm && typeof fm.tags === 'string') return fm.tags.split(',').map((s) => s.trim()).filter(Boolean);
+  return [];
+}
+
 // Observation count at which a page is flagged as bloated. A high count of
 // active categorized observations on one page is structural drift away from
 // atomic-concept-per-page: the card has become a log of disparate sub-topics
@@ -341,6 +372,80 @@ const AUDIT_RULES = [
         detail: `${obs.length} observation(s) with no ^[...] marker on page`,
         message: `Page has ${obs.length} observation(s) but no ^[...] provenance marker. ` +
           `Add ^[telegram:YYYY-MM-DD] or ^[raw/<kind>/<slug>.md] in body, or set raw_path / derived_from in frontmatter.`,
+      };
+    },
+  },
+
+  {
+    // Intellectual attribution for distilled ideas. `missing-provenance`
+    // records WHERE a fact was captured (^[raw/...], ^[telegram:...]); this
+    // records WHICH WORK an idea came from. An idea/opinion/principle card
+    // reformulated from a book/paper/blog must point at its origin so
+    // `wiki backlinks <source>` can answer "all ideas from that work".
+    //
+    // Satisfied (not blocked) when the page has any of:
+    //   - fm.origin: a source slug, or the control word `original`
+    //     (genuinely the user's own) or `unattributed` (known-external,
+    //     backfill queued — see idea-attribution-pending),
+    //   - fm.derived_from: the instance/principle trail to an attributed page,
+    //   - a `- cites [[...]]` relation: graph-edge attribution (also the
+    //     backward-compatible path for the ~300 pages already using cites),
+    //   - a provenance marker that NAMES an external work (^[arxiv:...],
+    //     ^[doi:...], ^[web:...], ^[author-year], ...). A pure-capture marker
+    //     (^[raw/...], ^[telegram:...]) does not count — it records where the
+    //     fact was captured, not which work the idea came from.
+    //
+    // Known v1 limitation: a `cites` to a non-source page also satisfies the
+    // gate (this per-page rule cannot verify the target's type without a
+    // cross-page snapshot). The gate errs toward not-blocking legitimate work;
+    // the persona is told to prefer explicit `origin`. Cross-page tightening
+    // (cited target must be type=source) is deferred.
+    name: 'unattributed-idea',
+    severity: 'high',
+    strict: true,
+    check: ({ type, tags, body, fm }) => {
+      if (type !== 'concept') return null;
+      const tagList = tagListOf(tags, fm);
+      const ideaTags = tagList.filter((t) => IDEA_TAGS.has(t));
+      if (ideaTags.length === 0) return null;
+      if (!body) return null;
+      const obs = parseObservations(body);
+      if (obs.length === 0) return null;
+      const origin = fm && typeof fm.origin === 'string' ? fm.origin.trim() : '';
+      const hasOrigin = origin.length > 0;
+      const hasDerived = fm && Array.isArray(fm.derived_from) && fm.derived_from.length > 0;
+      const hasCites = parseRelations(body).some((r) => r.verb === 'cites');
+      const hasWorkMarker = namesExternalWork(body);
+      if (hasOrigin || hasDerived || hasCites || hasWorkMarker) return null;
+      return {
+        detail: `${ideaTags.join('/')} page has ${obs.length} observation(s) but no source attribution`,
+        message: `Idea page (tags: ${ideaTags.join(', ')}) has ${obs.length} observation(s) but records no source. ` +
+          `Set --origin <source-slug> (the work it came from), --origin original (genuinely your own), ` +
+          `or --origin unattributed (known-external, identify later); add a "- cites [[source]]" relation; ` +
+          `or cite the work inline via a ^[arxiv:...] / ^[doi:...] provenance marker. ` +
+          `Never fabricate an attribution — mark unattributed and ask.`,
+        fix: `wiki patch ${fm && fm.id ? fm.id : '<slug>'} --origin unattributed`,
+      };
+    },
+  },
+
+  {
+    // Backlog surface for the escape valve above. `origin: unattributed` is a
+    // legitimate, non-blocking state (an idea known to be external whose
+    // originating work is not yet identified), but it is debt: this medium
+    // finding lists such pages so `wiki audit` becomes the backfill worklist.
+    name: 'idea-attribution-pending',
+    severity: 'medium',
+    strict: false,
+    check: ({ type, tags, fm }) => {
+      if (type !== 'concept') return null;
+      const tagList = tagListOf(tags, fm);
+      if (!tagList.some((t) => IDEA_TAGS.has(t))) return null;
+      const origin = fm && typeof fm.origin === 'string' ? fm.origin.trim() : '';
+      if (origin !== 'unattributed') return null;
+      return {
+        detail: `origin: unattributed — originating work not yet identified`,
+        fix: `wiki patch ${fm && fm.id ? fm.id : '<slug>'} --origin <source-slug>`,
       };
     },
   },
