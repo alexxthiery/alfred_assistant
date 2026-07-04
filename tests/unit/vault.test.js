@@ -48,7 +48,7 @@ test('forEachPage: cb receives slug, file, absPath, fm, body, raw', () => {
   const root = mkTempVault();
   writePage(root, 'alice', { id: 'alice', title: 'Alice', type: 'entity' }, 'hello');
 
-  const { forEachPage, WIKI_DIR } = loadVaultFresh(root);
+  const { forEachPage, readPage, WIKI_DIR } = loadVaultFresh(root);
   let captured = null;
   forEachPage((entry) => { captured = entry; });
   assert.equal(captured.slug, 'alice');
@@ -58,6 +58,8 @@ test('forEachPage: cb receives slug, file, absPath, fm, body, raw', () => {
   assert.equal(captured.fm.title, 'Alice');
   assert.equal(captured.body.trim(), 'hello');
   assert.ok(captured.raw.includes('title: Alice'));
+  assert.equal(readPage('alice').fm.title, 'Alice');
+  assert.equal(readPage('missing'), null);
 });
 
 test('forEachPage: returning false breaks the loop', () => {

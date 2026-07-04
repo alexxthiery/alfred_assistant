@@ -1055,6 +1055,10 @@ function mkAllPage(slug, body, fmExtras = {}) {
   return { slug, title: fm.title, type: fm.type, tags: fm.tags, body, fm };
 }
 
+function mkIdeaPage(slug, body, fmExtras = {}) {
+  return mkAllPage(slug, body, { type: 'concept', tags: ['idea'], title: slug, ...fmExtras });
+}
+
 test('non-functional-alias: fires when alias slug matches another page slug', () => {
   const thisPage = mkAllPage('alpha', '- [fact] son ^[telegram:2026-05-17]', { aliases: ['beta'], title: 'Alpha' });
   const allPages = [thisPage, mkAllPage('beta', '- [fact] nickname for alpha')];
@@ -1115,6 +1119,80 @@ test('alias-collision: silent on legitimate non-overlapping aliases', () => {
   const allPages = [thisPage, mkAllPage('mom', 'body', { aliases: ['Mama'], title: 'Mom' })];
   const errors = strictCrossPageErrors(thisPage, { ...deps(), allPages });
   assert.equal(errors.find((e) => e.rule === 'alias-collision'), undefined);
+});
+
+// ─── idea-source-attribution ───────────────────────────────────────────────
+
+test('idea-source-attribution: rejects cites relations that only point to concepts', () => {
+  const thisPage = mkIdeaPage('uniform-ai-regularization',
+    '- [hypothesis] a claim ^[inbox/post_agi_transcripts/example.md]\n- cites [[related-concept]]');
+  const allPages = [
+    thisPage,
+    mkIdeaPage('related-concept', '- [hypothesis] another claim ^[web:example]'),
+  ];
+  const errors = strictCrossPageErrors(thisPage, { ...deps(), allPages });
+  const hit = errors.find((e) => e.rule === 'idea-source-attribution');
+  assert.ok(hit, 'concept-to-concept cites must not satisfy source attribution');
+  assert.match(hit.message, /none point to a type=source page/);
+  assert.match(hit.detail, /\[\[related-concept\]\] is type=concept/);
+});
+
+test('idea-source-attribution: accepts a cites relation to a real source page', () => {
+  const thisPage = mkIdeaPage('uniform-ai-regularization',
+    '- [hypothesis] a claim ^[inbox/post_agi_transcripts/example.md]\n- cites [[source-example]]');
+  const source = mkAllPage('source-example', '- [fact] source record ^[web:example]', {
+    type: 'source',
+    tags: [],
+    kind: 'article',
+  });
+  const allPages = [thisPage, source];
+  const errors = strictCrossPageErrors(thisPage, { ...deps(), allPages });
+  assert.equal(errors.find((e) => e.rule === 'idea-source-attribution'), undefined);
+});
+
+test('idea-source-attribution: rejects origin slugs that resolve to non-source pages', () => {
+  const thisPage = mkIdeaPage('bad-origin',
+    '- [hypothesis] a claim ^[telegram:2026-07-03]',
+    { origin: 'related-concept' });
+  const allPages = [thisPage, mkIdeaPage('related-concept', '- [hypothesis] another claim ^[web:example]')];
+  const errors = strictCrossPageErrors(thisPage, { ...deps(), allPages });
+  const hit = errors.find((e) => e.rule === 'idea-source-attribution');
+  assert.ok(hit);
+  assert.match(hit.message, /origin must be a type=source page/);
+});
+
+test('idea-source-attribution: rejects origin slugs that do not exist', () => {
+  const thisPage = mkIdeaPage('missing-origin',
+    '- [hypothesis] a claim ^[telegram:2026-07-03]',
+    { origin: 'missing-source' });
+  const errors = strictCrossPageErrors(thisPage, { ...deps(), allPages: [thisPage] });
+  const hit = errors.find((e) => e.rule === 'idea-source-attribution');
+  assert.ok(hit);
+  assert.match(hit.message, /\[\[missing-source\]\] does not exist/);
+});
+
+test('idea-source-attribution: control-word origins remain valid escape valves', () => {
+  for (const origin of ['original', 'unattributed']) {
+    const thisPage = mkIdeaPage(`idea-${origin}`,
+      '- [hypothesis] a claim ^[telegram:2026-07-03]',
+      { origin });
+    const errors = strictCrossPageErrors(thisPage, { ...deps(), allPages: [thisPage] });
+    assert.equal(errors.find((e) => e.rule === 'idea-source-attribution'), undefined);
+  }
+});
+
+test('auditVault: surfaces idea-source-attribution for existing bad concept cites', () => {
+  const pages = [
+    mkIdeaPage('uniform-ai-regularization',
+      '- [hypothesis] a claim ^[inbox/post_agi_transcripts/example.md]\n- cites [[related-concept]]'),
+    mkIdeaPage('related-concept', '- [hypothesis] another claim ^[web:example]'),
+  ];
+  const out = auditVault({ pages, ...deps() });
+  const r = out.perPage.find((p) => p.slug === 'uniform-ai-regularization');
+  const hit = r.issues.find((i) => i.rule === 'idea-source-attribution');
+  assert.ok(hit, 'vault audit must expose existing pages created under the old weak cites rule');
+  assert.equal(hit.severity, 'high');
+  assert.ok(r.score >= 3, 'high-severity source-attribution issue must contribute to the page score');
 });
 
 // ─── HR-OOB-C: duplicate-fact (advisory via auditVault) ───────────────────
@@ -1196,9 +1274,10 @@ test('mislabeled-event: exempt for type=concept (C1 — concepts are never event
   assert.ok(r.check({ title: 'Monday review', type: 'note' }, deps()));
 });
 
-test('mislabeled-event: todo review is an action, but todo meeting still flags', () => {
+test('mislabeled-event: broad event words can be todo action targets', () => {
   const r = findRule('mislabeled-event');
   assert.equal(r.check({ title: 'Finish TMLR review', type: 'todo' }, deps()), null);
+  assert.equal(r.check({ title: 'Submit holiday request', type: 'todo' }, deps()), null);
   assert.ok(r.check({ title: 'Meeting at CBIS at 11:00 AM', type: 'todo' }, deps()));
 });
 

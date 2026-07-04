@@ -1,0 +1,9 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["wiki/idea-cites-real-source.md"],
+  "wikiAssertions": {
+    "idea-cites-real-source": {
+      "bodyContains": ["- cites [[source-attribution-example]]"]
+    }
+  }
+}

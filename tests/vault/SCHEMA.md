@@ -67,12 +67,12 @@ The `type:` frontmatter field must be one of these. The CLI refuses unknown type
 | `entity` | one person, org, product, place, tool | `tags` must include one of: `person`, `org`, `tool`, `paper`, `media` | ≥1 relation OR ≥2 observations |
 | `concept` | one idea, framework, theory, pattern | — | ≥1 relation OR ≥2 observations |
 | `decision` | one explicit choice by Alice | `decided_on: YYYY-MM-DD`; optional `supersedes: [slug]` | — |
-| `source` | one ingested document | `raw_path`, `sha256`, `ingested_at`, `kind` | — |
+| `source` | one work: an ingested document OR a bibliographic reference (book, paper, blog) | `kind`; for an ingested local file also `raw_path`, `sha256`, `ingested_at`; for a pure reference use `url`/`doi`/`arxiv` + optional `author`, `year` | — |
 | `synthesis` | a cross-cutting analysis stitching multiple pages | `derived_from: [slug, slug, ...]` (≥2 entries) | — |
 | `todo` | one task or reminder | `status: open\|doing\|done\|abandoned`; optional `due`, `priority: high\|med\|low`, `remind_at`, `notify` | — |
 | `note` | catch-all (use sparingly; lint nags) | — | — |
 | `event` | one calendar event (meeting, appointment, deadline, trip) | `when: YYYY-MM-DD` or ISO8601; optional `duration`, `location`, `attendees: [slug, ...]`, `recurrence` | — |
-| `question` | one open question that accretes hypotheses, evidence, dead-ends, and partial answers over time. | — | ≥1 observation |
+| `question` | one open question that accretes hypotheses, evidence, dead-ends, and partial answers over time. Never "answered" — relabeled as `concept` if it stabilizes. Title in interrogative form (e.g. "why does X happen"). | — | ≥1 observation (typically `[hypothesis]` or `[fact]`) |
 | `view` | a saved DuckDB query that materialises a topical slice through the vault on demand. The page body holds a fenced ```` ```sql ```` block; `wiki render <slug>` executes it. Replaces hand-maintained aggregator pages with a query you re-evaluate against current state. | a fenced ```` ```sql ```` block in the body (advisory: `view-needs-query` audit warns if absent) | — |
 
 The CLI rejects `type: note` for pages whose `tags` include `person`, `org`, or `tool` — use `entity` instead.
@@ -115,6 +115,7 @@ A categorized inline fact, written as a markdown list item:
 - [opinion] CalDAV is the right protocol; Google Calendar's OAuth is overkill for personal use
 - [idea] An ingestion pipeline that lints and redacts before writing
 - [todo] Email Bob about contract renewal
+- [prediction] Bob will leave ExampleCorp by 2027-06 [confidence: 0.6]
 ```
 
 Categories: `fact`, `hypothesis`, `opinion`, `claim`, `quote`, `question`, `decision`, `todo`, `idea`, `prediction`. The leading `- [category]` makes the line parseable.
@@ -123,6 +124,7 @@ Categories: `fact`, `hypothesis`, `opinion`, `claim`, `quote`, `question`, `deci
 - `hypothesis` — uncertain, unconfirmed (flag for follow-up). Lint warns on hypotheses older than ~90 days.
 - `opinion` — Alice's stance, not a verifiable fact
 - `claim` — third-party assertion (from a paper, person) without independent verification
+- `prediction` — a forward-looking probabilistic claim with `[confidence: 0..1]`, optionally `[by YYYY-MM-DD]` for the resolution date. Resolved later via `--supersede` with the outcome. The corpus of resolved predictions powers calibration scoring.
 
 ### Stable observation IDs (CLI-minted, invisible)
 
@@ -134,10 +136,10 @@ Every categorized observation line carries an invisible HTML-comment marker mint
 
 - **Format**: `<!--obs:XXXXXX-->` where `XXXXXX` is six lowercase base36 chars (`a-z0-9`), ~2.18B id space.
 - **Invisibility**: HTML comments do not render in any markdown viewer; humans reading the raw `.md` see decoration only when looking.
-- **Position**: appended at end-of-line. For `~~[cat] ...~~` superseded lines, the marker lands after the closing `~~`.
+- **Position**: appended at end-of-line. For `~~[cat] ...~~` superseded lines, the marker lands after the closing `~~` so the strikethrough wrap stays intact.
 - **Minted by**: `cmdWrite` / `cmdPatch` automatically. `wiki sync-ids` is the one-time migration verb that retro-fits markers on legacy pages and is idempotent on re-run.
-- **Surfaced in DuckDB**: `observations.id` (nullable until migrated). The FTS index uses an internal `observations.obs_uid` row counter, not `id`.
-- **Used by**: write-time dedup, stable handle for surgical edits, transclusion, and agent references to specific observations.
+- **Surfaced in DuckDB**: `observations.id` (nullable until the page is migrated). The FTS index uses an internal `observations.obs_uid` row counter, not `id`, because the 6-char id is probabilistically unique rather than strict.
+- **Used by**: write-time dedup (`exact-duplicate-observation` rule), and as a stable handle for surgical edits, transclusion (`[[slug#obs:XXXXXX]]`), and Alfred-agent references to specific observations on a page.
 
 ### Temporal tags (CLI-parseable)
 
@@ -155,10 +157,20 @@ Variants:
 - `[until YYYY-MM-DD]` — end of a state (paired with strikethrough on superseded facts)
 - `[on YYYY-MM-DD]` — point in time (event-like)
 - `[as-of YYYY-MM-DD]` — observation date (when this was true / when learned)
-- `[by YYYY-MM-DD]` — forward-looking resolution date (used by `[prediction]`); surfaced as `observations.by_date` in DuckDB
-- `[confidence: 0..1]` — inline numeric confidence reading; surfaced as `observations.confidence` in DuckDB. Out-of-range values silently dropped.
+- `[by YYYY-MM-DD]` — forward-looking resolution date, primarily for `[prediction]` lines (when the prediction should be evaluated). Surfaced as `observations.by_date` in the DuckDB layer.
 
 Date precision is flexible: `2024`, `2024-08`, or `2024-08-15` all valid.
+
+### Confidence tag (CLI-parseable)
+
+An optional inline confidence reading on any observation:
+
+```
+- [prediction] X will happen [by 2027-06] [confidence: 0.6] ^[telegram:1]
+- [opinion] Approach A beats B [confidence: 0.8] ^[2026-05-19]
+```
+
+The value must be a number in `[0, 1]`. Out-of-range or malformed values are silently dropped — the observation still parses, just without a reading. Surfaced as `observations.confidence` in the DuckDB layer; `vault.confidence` is the page-level analogue (`wiki patch <slug> --confidence 0.8`).
 
 ### Supersession (retiring an old fact)
 
@@ -211,6 +223,19 @@ Forms:
 - `^[lab:LAB-2026-02-24]` — for facts from external documents not yet ingested
 
 Lint flags `type: entity`, `type: synthesis`, and `type: concept` pages with observations but zero provenance markers. Run `wiki audit` to surface these.
+
+### Intellectual attribution (where an idea came from)
+
+Provenance markers above record *where a fact was captured* (a clipping, a Telegram message). They do not record *which work an idea came from*. A distilled idea, opinion, or principle reformulated from a book, paper, or blog must also record its intellectual origin, so `wiki backlinks <source>` can answer "every idea I drew from that work".
+
+Model the origin two ways, both pointing at a `type: source` node:
+
+- **`- cites [[source-slug]]`** relation in the body — the graph edge; gives backlinks. Preferred when you want the work discoverable as a hub.
+- **`origin:` frontmatter** — a `type: source` slug, or the control word `original` (genuinely your own thought) or `unattributed` (known-external, origin not yet identified — a backfill debt).
+
+The `unattributed-idea` audit rule (strict, high) **blocks writes** of `type: concept` pages tagged `idea`, `opinion`, or `principle` that have observations but none of: an `origin`, a `derived_from` (the instance/principle trail), a `cites [[source-slug]]` relation whose target is `type: source`, or an inline provenance marker that names the work (`^[arxiv:...]`, `^[doi:...]`, `^[web:...]`, `^[author-year]`). A pure-capture marker (`^[raw/...]`, `^[telegram:...]`, `^[lab:...]`, `^[inbox/...]`) does not count — it records where the fact was captured, not which work the idea came from. A `cites` edge to another concept is allowed as a semantic relation, but it does **not** satisfy intellectual attribution. The two control words are escape valves so capture is never forced to invent an attribution — mark `unattributed` and ask, never fabricate. `origin: unattributed` pages are then surfaced by the non-blocking `idea-attribution-pending` rule as a `wiki audit` backfill worklist.
+
+A bibliographic source page is a `type: source` node created without a local file: `wiki write smith-2024 --type source --title "Title (Smith 2024)" --kind paper --url ... --doi ... --author "Smith" --year 2024`.
 
 ## Hard rules
 
@@ -607,9 +632,15 @@ This table lists every frontmatter field the CLI actively reads. **`stable`** fi
 | `raw_path`       | string path | type=source                 | write, audit                           | stable        | Relative path under `raw/`                                     |
 | `sha256`         | hex string  | type=source                 | write                                  | stable        | Content hash of the raw source                                 |
 | `ingested_at`    | ISO datetime| type=source                 | write                                  | stable        | When the source was first triaged                              |
-| `kind`           | string      | type=source                 | write                                  | stable        | Free-form: clipping, paper, lab, transcript, ...               |
+| `kind`           | string      | type=source                 | write                                  | stable        | Free-form: clipping, paper, book, article, blog, talk, video, transcript, lab, note |
+| `origin`         | string      | idea concept pages          | write, audit                           | experimental  | Attribution: a `type=source` slug, or control word `original` / `unattributed`. Enforced by `unattributed-idea`. Slug-shaped. |
+| `url`            | string      | type=source (reference)     | write                                  | experimental  | Canonical link for a bibliographic source                      |
+| `doi`            | string      | type=source (reference)     | write                                  | experimental  | DOI of a bibliographic source (or use `arxiv`)                 |
+| `author`         | string list | type=source (reference)     | write                                  | experimental  | Primary authors of the work                                    |
+| `year`           | integer     | type=source (reference)     | write                                  | experimental  | Publication year (3-4 digits)                                  |
 | `birth`          | ISO date    | measurement-series subjects | measure                                | stable        | Used to derive `age` column in growth-curve TSVs               |
 | `homepage`/`scholar`/`orcid`/`github`/`linkedin`/`twitter`/`arxiv`/`email` | string | — | context, audit | experimental | Structured external links on person entities; see "Structured external-link fields" section |
+| `hooks`          | string list | idea atoms (`type=concept`) | hooks, review, write, ingest           | experimental  | Sparse connective keywords (Luhmann entry points); 1-4 per atom; recurring hooks promote to a `type=concept` page; see "Connective hooks" |
 
 Adding a new field that the CLI should read: list it here with `experimental` status, ship one minor version with that label, promote to `stable` next minor if no shape changes needed. Removing a field: deprecate in vX.Y (warn on use), remove in vX.(Y+1) with a `wiki migrate` step.
 
@@ -623,6 +654,16 @@ A page may carry an `aliases: [name1, name2]` frontmatter field. Aliases:
 ## Summary field
 
 A page may carry a `summary: "..."` frontmatter field — a single-line description for index/preview output. Set via `wiki patch --summary "..."`. If absent, the CLI falls back to the first non-heading body line.
+
+## Connective hooks (intellectual pipeline)
+
+Idea atoms may carry a `hooks: [kw1, kw2]` frontmatter field: sparse *connective* keywords (1-3 per atom). A hook is a **shared join key**, not a description — two cards link only when a future card independently lands on the *same* hook string, so a hook must be a short, **standard concept name** the field already shares (`advantage-baseline`, `control-variate`, `two-timescale`, `logmeanexp`), 1-3 words, a label not a claim. Anti-patterns: sentence-like coinages (`reference-subtraction-exposes-relative-value`) that no future card will reuse, and bare umbrella words (`optimization`) that match everything. They are the lightweight, bottom-up layer of the principle/instance idea graph:
+
+- Set via `wiki write/patch --hooks "a,b,c"`, on entities via the ingest spec (`"hooks": [...]`), or accreted via patch `add_hooks`.
+- `wiki hooks [--min N]` lists the live hook vocabulary with page counts — read it before minting a hook so you reuse an existing one (reuse-first). The CLI soft-warns when a hook looks sentence-like (>3 hyphens or >32 chars).
+- **Ingest writes hooks only — never principle pages.** A hook recurring across ≥3 atoms surfaces in `wiki review` under "Hook promotion candidates"; *only then* promote it to a `type=concept` principle page (canonical name + synonym `aliases`) and link the carrying atoms via `instance_of`/`about`. Connections then surface through `related --unconnected` (shared-principle neighbours). Minting a principle page at first ingest (one instance, invented synonyms) is empty abstraction — let recurrence earn the page.
+
+The full ritual (capture → process → hook-determination → promotion → grooming) lives in the persona's "Intellectual pipeline" section, not in the CLI; the CLI only provides the `hooks` field, the `wiki hooks` listing, and the review section.
 
 ## Placement-first protocol
 

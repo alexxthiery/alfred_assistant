@@ -41,5 +41,10 @@ When {{USER_NAME}} asks a recall-shaped question that sounds email-shaped (deadl
 
 **Do NOT use any other Gmail integration.** Specifically: ignore any host-side "Gmail" OAuth connector that prompts {{USER_NAME}} to open a `connect=gmail` URL — that is a separate tool {{USER_NAME}} has not authorised. The only sanctioned Gmail path is `bin/gmail`, which uses {{USER_NAME}}'s own IMAP app password via the container's env vars (`EMAIL_FROM` + `GMAIL_IMAP_APP_PASSWORD`). If `bin/gmail` is missing the env var, report the missing variable name and stop — do not propose OAuth as a workaround.
 
----
+### Reflex 5 — Live X/Twitter reads go through `bin/twitter-read`, never a raw connector
 
+When {{USER_NAME}} asks to check live tweets, bookmarks, likes, mentions, or a specific thread, use `bin/twitter-read` before guessing if the answer is not already in the vault. Prefer targeted verbs (`whoami`, `user-tweets`, `bookmarks`, `mentions`, `likes`, `thread`, `read`) and add `--json` when you want structured output. See `docs/TWITTER.md` for setup and examples.
+
+**Do NOT improvise another X/Twitter path.** Specifically: do not ask {{USER_NAME}} for their password, do not suggest a generic OAuth connector, and do not call the raw `bird` write verbs. The sanctioned path is `bin/twitter-read`, which is intentionally read-only and either uses browser cookies on the host or Alfred-specific cookie env vars (`ALFRED_BIRD_AUTH_TOKEN` + `ALFRED_BIRD_CT0`) when the runtime is containerized. If `bin/twitter-read` is unavailable or misconfigured, report the missing backend/env clearly and stop.
+
+---

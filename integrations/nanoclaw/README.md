@@ -8,7 +8,7 @@ nanoclaw mounts the vault into the agent container and, per the group's `CLAUDE.
 
 ## Setup
 
-The four host-side patches (write-guard hook, PATH, env passthrough, provider registration) are documented in [`../../docs/NANOCLAW-PATCHES.md`](../../docs/NANOCLAW-PATCHES.md). Apply them to your nanoclaw fork.
+The host-side patches (write-guard hook, PATH, env passthrough, provider registration, vault-read gate) are documented in [`../../docs/NANOCLAW-PATCHES.md`](../../docs/NANOCLAW-PATCHES.md). Apply them to your nanoclaw fork.
 
 **Persona wiring:** point the group's `CLAUDE.local.md` at the vault's `AGENTS.md`:
 

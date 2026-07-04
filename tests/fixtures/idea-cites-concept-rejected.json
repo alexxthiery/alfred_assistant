@@ -1,0 +1,7 @@
+{
+  "_comment": "A concept-to-concept `cites` edge is a semantic relation, not intellectual source attribution. The write must be rejected unless the page has origin/derived_from/work-marker or a cites edge to type=source.",
+  "setup": [
+    ["write", "related-concept-source-gap", "--title", "Related concept", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [hypothesis] adjacent idea ^[telegram:2026-07-03]"]
+  ],
+  "cmd": ["write", "idea-cites-concept-gap", "--title", "Idea cites only another concept", "--type", "concept", "--tags", "idea", "--content", "- [hypothesis] captured idea with no work attribution ^[inbox/post_agi_transcripts/example.md]\n- cites [[related-concept-source-gap]]"]
+}

@@ -99,6 +99,12 @@ Required fields per kind:
 
 Provenance is auto-stamped from `source` on every observation. Date tags come from the per-observation `since/until/on/asOf` fields.
 
+**Intellectual attribution (where an idea came from).** The `source` marker records *where you captured* a fact (a clipping, a Telegram message). It does NOT record *which work an idea came from*. Any `type: concept` page tagged `idea`, `opinion`, or `principle` that you ingest from a book, paper, or blog must also record its origin, or the CLI **blocks the write** (`unattributed-idea`). When ingesting from an external work:
+
+1. Create the work as a `type: source` node first (`kind: paper|book|article|blog`, with `url`/`doi`/`arxiv`, `author`, `year`), then attribute the idea to it with a `- cites [[that-source]]` relation, or set `origin: <source-slug>` on the idea page. `wiki backlinks <source>` then lists every idea drawn from that work. A `cites [[concept]]` relation is only a semantic link; it does not count as source attribution.
+2. If the origin is genuinely {{USER_NAME}}'s own thought, set `origin: original`.
+3. If the idea is clearly external but you cannot identify the exact work, **ask {{USER_NAME}} one question** ("which piece is this from?"). If they can't say, set `origin: unattributed` — never invent a citation. Unattributed ideas surface later on the `wiki audit` backfill worklist (`idea-attribution-pending`).
+
 Relation `verb` must be in the SCHEMA registries. The CLI rejects invented verbs.
 
 #### Step 3 — pipe to `wiki ingest --stdin` and read the audit

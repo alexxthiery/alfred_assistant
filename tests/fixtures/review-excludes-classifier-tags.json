@@ -1,0 +1,14 @@
+{
+  "_comment": "wiki review should not recommend closed-taxonomy classifier/workflow tags such as #idea or #research as missing concept anchors.",
+  "setup": [
+    ["write", "tag-anchor-seed-1", "--title", "Tag anchor seed 1", "--type", "note", "--tags", "idea,research", "--content", "seed", "--no-anchor"],
+    ["write", "tag-anchor-seed-2", "--title", "Tag anchor seed 2", "--type", "note", "--tags", "idea,research", "--content", "seed", "--no-anchor"],
+    ["write", "tag-anchor-seed-3", "--title", "Tag anchor seed 3", "--type", "note", "--tags", "idea,research", "--content", "seed", "--no-anchor"],
+    ["write", "tag-anchor-seed-4", "--title", "Tag anchor seed 4", "--type", "note", "--tags", "idea,research", "--content", "seed", "--no-anchor"],
+    ["write", "tag-anchor-seed-5", "--title", "Tag anchor seed 5", "--type", "note", "--tags", "idea,research", "--content", "seed", "--no-anchor"],
+    ["write", "tag-anchor-seed-6", "--title", "Tag anchor seed 6", "--type", "note", "--tags", "idea,research", "--content", "seed", "--no-anchor"],
+    ["write", "tag-anchor-seed-7", "--title", "Tag anchor seed 7", "--type", "note", "--tags", "idea,research", "--content", "seed", "--no-anchor"],
+    ["write", "tag-anchor-seed-8", "--title", "Tag anchor seed 8", "--type", "note", "--tags", "idea,research", "--content", "seed", "--no-anchor"]
+  ],
+  "cmd": ["review"]
+}

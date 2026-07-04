@@ -198,11 +198,14 @@ function cmdReview(args) {
   // Tags used heavily but with no canonical concept page slug=tagname.
   // Skip taxonomy tags (kind tags + roles + meta) — those are classifiers,
   // not concepts. Only surface tags that look like discipline/topic names.
-  const TAXONOMY_TAGS = new Set([
+  const NON_CONCEPT_TAGS = new Set([
     'person', 'org', 'tool', 'paper', 'media',                  // entity-kind
     'spouse', 'child', 'parent', 'sibling',                     // role
     'friend', 'colleague', 'client', 'household',               // social role
     'meta', 'family', 'work', 'recurring', 'decision', 'event', // structural
+    'project', 'idea', 'opinion', 'pattern', 'principle',       // workflow/category
+    'health', 'research', 'reading', 'finance', 'fitness',      // domain classifiers
+    'travel', 'food', 'hobby',
   ]);
   const tagCount = new Map();
   for (const p of all) {
@@ -212,7 +215,7 @@ function cmdReview(args) {
   const missingAnchors = [];
   for (const [tag, n] of tagCount.entries()) {
     if (n < 8) continue;
-    if (TAXONOMY_TAGS.has(tag)) continue;
+    if (NON_CONCEPT_TAGS.has(tag)) continue;
     if (fs.existsSync(wikiPath(tag))) continue;
     if (fs.existsSync(wikiPath(`${tag}-overview`))) continue;
     missingAnchors.push({ tag, n });

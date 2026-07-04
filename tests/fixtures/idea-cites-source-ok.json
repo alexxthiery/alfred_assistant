@@ -1,0 +1,7 @@
+{
+  "_comment": "A `cites` edge to a real type=source page satisfies intellectual attribution for an idea concept.",
+  "setup": [
+    ["write", "source-attribution-example", "--title", "Attribution Example (2026)", "--type", "source", "--kind", "article", "--url", "https://example.org/attribution", "--content", ""]
+  ],
+  "cmd": ["write", "idea-cites-real-source", "--title", "Idea cites a real source", "--type", "concept", "--tags", "idea", "--content", "- [hypothesis] captured idea with source attribution ^[inbox/post_agi_transcripts/example.md]\n- cites [[source-attribution-example]]"]
+}

@@ -8,9 +8,33 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
-const { parseFlatYaml, DEFAULTS } = require(path.resolve(__dirname, '..', '..', 'bin', 'lib', 'config.js'));
+const { parseFlatYaml, loadConfig, DEFAULTS } = require(path.resolve(__dirname, '..', '..', 'bin', 'lib', 'config.js'));
+
+function withEnv(overrides, fn) {
+  const snapshot = {};
+  for (const key of Object.keys(overrides)) {
+    snapshot[key] = Object.prototype.hasOwnProperty.call(process.env, key) ? process.env[key] : undefined;
+    const value = overrides[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try {
+    return fn();
+  } finally {
+    for (const key of Object.keys(overrides)) {
+      if (snapshot[key] === undefined) delete process.env[key];
+      else process.env[key] = snapshot[key];
+    }
+  }
+}
+
+function writeConfig(root, body) {
+  fs.writeFileSync(path.join(root, '.alfred.yml'), body);
+}
 
 test('parseFlatYaml: parses a 2-level section with scalar children', () => {
   const out = parseFlatYaml('user:\n  slug: alice\n  name: Alice Smith\n');
@@ -88,9 +112,163 @@ test('DEFAULTS: has all expected top-level sections (regression on dropped keys)
   assert.equal(typeof DEFAULTS.user.slug, 'string');
   assert.equal(typeof DEFAULTS.user.name, 'string');
   assert.equal(typeof DEFAULTS.weekly_review.enabled, 'boolean');
+  assert.equal(typeof DEFAULTS.paths.bird_bin, 'string');
 });
 
 test('DEFAULTS: is frozen (mutation guard)', () => {
   // Object.freeze prevents accidental mutation at startup; surface it.
   assert.ok(Object.isFrozen(DEFAULTS));
+});
+
+test('loadConfig: finds nearest .alfred.yml from nested dir and derives vault_root from it', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-load-'));
+  const nested = path.join(root, 'a', 'b', 'c');
+  fs.mkdirSync(nested, { recursive: true });
+  writeConfig(root, 'user:\n  slug: sample-user\n  name: Sample User\n');
+
+  const cfg = loadConfig(nested);
+  assert.equal(cfg.user.slug, 'sample-user');
+  assert.equal(cfg.user.name, 'Sample User');
+  assert.equal(cfg.paths.vault_root, root);
+  assert.equal(cfg._configPath, path.join(root, '.alfred.yml'));
+});
+
+test('loadConfig: EMAIL_FROM and TZ env fallbacks populate missing config fields', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-env-'));
+  writeConfig(root, 'user:\n  slug: sample-user\n  name: Sample User\n');
+
+  withEnv({ EMAIL_FROM: 'sample-user@example.invalid', TZ: 'Asia/Singapore' }, () => {
+    const cfg = loadConfig(root);
+    assert.equal(cfg.email.from, 'sample-user@example.invalid');
+    assert.equal(cfg.email.to, 'sample-user@example.invalid');
+    assert.equal(cfg.weekly_review.timezone, 'Asia/Singapore');
+  });
+});
+
+test('loadConfig: explicit relative paths.vault_root resolves against config dir', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-relroot-'));
+  const expected = path.join(root, 'vault-data');
+  writeConfig(root, [
+    'user:',
+    '  slug: sample-user',
+    '  name: Sample User',
+    'paths:',
+    '  vault_root: ./vault-data',
+    '',
+  ].join('\n'));
+
+  const cfg = loadConfig(root);
+  assert.equal(cfg.paths.vault_root, expected);
+});
+
+test('loadConfig: explicit ~ in paths.vault_root expands against HOME', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-homeroot-'));
+  writeConfig(root, [
+    'user:',
+    '  slug: sample-user',
+    '  name: Sample User',
+    'paths:',
+    '  vault_root: ~/vault-home',
+    '',
+  ].join('\n'));
+
+  withEnv({ HOME: '/tmp/fake-home' }, () => {
+    const cfg = loadConfig(root);
+    assert.equal(cfg.paths.vault_root, '/tmp/fake-home/vault-home');
+  });
+});
+
+test('loadConfig: explicit relative paths.bird_bin resolves against config dir', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-relbird-'));
+  const expected = path.join(root, 'tools', 'bird');
+  writeConfig(root, [
+    'user:',
+    '  slug: sample-user',
+    '  name: Sample User',
+    'paths:',
+    '  bird_bin: ./tools/bird',
+    '',
+  ].join('\n'));
+
+  const cfg = loadConfig(root);
+  assert.equal(cfg.paths.bird_bin, expected);
+});
+
+test('loadConfig: explicit ~ in paths.bird_bin expands against HOME', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-homebird-'));
+  writeConfig(root, [
+    'user:',
+    '  slug: sample-user',
+    '  name: Sample User',
+    'paths:',
+    '  bird_bin: ~/bin/bird',
+    '',
+  ].join('\n'));
+
+  withEnv({ HOME: '/tmp/fake-home' }, () => {
+    const cfg = loadConfig(root);
+    assert.equal(cfg.paths.bird_bin, '/tmp/fake-home/bin/bird');
+  });
+});
+
+test('loadConfig: preserves unknown keys for forward compatibility and deep-freezes the result', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-extra-'));
+  writeConfig(root, [
+    'user:',
+    '  slug: sample-user',
+    '  name: Sample User',
+    'assistant:',
+    '  tone: terse',
+    'feature_flags:',
+    '  experimental: true',
+    '',
+  ].join('\n'));
+
+  const cfg = loadConfig(root);
+  assert.equal(cfg.assistant.tone, 'terse');
+  assert.deepEqual(cfg.feature_flags, { experimental: true });
+  assert.ok(Object.isFrozen(cfg));
+  assert.ok(Object.isFrozen(cfg.user));
+  assert.ok(Object.isFrozen(cfg.assistant));
+});
+
+test('loadConfig: invalid user.slug reports the config path', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-bad-slug-'));
+  writeConfig(root, 'user:\n  slug: Bad Slug\n  name: Sample User\n');
+
+  assert.throws(
+    () => loadConfig(root),
+    (err) => err instanceof Error &&
+      err.message.includes(path.join(root, '.alfred.yml')) &&
+      err.message.includes('user.slug'),
+  );
+});
+
+test('loadConfig: weekly_review.cron must be a 5-field expression when enabled', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-bad-cron-'));
+  writeConfig(root, [
+    'user:',
+    '  slug: sample-user',
+    '  name: Sample User',
+    'weekly_review:',
+    '  enabled: true',
+    '  cron: "0 9 * *"',
+    '',
+  ].join('\n'));
+
+  assert.throws(() => loadConfig(root), /weekly_review\.cron/);
+});
+
+test('loadConfig: weekly_review.enabled must remain boolean', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-bad-enabled-'));
+  writeConfig(root, [
+    'user:',
+    '  slug: sample-user',
+    '  name: Sample User',
+    'weekly_review:',
+    '  enabled: maybe',
+    '',
+  ].join('\n'));
+
+  assert.throws(() => loadConfig(root), /weekly_review\.enabled must be true or false/);
 });

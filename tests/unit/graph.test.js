@@ -115,12 +115,21 @@ test('extractWikilinks: ignores malformed wikilinks', () => {
 
 // ─── extractProvenanceMarkers ──────────────────────────────────────────────
 
-test('extractProvenanceMarkers: catches each scheme', () => {
-  const body = 'something ^[raw:foo/bar.md] and ^[telegram:123] and ^[conversation:abc]';
+test('extractProvenanceMarkers: catches any syntactically valid marker', () => {
+  const body = [
+    'something ^[raw:foo/bar.md]',
+    'and ^[telegram:123]',
+    'and ^[arxiv:2312.00752]',
+    'and ^[web:example.invalid:2026-05-30]',
+    'and ^[sutton-sair-talk-2026]',
+  ].join(' ');
   const out = extractProvenanceMarkers(body);
-  assert.equal(out.length, 3);
+  assert.equal(out.length, 5);
   assert.ok(out[0].startsWith('^[raw:'));
   assert.ok(out[1].startsWith('^[telegram:'));
+  assert.ok(out.includes('^[arxiv:2312.00752]'));
+  assert.ok(out.includes('^[web:example.invalid:2026-05-30]'));
+  assert.ok(out.includes('^[sutton-sair-talk-2026]'));
 });
 
 test('extractProvenanceMarkers: empty body → empty array', () => {

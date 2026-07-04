@@ -155,8 +155,13 @@ When {{USER_NAME}} asks a recall-shaped question that sounds email-shaped (deadl
 
 **Do NOT use any other Gmail integration.** Specifically: ignore any host-side "Gmail" OAuth connector that prompts {{USER_NAME}} to open a `connect=gmail` URL — that is a separate tool {{USER_NAME}} has not authorised. The only sanctioned Gmail path is `bin/gmail`, which uses {{USER_NAME}}'s own IMAP app password via the container's env vars (`EMAIL_FROM` + `GMAIL_IMAP_APP_PASSWORD`). If `bin/gmail` is missing the env var, report the missing variable name and stop — do not propose OAuth as a workaround.
 
----
+### Reflex 5 — Live X/Twitter reads go through `bin/twitter-read`, never a raw connector
 
+When {{USER_NAME}} asks to check live tweets, bookmarks, likes, mentions, or a specific thread, use `bin/twitter-read` before guessing if the answer is not already in the vault. Prefer targeted verbs (`whoami`, `user-tweets`, `bookmarks`, `mentions`, `likes`, `thread`, `read`) and add `--json` when you want structured output. See `docs/TWITTER.md` for setup and examples.
+
+**Do NOT improvise another X/Twitter path.** Specifically: do not ask {{USER_NAME}} for their password, do not suggest a generic OAuth connector, and do not call the raw `bird` write verbs. The sanctioned path is `bin/twitter-read`, which is intentionally read-only and either uses browser cookies on the host or Alfred-specific cookie env vars (`ALFRED_BIRD_AUTH_TOKEN` + `ALFRED_BIRD_CT0`) when the runtime is containerized. If `bin/twitter-read` is unavailable or misconfigured, report the missing backend/env clearly and stop.
+
+---
 ## Ingestion protocol — the only way new content enters the vault
 
 ### Why `Write`/`Edit`/Bash-redirects are blocked on `wiki/*.md`
@@ -257,6 +262,12 @@ Required fields per kind:
 - **patch**: `slug` (must exist), and ≥1 of `add_facts/add_hypotheses/add_opinions/add_relations/supersede`
 
 Provenance is auto-stamped from `source` on every observation. Date tags come from the per-observation `since/until/on/asOf` fields.
+
+**Intellectual attribution (where an idea came from).** The `source` marker records *where you captured* a fact (a clipping, a Telegram message). It does NOT record *which work an idea came from*. Any `type: concept` page tagged `idea`, `opinion`, or `principle` that you ingest from a book, paper, or blog must also record its origin, or the CLI **blocks the write** (`unattributed-idea`). When ingesting from an external work:
+
+1. Create the work as a `type: source` node first (`kind: paper|book|article|blog`, with `url`/`doi`/`arxiv`, `author`, `year`), then attribute the idea to it with a `- cites [[that-source]]` relation, or set `origin: <source-slug>` on the idea page. `wiki backlinks <source>` then lists every idea drawn from that work. A `cites [[concept]]` relation is only a semantic link; it does not count as source attribution.
+2. If the origin is genuinely {{USER_NAME}}'s own thought, set `origin: original`.
+3. If the idea is clearly external but you cannot identify the exact work, **ask {{USER_NAME}} one question** ("which piece is this from?"). If they can't say, set `origin: unattributed` — never invent a citation. Unattributed ideas surface later on the `wiki audit` backfill worklist (`idea-attribution-pending`).
 
 Relation `verb` must be in the SCHEMA registries. The CLI rejects invented verbs.
 
@@ -664,8 +675,10 @@ This vault is not only {{USER_NAME}}'s life-graph; it is their **thinking** grap
 
 Ideas enter in two layers, **concept-oriented, never source-anchored** (factor by idea, not by the paper it came from):
 
-- **Instance** — a concrete claim/result (`type: concept`, body `[claim]`/`[hypothesis]` with `^[provenance]`).
+- **Instance** — a concrete claim/result (`type: concept`, body `[claim]`/`[hypothesis]` with `^[provenance]`). If it comes from an external work, it also carries intellectual attribution: `origin: <source-slug>` or a `- cites [[source]]` relation whose target is `type: source` (the CLI blocks an `idea`/`opinion`/`principle` page that has neither — see the ingestion fragment). `cites [[concept]]` is only a semantic link, not attribution.
 - **Principle** — the abstract, reusable pattern the instance exemplifies (`type: concept`, body `[hypothesis]`, because it is a generalisation, not the source's words). Link: instance `instance_of [[principle]]`.
+
+Abstracting a principle drops the source's *wording*, never the *trail*: the instance keeps the origin, and the principle reaches it via `derived_from`/`instance_of`. A principle written with no attributed instance beneath it is unattributed and will be blocked; keep the two-hop trail principle → instance → source.
 
 Connections live at the principle layer: two instances from different domains pointing at one principle is a non-obvious bridge; an instance that `contradicts` a principle is a tension to surface.
 
@@ -677,7 +690,7 @@ Connections live at the principle layer: two instances from different domains po
 ### The process loop (per raw item)
 
 1. **Decompose** into atomic ideas — one assertion each.
-2. **Classify** each as instance or principle; abstract the principle *away* from the source.
+2. **Classify** each as instance or principle; abstract the principle *away* from the source's wording, but attribute the instance to its originating work (`origin:` or `cites [[source]]`; ask if unsure, `unattributed` if unknown — never fabricate).
 3. **Mint hooks** (see below).
 4. **Propose** the principle + instance pages + `instance_of`/`about` links + hooks to {{USER_NAME}}; they approve/edit; then `wiki ingest`. The approve step is the safety rail for the unproven LLM-abstraction core — never auto-write abstractions silently.
 5. **Surface connections:** right after ingest, run `wiki related <new-slug> --unconnected` and `wiki unlinked-mentions <new-slug>`; report 1-2 non-obvious bridges.

@@ -38,12 +38,27 @@ test('replayPathFor: sanitizes unsafe characters in msgId', () => {
   assert.match(path.basename(p), /^a_b_c_d-result\.json$/);
 });
 
+test('replayPathFor: reuses an existing capture path from an older month directory', () => {
+  const oldMonth = path.join(REPLAY_DIR, '2001-09');
+  fs.mkdirSync(oldMonth, { recursive: true });
+  const existing = path.join(oldMonth, 'msg-legacy-spec.json');
+  fs.writeFileSync(existing, '{}\n');
+  assert.equal(replayPathFor('msg-legacy', 'spec.json'), existing);
+});
+
 test('captureReplaySpec: writes spec and stamps spec_version when missing', () => {
   captureReplaySpec('msg-2', JSON.stringify({ source: 'telegram:x', facts: ['a'] }));
   const p = replayPathFor('msg-2', 'spec.json');
   const obj = JSON.parse(fs.readFileSync(p, 'utf-8'));
   assert.equal(obj.spec_version, CURRENT_SPEC_VERSION);
   assert.deepEqual(obj.facts, ['a']);
+});
+
+test('captureReplaySpec: invalid JSON falls back to writing the original text unchanged', () => {
+  const raw = '{"source": "telegram:x",\n';
+  captureReplaySpec('msg-bad-json', raw);
+  const p = replayPathFor('msg-bad-json', 'spec.json');
+  assert.equal(fs.readFileSync(p, 'utf-8'), raw);
 });
 
 test('captureReplayResult: writes the result JSON', () => {

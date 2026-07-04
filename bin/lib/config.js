@@ -20,7 +20,7 @@ const DEFAULTS = Object.freeze({
   assistant: { name: 'Alfred' },
   email: { from: '', to: '' },
   weekly_review: { enabled: false, cron: '0 9 * * 1', timezone: '' },
-  paths: { vault_root: '' },
+  paths: { vault_root: '', bird_bin: '' },
 });
 
 function findConfigFile(startDir) {
@@ -112,6 +112,16 @@ function applyEnvFallbacks(cfg) {
   return cfg;
 }
 
+function resolvePathLike(value, configPath) {
+  if (!value) return '';
+  let out = String(value).replace(/^~(?=\/|$)/, process.env.HOME || '');
+  if (!path.isAbsolute(out)) {
+    const base = configPath ? path.dirname(configPath) : process.cwd();
+    out = path.resolve(base, out);
+  }
+  return out;
+}
+
 function validate(cfg, configPath) {
   const where = configPath || '<defaults>';
   if (!SLUG_RE.test(cfg.user.slug)) {
@@ -148,15 +158,12 @@ function loadConfig(startDir) {
   if (!cfg.paths.vault_root) {
     cfg.paths.vault_root = configPath ? path.dirname(configPath) : path.resolve(startDir || process.cwd());
   } else {
-    cfg.paths.vault_root = cfg.paths.vault_root.replace(/^~(?=\/|$)/, process.env.HOME || '');
-    if (!path.isAbsolute(cfg.paths.vault_root)) {
-      const base = configPath ? path.dirname(configPath) : process.cwd();
-      cfg.paths.vault_root = path.resolve(base, cfg.paths.vault_root);
-    }
+    cfg.paths.vault_root = resolvePathLike(cfg.paths.vault_root, configPath);
   }
+  cfg.paths.bird_bin = resolvePathLike(cfg.paths.bird_bin, configPath);
 
   cfg._configPath = configPath; // null if no file found — caller can warn
   return deepFreeze(cfg);
 }
 
-module.exports = { loadConfig, parseFlatYaml, DEFAULTS };
+module.exports = { loadConfig, parseFlatYaml, DEFAULTS, resolvePathLike };

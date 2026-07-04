@@ -33,7 +33,25 @@ function auditSlug(slug, opts = {}) {
   const type = fm.type || 'note';
   const tags = Array.isArray(fm.tags) ? fm.tags : [];
   const title = String(fm.title || slug);
-  return auditPage({ slug, title, type, tags, body, fm }, { schema, knownVerbs });
+  const result = auditPage({ slug, title, type, tags, body, fm }, { schema, knownVerbs });
+  if (opts.crossPage === false || STRICT_CROSS_PAGE_RULES.length === 0) return result;
+  invalidatePageCache();
+  const allPages = buildAllPagesSnapshot();
+  const crossPageErrors = strictCrossPageErrors(
+    { slug, title, type, tags, body, fm },
+    { schema, knownVerbs, allPages },
+  );
+  for (const e of crossPageErrors) {
+    const severity = e.severity || 'high';
+    result.issues.push({
+      rule: e.rule,
+      severity,
+      detail: e.detail || e.message,
+      ...(e.fix ? { fix: e.fix } : {}),
+    });
+    result.score += severity === 'high' ? 3 : severity === 'medium' ? 2 : 1;
+  }
+  return result;
 }
 
 // Post-write audit: called from cmdWrite/cmdPatch/cmdIngest. Silent if clean.
@@ -45,37 +63,15 @@ function postWriteAudit(slug) {
   try {
     invalidatePageCache();
     const result = auditSlug(slug);
-    let crossPageErrors = [];
-    if (STRICT_CROSS_PAGE_RULES.length > 0) {
-      const p = wikiPath(slug);
-      if (fs.existsSync(p)) {
-        const raw = fs.readFileSync(p, 'utf-8');
-        const { fm, body } = parseFrontmatter(raw);
-        const allPages = buildAllPagesSnapshot();
-        const schema = loadSchema();
-        const knownVerbs = knownRelationVerbs(schema);
-        crossPageErrors = strictCrossPageErrors(
-          { slug, title: String(fm.title || slug), type: fm.type || 'note', tags: Array.isArray(fm.tags) ? fm.tags : [], body, fm },
-          { schema, knownVerbs, allPages },
-        );
-      }
-    }
-    if (result.score === 0 && crossPageErrors.length === 0) return;
+    if (result.score === 0) return;
     console.error('');
-    const issueCount = result.issues.length + crossPageErrors.length;
+    const issueCount = result.issues.length;
     console.error(`# audit ${slug}: ${issueCount} issue(s), score ${result.score}`);
     let anySpecificFix = false;
     for (const i of result.issues) {
       console.error(redactSecrets(`  [${i.severity}] ${i.rule}: ${i.detail}`));
       if (i.fix) {
         console.error(redactSecrets(`    → fix: ${i.fix}`));
-        anySpecificFix = true;
-      }
-    }
-    for (const e of crossPageErrors) {
-      console.error(redactSecrets(`  [cross-page] ${e.rule}: ${e.message}`));
-      if (e.fix) {
-        console.error(`    → fix: ${e.fix}`);
         anySpecificFix = true;
       }
     }

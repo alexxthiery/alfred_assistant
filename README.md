@@ -49,6 +49,7 @@ The capability surface, with a pointer to the detailed doc for each. This is the
 - **Daily morning brief (`bin/daily-brief`):** a deterministic 07:00 email listing overdue todos, due-today todos, today's events, and today's birthdays. Composed by a script, not the agent, so it cannot drift or hallucinate. See [`docs/DAILY-BRIEF.md`](docs/DAILY-BRIEF.md).
 - **Weekly digest:** a Monday discovery-and-quality email (promotion candidates, missing edges, audit offenders, stale markers). See [`docs/WEEKLY-DIGEST.md`](docs/WEEKLY-DIGEST.md).
 - **Gmail recall (`bin/gmail`):** a stateless IMAP read CLI (`search` / `show` / `count`) so the agent can answer "what did X send me last week?" or "what's the deadline in that email?" without mirroring your inbox to disk. See [`docs/GMAIL.md`](docs/GMAIL.md).
+- **Live X/Twitter recall (`bin/twitter-read`):** a repo-owned read-only adapter for live tweets, bookmarks, likes, mentions, and timelines. It wraps an optional `bird` backend without turning `bird` into a core dependency. See [`docs/TWITTER.md`](docs/TWITTER.md).
 - **Maintenance:** `wiki groom --mechanical` (close missing relations, run autolink, report stub debt), `wiki audit --all` (quality score), `wiki review` (discovery digest), `wiki sync-ids` (backfill observation ids).
 - **The agent (Alfred):** the optional conversational layer over the CLI. One persona (`AGENTS.md` in the vault) is shared by every runtime — nanoclaw, Claude Code, Codex — so Alfred behaves identically wherever you reach him. The maintained template source lives in [`docs/persona/`](docs/persona/) and is assembled into [`docs/PERSONA.template.md`](docs/PERSONA.template.md); runtime wiring is in [`integrations/`](integrations/).
 - **Credential handling:** the rules for app passwords and secrets are in [`docs/SECURITY.md`](docs/SECURITY.md).
@@ -64,6 +65,7 @@ alfred_assistant/
     email-digest          # Gmail SMTP wrapper (bash) for the weekly digest + daily brief
     daily-brief           # deterministic daily-brief composer (Node)
     gmail                 # stateless Gmail IMAP read CLI (Python, stdlib only)
+    twitter-read          # read-only X/Twitter adapter over an optional bird backend
     lib/                  # pure helper modules (require()-able, unit-tested)
       audit.js            #   AUDIT_RULES table + auditPage + auditVault
       autolink.js         #   buildTitleEntries + autolinkBody (fence-aware)
@@ -81,6 +83,7 @@ alfred_assistant/
       inverse-closure.js  #   computeMissingInverses (symmetric + inverse relations)
       maintenance.js      #   formatIndex / formatLogLine / applyExtraFrontmatter / validateAliasArg
       obsid.js            #   mintIdsForBody: stable per-observation ids
+      twitter-read.js     #   optional bird backend resolution + read-only verb gate
       schema.js           #   loadSchema (mtime-memoized) + KNOWN_TYPES + ENTITY_KIND_TAGS
       secrets.js          #   detectSecrets / redactSecrets (commit-time guard)
       staged-writes.js    #   flushStaged (atomic-per-file multi-write flush; used by ingest/merge/mv)
@@ -104,6 +107,7 @@ alfred_assistant/
     WEEKLY-DIGEST.md      # how the weekly cron + SMTP wrapper fit together
     DAILY-BRIEF.md        # the deterministic 07:00 morning brief
     GMAIL.md              # the Gmail IMAP read CLI (setup, verbs, troubleshooting)
+    TWITTER.md            # the live X/Twitter read adapter over an optional bird backend
     SECURITY.md           # credential-handling rules (app passwords, secrets, rotation)
   integrations/           # per-runtime adapters (config + launch wrappers; NOT persona variants)
     README.md             #   the adapter contract + "pick your runtime"
@@ -149,13 +153,14 @@ wiki preflight            # one-shot env + dependency check; should report OK
 wiki list                 # should print "no pages yet" or similar
 ```
 
-To run Alfred himself (the conversational agent), follow `docs/NANOCLAW-PATCHES.md` — you'll fork nanoclaw, apply four host-side patches, mount your vault, and bootstrap a Telegram bot.
+To run Alfred himself (the conversational agent), follow `docs/NANOCLAW-PATCHES.md` — you'll fork nanoclaw, apply the documented host-side patches, mount your vault, and bootstrap a Telegram bot.
 
 ## Configuration
 
 `.alfred.yml` at the vault root.
 See `examples/.alfred.yml.example` for the full schema.
 Secrets (`GMAIL_APP_PASSWORD`, OneCLI tokens, Telegram bot token) stay in `.env` — never in the YAML.
+Optional non-secret backend paths such as `paths.bird_bin` may live in `.alfred.yml`; live X/Twitter cookie values must not.
 
 ## Weekly digest
 

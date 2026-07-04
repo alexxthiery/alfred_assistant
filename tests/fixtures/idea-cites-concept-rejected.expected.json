@@ -1,0 +1,7 @@
+{
+  "exitCode": 3,
+  "stderrContains": ["idea-source-attribution", "none point to a type=source page", "related-concept-source-gap"],
+  "wikiAssertions": {
+    "idea-cites-concept-gap": { "fileExists": false }
+  }
+}

@@ -49,7 +49,7 @@ function extractWikilinks(body) {
 }
 
 function extractProvenanceMarkers(body) {
-  const re = /\^\[(?:raw|telegram|lab|conversation|external)[:\/][^\]]+\]/g;
+  const re = /\^\[[^\]\n]+\]/g;
   return body.match(re) || [];
 }
 

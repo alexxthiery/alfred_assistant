@@ -42,3 +42,6 @@ paths:
   # Override the vault root. Defaults to the directory containing this file.
   # Use $HOME or ~ — absolute paths are not portable across machines.
   vault_root: ""
+  # Optional explicit path to the `bird` backend used by `.bin/twitter-read`.
+  # Leave empty to use $ALFRED_BIRD_BIN or `bird` on PATH.
+  bird_bin: ""

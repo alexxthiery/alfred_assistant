@@ -41,6 +41,11 @@ test('validateForWrite: reserved slug', () => {
   assert.ok(create({ slug: 'log' }).some((e) => /reserved/.test(e)));
 });
 
+test('validateForWrite: forbidden aggregator slug is rejected on create', () => {
+  const errs = create({ slug: 'family' });
+  assert.ok(errs.some((e) => /forbidden aggregator slug/.test(e) && /Atomicity rule/.test(e)));
+});
+
 test('validateForWrite: unknown type', () => {
   assert.ok(create({ type: 'banana' }).some((e) => /Unknown type/.test(e)));
 });

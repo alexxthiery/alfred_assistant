@@ -1,0 +1,5 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["Concept anchors missing"],
+  "stdoutNotContains": ["#idea", "#research"]
+}

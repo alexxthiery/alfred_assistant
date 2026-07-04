@@ -1,6 +1,6 @@
 # Security — handling credentials
 
-Alfred touches two kinds of secret: Gmail app passwords (SMTP send + IMAP read) and the OneCLI/Anthropic proxy token. This document is the operating manual for handling them. It exists because credentials leaked three times during one setup session, every time through an avoidable channel. The rules below are not theoretical.
+Alfred touches three kinds of secret: Gmail app passwords (SMTP send + IMAP read), optional X/Twitter session cookies for live reads, and the OneCLI/Anthropic proxy token. This document is the operating manual for handling them. It exists because credentials leaked three times during one setup session, every time through an avoidable channel. The rules below are not theoretical.
 
 ## Where each secret lives
 
@@ -9,6 +9,8 @@ Alfred touches two kinds of secret: Gmail app passwords (SMTP send + IMAP read) 
 | Gmail SMTP-send app password | `GMAIL_APP_PASSWORD` | `~/nanoclaw/.env` | `bin/email-digest` (weekly digest, daily brief) |
 | Gmail IMAP-read app password | `GMAIL_IMAP_APP_PASSWORD` | `~/nanoclaw/.env` | `bin/gmail` (Reflex 4 email recall) |
 | Sender address | `EMAIL_FROM` | `~/nanoclaw/.env` | both of the above |
+| X/Twitter auth cookie | `ALFRED_BIRD_AUTH_TOKEN` | `~/nanoclaw/.env` or host shell env | `bin/twitter-read` (live X/Twitter reads via `bird`) |
+| X/Twitter CSRF cookie | `ALFRED_BIRD_CT0` | `~/nanoclaw/.env` or host shell env | `bin/twitter-read` (live X/Twitter reads via `bird`) |
 | Telegram bot token | `TELEGRAM_BOT_TOKEN` | `~/nanoclaw/.env` | `bin/telegram-send` (reminder dispatch); also nanoclaw's own Telegram I/O |
 | Telegram destination chat id | `TELEGRAM_CHAT_ID` | `~/nanoclaw/.env` | `bin/telegram-send` (reminder dispatch) — not a secret, but kept beside the token |
 | Anthropic/OneCLI proxy token | injected by the OneCLI gateway | OneCLI keychain | the container's HTTPS proxy |
@@ -44,6 +46,8 @@ These are absolute. Each maps to a real leak that happened.
      | awk -F= '{print $1"="(length($2)>0?"***":"(empty)")}'
    ```
 
+6. **Never give Alfred your X/Twitter password.** `bin/twitter-read` is designed around cookie/session auth, not password entry. If you need container-side live X/Twitter reads, set `ALFRED_BIRD_AUTH_TOKEN` and `ALFRED_BIRD_CT0` yourself in `.env`; do not paste them into chat, do not store them in `.alfred.yml`, and do not improvise another OAuth connector.
+
 ## Rotation and revocation
 
 - **Mint separate app passwords per purpose** (`alfred-digest` for SMTP, `alfred-imap-read` for IMAP) at <https://myaccount.google.com/apppasswords>. Gmail does not actually scope app passwords by function, but distinct named entries let you revoke one without breaking the other. Revoking the IMAP password must not take down the morning brief.
@@ -77,7 +81,7 @@ For the record, so this document is not read as a list of holes:
 
 - Secrets are kept out of `process.env` (the `readEnvFile` dict pattern).
 - `bin/email-digest` and `bin/gmail` never print or log the password.
-- The allowlist in `claude.ts` means only the three intended keys cross into the container, not the whole `.env`.
+- The allowlist in `claude.ts` means only the intended keys cross into the container, not the whole `.env`.
 - `.gitignore` covers `.env`, `*.local.*`, `audit/`, and the PII scanner's pattern list.
 
 The weak point is not the code. It is the human setup ritual, which is what this document hardens.
@@ -85,4 +89,4 @@ The weak point is not the code. It is the human setup ritual, which is what this
 ## See also
 
 - `docs/NANOCLAW-PATCHES.md` — Patch 3 (env passthrough allowlist).
-- `docs/WEEKLY-DIGEST.md`, `docs/GMAIL.md` — per-feature credential setup.
+- `docs/WEEKLY-DIGEST.md`, `docs/GMAIL.md`, `docs/TWITTER.md` — per-feature credential setup.

@@ -113,8 +113,10 @@ This vault is not only {{USER_NAME}}'s life-graph; it is their **thinking** grap
 
 Ideas enter in two layers, **concept-oriented, never source-anchored** (factor by idea, not by the paper it came from):
 
-- **Instance** — a concrete claim/result (`type: concept`, body `[claim]`/`[hypothesis]` with `^[provenance]`).
+- **Instance** — a concrete claim/result (`type: concept`, body `[claim]`/`[hypothesis]` with `^[provenance]`). If it comes from an external work, it also carries intellectual attribution: `origin: <source-slug>` or a `- cites [[source]]` relation whose target is `type: source` (the CLI blocks an `idea`/`opinion`/`principle` page that has neither — see the ingestion fragment). `cites [[concept]]` is only a semantic link, not attribution.
 - **Principle** — the abstract, reusable pattern the instance exemplifies (`type: concept`, body `[hypothesis]`, because it is a generalisation, not the source's words). Link: instance `instance_of [[principle]]`.
+
+Abstracting a principle drops the source's *wording*, never the *trail*: the instance keeps the origin, and the principle reaches it via `derived_from`/`instance_of`. A principle written with no attributed instance beneath it is unattributed and will be blocked; keep the two-hop trail principle → instance → source.
 
 Connections live at the principle layer: two instances from different domains pointing at one principle is a non-obvious bridge; an instance that `contradicts` a principle is a tension to surface.
 
@@ -126,7 +128,7 @@ Connections live at the principle layer: two instances from different domains po
 ### The process loop (per raw item)
 
 1. **Decompose** into atomic ideas — one assertion each.
-2. **Classify** each as instance or principle; abstract the principle *away* from the source.
+2. **Classify** each as instance or principle; abstract the principle *away* from the source's wording, but attribute the instance to its originating work (`origin:` or `cites [[source]]`; ask if unsure, `unattributed` if unknown — never fabricate).
 3. **Mint hooks** (see below).
 4. **Propose** the principle + instance pages + `instance_of`/`about` links + hooks to {{USER_NAME}}; they approve/edit; then `wiki ingest`. The approve step is the safety rail for the unproven LLM-abstraction core — never auto-write abstractions silently.
 5. **Surface connections:** right after ingest, run `wiki related <new-slug> --unconnected` and `wiki unlinked-mentions <new-slug>`; report 1-2 non-obvious bridges.

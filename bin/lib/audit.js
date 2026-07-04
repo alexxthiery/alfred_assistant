@@ -79,10 +79,11 @@ function findShellExpandedCurrencyArtifact(text) {
 }
 
 const STRICT_PROV_TYPES = new Set(['entity', 'event', 'concept', 'synthesis']);
-// Some schema event keywords are intentionally broad. On todos, "review" is
-// often an action ("finish the review") rather than a scheduled event. Keep
-// the todo guard for unambiguous event words like meeting/appointment.
-const TODO_EVENT_KEYWORD_EXEMPTIONS = new Set(['review']);
+// Some schema event keywords are intentionally broad. On todos, words like
+// "review" and "holiday" often describe the action target rather than a
+// scheduled event ("finish the review", "submit holiday request"). Keep the
+// todo guard for unambiguous event words like meeting/appointment.
+const TODO_EVENT_KEYWORD_EXEMPTIONS = new Set(['holiday', 'review']);
 // SUBSTANTIVE_TYPES drives the `empty-page` rule: pages of these types are
 // expected to carry at least one observation or relation.
 // `question` is included because an empty question page is just a title with
@@ -99,6 +100,7 @@ const SUBSTANTIVE_TYPES = new Set(['entity', 'event', 'concept', 'question']);
 // enforced by `missing-provenance`). Drives the `unattributed-idea` strict
 // gate and the `idea-attribution-pending` backlog rule.
 const IDEA_TAGS = new Set(['idea', 'opinion', 'principle']);
+const ORIGIN_CONTROL_WORDS = new Set(['original', 'unattributed']);
 
 // Provenance-marker prefixes that are pure capture / internal-synthesis, i.e.
 // they record WHERE a fact was captured, not WHICH external work it names.
@@ -122,6 +124,70 @@ function tagListOf(tags, fm) {
   if (fm && Array.isArray(fm.tags)) return fm.tags;
   if (fm && typeof fm.tags === 'string') return fm.tags.split(',').map((s) => s.trim()).filter(Boolean);
   return [];
+}
+
+function ideaAttributionSubject(page) {
+  if (!page || page.type !== 'concept') return null;
+  const tagList = tagListOf(page.tags, page.fm);
+  const ideaTags = tagList.filter((t) => IDEA_TAGS.has(t));
+  if (ideaTags.length === 0) return null;
+  const body = page.body || '';
+  const obs = parseObservations(body);
+  if (obs.length === 0) return null;
+  return { ideaTags, obs, body, fm: page.fm || {} };
+}
+
+function sourceAttributionProblem(thisPage, allPages) {
+  const subject = ideaAttributionSubject(thisPage);
+  if (!subject) return null;
+
+  const bySlug = new Map((allPages || []).map((p) => [p.slug, p]));
+  if (!bySlug.has(thisPage.slug)) bySlug.set(thisPage.slug, thisPage);
+  const origin = typeof subject.fm.origin === 'string' ? subject.fm.origin.trim() : '';
+
+  if (origin && !ORIGIN_CONTROL_WORDS.has(origin)) {
+    const target = bySlug.get(origin);
+    if (!target) {
+      return {
+        detail: `origin [[${origin}]] does not exist; origin must point to a type=source page`,
+        message: `Idea page ${thisPage.slug} sets origin: ${origin}, but [[${origin}]] does not exist. ` +
+          `Create a type=source page for the work, set --origin original if this is genuinely your own thought, or set --origin unattributed if the source is unknown.`,
+        fix: `wiki write ${origin} --type source --kind <kind> --title "<source title>" --url <url>`,
+      };
+    }
+    if (target.type !== 'source') {
+      return {
+        detail: `origin [[${origin}]] is type=${target.type || 'note'}, not type=source`,
+        message: `Idea page ${thisPage.slug} sets origin: ${origin}, but [[${origin}]] is type=${target.type || 'note'}. ` +
+          `origin must be a type=source page, or the control word original/unattributed.`,
+        fix: `wiki patch ${thisPage.slug} --origin <source-slug>`,
+      };
+    }
+    return null;
+  }
+
+  if (origin || (subject.fm && Array.isArray(subject.fm.derived_from) && subject.fm.derived_from.length > 0) || namesExternalWork(subject.body)) {
+    return null;
+  }
+
+  const cites = parseRelations(subject.body).filter((r) => r.verb === 'cites');
+  if (cites.length === 0) return null; // per-page unattributed-idea owns this case.
+  if (cites.some((r) => (bySlug.get(r.target) || {}).type === 'source')) return null;
+
+  const described = cites
+    .slice(0, 4)
+    .map((r) => {
+      const target = bySlug.get(r.target);
+      return `[[${r.target}]] is ${target ? `type=${target.type || 'note'}` : 'missing'}`;
+    })
+    .join('; ');
+  return {
+    detail: `cites relation(s) do not point to a source page: ${described}`,
+    message: `Idea page ${thisPage.slug} uses cites relation(s), but none point to a type=source page (${described}). ` +
+      `Concept-to-concept cites can express related ideas, but they do not identify the work this idea came from. ` +
+      `Create/cite a source page, set --origin <source-slug>, set --origin original, or set --origin unattributed if unknown.`,
+    fix: `wiki patch ${thisPage.slug} --origin <source-slug>`,
+  };
 }
 
 // Observation count at which a page is flagged as bloated. A high count of
@@ -395,11 +461,9 @@ const AUDIT_RULES = [
     //     (^[raw/...], ^[telegram:...]) does not count — it records where the
     //     fact was captured, not which work the idea came from.
     //
-    // Known v1 limitation: a `cites` to a non-source page also satisfies the
-    // gate (this per-page rule cannot verify the target's type without a
-    // cross-page snapshot). The gate errs toward not-blocking legitimate work;
-    // the persona is told to prefer explicit `origin`. Cross-page tightening
-    // (cited target must be type=source) is deferred.
+    // The per-page rule can only see that `cites` exists. The cross-page
+    // `idea-source-attribution` rule below verifies that at least one cited
+    // target is actually type=source, and that origin slugs resolve to sources.
     name: 'unattributed-idea',
     severity: 'high',
     strict: true,
@@ -823,6 +887,18 @@ function severityScore(s) {
 // can already plumb allPages through harmlessly.
 const STRICT_CROSS_PAGE_RULES = [
   {
+    name: 'idea-source-attribution',
+    severity: 'high',
+    strict: true,
+    // Per-page `unattributed-idea` distinguishes capture provenance from
+    // intellectual attribution, but it cannot inspect relation targets.
+    // This cross-page rule closes that gap: a concept-to-concept `cites` edge
+    // is allowed as a semantic relation, but it does not satisfy source
+    // attribution. Likewise, `origin: some-slug` must resolve to type=source.
+    check: ({ thisPage, allPages }) => sourceAttributionProblem(thisPage, allPages),
+  },
+
+  {
     name: 'non-functional-alias',
     severity: 'high',
     strict: true,
@@ -894,6 +970,8 @@ function strictCrossPageErrors(thisPage, deps) {
     const out = rule.check({ thisPage, allPages: deps.allPages }, deps);
     if (!out) continue;
     const error = { rule: rule.name, message: out.message || out.detail };
+    error.severity = rule.severity || 'high';
+    if (out.detail) error.detail = out.detail;
     if (out.fix) error.fix = out.fix;
     errors.push(error);
   }
@@ -919,6 +997,20 @@ function auditVault({ pages, schema, knownVerbs }) {
       { schema, knownVerbs },
     ),
   }));
+
+  const pageBySlug = new Map(pages.map((p) => [p.slug, p]));
+  for (const r of perPage) {
+    const p = pageBySlug.get(r.slug);
+    const problem = sourceAttributionProblem(p, pages);
+    if (!problem) continue;
+    r.issues.push({
+      rule: 'idea-source-attribution',
+      severity: 'high',
+      detail: problem.detail,
+      fix: problem.fix,
+    });
+    r.score += severityScore('high');
+  }
 
   // hot-text-mention: capitalized 2+ word phrases in prose, appearing across
   // 2+ pages, with no canonical stub.
@@ -957,7 +1049,6 @@ function auditVault({ pages, schema, knownVerbs }) {
   }
   hotMentions.sort((a, b) => b.count - a.count);
 
-  const pageBySlug = new Map(pages.map((p) => [p.slug, p]));
   for (const r of perPage) {
     const inLinks = wikilinkInbound[r.slug] || 0;
     const outLinks = wikilinkOutbound[r.slug] || 0;

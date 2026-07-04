@@ -19,6 +19,13 @@ const { VAULT_ROOT, WIKI_DIR, SCHEMA_PATH, INDEX_PATH, nowISO, wikiPath, listWik
 const { buildTitleMap, autolinkSlug } = require('../lib/autolink-runtime.js');
 const { regenerateIndex, appendLog, autoCommit } = require('../lib/page-io.js');
 const { auditSlug } = require('../lib/audit-runtime.js');
+const { loadConfig } = require('../lib/config.js');
+const {
+  ALFRED_BIRD_AUTH_TOKEN_ENV,
+  ALFRED_BIRD_BIN_ENV,
+  ALFRED_BIRD_CT0_ENV,
+  resolveBirdBackend,
+} = require('../lib/twitter-read.js');
 
 const loadSchema = () => _loadSchema(SCHEMA_PATH);
 
@@ -391,6 +398,13 @@ function cmdPreflight(args) {
   const { execSync } = require('child_process');
   const results = [];
   const push = (name, status, msg, hint) => results.push({ name, status, msg, hint });
+  let cfg = { paths: { bird_bin: '' } };
+  let cfgError = null;
+  try {
+    cfg = loadConfig(VAULT_ROOT);
+  } catch (e) {
+    cfgError = e;
+  }
 
   // Resolve a binary on PATH without throwing.
   const which = (bin) => {
@@ -436,7 +450,10 @@ function cmdPreflight(args) {
 
   // 4. .alfred.yml (optional but recommended).
   const cfgPath = path.join(VAULT_ROOT, '.alfred.yml');
-  if (fs.existsSync(cfgPath)) {
+  if (cfgError) {
+    push('config', 'FAIL', cfgError.message.split('\n')[0],
+      'Fix .alfred.yml syntax/validation errors before relying on optional integrations or persona rendering.');
+  } else if (fs.existsSync(cfgPath)) {
     push('config', 'PASS', `${cfgPath}`);
   } else {
     push('config', 'WARN', `${cfgPath} missing`,
@@ -468,7 +485,31 @@ function cmdPreflight(args) {
       'Install curl. email-digest cannot send mail without it.');
   }
 
-  // 8. email-digest credentials + reachability.
+  // 8. Optional live X/Twitter read adapter over bird.
+  {
+    const backend = resolveBirdBackend({
+      env: process.env,
+      config: cfg,
+      which,
+      cwd: VAULT_ROOT,
+    });
+    const authToken = !!process.env[ALFRED_BIRD_AUTH_TOKEN_ENV];
+    const ct0 = !!process.env[ALFRED_BIRD_CT0_ENV];
+    if (!backend) {
+      push('twitter-read', 'WARN', 'bird backend unavailable',
+        'Install `bird`, set ALFRED_BIRD_BIN, or set paths.bird_bin in .alfred.yml to enable .bin/twitter-read.');
+    } else if (authToken !== ct0) {
+      push('twitter-read', 'WARN',
+        `${backend.bin} (${backend.source}); partial Alfred cookie env`,
+        `Set both ${ALFRED_BIRD_AUTH_TOKEN_ENV} and ${ALFRED_BIRD_CT0_ENV}, or unset both and let bird use browser cookies / ~/.config/bird/config.json5.`);
+    } else if (process.env[ALFRED_BIRD_BIN_ENV]) {
+      push('twitter-read', 'PASS', `${backend.bin} (${backend.source})`);
+    } else {
+      push('twitter-read', 'PASS', `${backend.bin} (${backend.source})`);
+    }
+  }
+
+  // 9. email-digest credentials + reachability.
   {
     const hasFrom = !!process.env.EMAIL_FROM;
     const hasPw = !!process.env.GMAIL_APP_PASSWORD;
@@ -495,7 +536,7 @@ function cmdPreflight(args) {
     }
   }
 
-  // 9. wiki audit --all smoke. We don't FAIL on rule hits — only on execution
+  // 10. wiki audit --all smoke. We don't FAIL on rule hits — only on execution
   // errors (broken SCHEMA.md, fs issues, etc.). Rule hits are reported as PASS
   // with a count so the forker sees their baseline.
   try {

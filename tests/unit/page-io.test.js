@@ -26,7 +26,7 @@ git('config', 'user.email', 'test@example.com');
 git('config', 'user.name', 'Test');
 git('commit', '--allow-empty', '-q', '-m', 'root');
 
-const { autoCommit, autoCommitDisabled, regenerateIndex, readPageForWrite } =
+const { appendLog, autoCommit, autoCommitDisabled, regenerateIndex, readPageForWrite } =
   require('../../bin/lib/page-io.js');
 
 const writePage = (slug, title) => {
@@ -59,6 +59,31 @@ test('readPageForWrite: parses a well-formed page into fm + body', () => {
   assert.equal(fm.id, 'x');
   assert.equal(fm.title, 'X');
   assert.match(body, /hello body/);
+});
+
+test('readPageForWrite: malformed frontmatter refuses with exit 2 instead of silently dropping metadata', () => {
+  const p = path.join(TMP, 'malformed.md');
+  fs.writeFileSync(p, '---\nid: x\ntitle: Broken\nbody without closing marker\n');
+  const seen = [];
+  const origExit = process.exit;
+  const origError = console.error;
+  process.exit = (code) => {
+    const err = new Error(`exit ${code}`);
+    err.code = code;
+    throw err;
+  };
+  console.error = (line) => seen.push(String(line));
+  try {
+    assert.throws(
+      () => readPageForWrite(p),
+      (err) => err instanceof Error && err.code === 2,
+    );
+  } finally {
+    process.exit = origExit;
+    console.error = origError;
+  }
+  assert.ok(seen.some((line) => line.includes('malformed frontmatter')));
+  assert.ok(seen.some((line) => line.includes('silently drop all original metadata')));
 });
 
 test('autoCommit: scoped staging commits wiki/ but leaves a stray root file dirty', () => {
@@ -96,6 +121,35 @@ test('autoCommit: disabled → no commit, working tree untouched', () => {
   } finally {
     delete process.env.WIKI_NO_AUTO_COMMIT;
   }
+});
+
+test('autoCommit: git failure is loud but non-throwing, and leaves the write uncommitted', () => {
+  const beforePath = process.env.PATH;
+  const seen = [];
+  const origError = console.error;
+  console.error = (line) => seen.push(String(line));
+  process.env.PATH = path.join(TMP, 'definitely-no-git-here');
+  try {
+    writePage('theta', 'Theta');
+    assert.doesNotThrow(() => autoCommit('test', 'broken-git'));
+  } finally {
+    process.env.PATH = beforePath;
+    console.error = origError;
+  }
+  assert.ok(seen.some((line) => line.includes('!!! auto-commit failed !!!')));
+  assert.ok(seen.some((line) => line.includes('The write succeeded but is uncommitted.')));
+  assert.ok(/wiki\/theta\.md/.test(porcelain()), 'failed auto-commit should leave the page dirty for recovery');
+});
+
+test('appendLog: redacts secrets in both wiki/log.md and the commit subject', () => {
+  writePage('epsilon', 'Epsilon');
+  appendLog('patch', 'Bearer aBcDeFgHiJkLmNoP1234567890');
+  const log = fs.readFileSync(path.join(TMP, 'wiki', 'log.md'), 'utf-8');
+  assert.match(log, /<REDACTED:bearer-token>/);
+  assert.equal(log.includes('aBcDeFgHiJkLmNoP1234567890'), false);
+  const subject = git('log', '-1', '--pretty=%s').trim();
+  assert.match(subject, /<REDACTED:bearer-token>/);
+  assert.equal(subject.includes('aBcDeFgHiJkLmNoP1234567890'), false);
 });
 
 test('regenerateIndex: writes wiki/index.md listing existing pages', () => {

@@ -105,3 +105,52 @@ test('detectVaultRoot: returns a string', () => {
     assert.equal(typeof detectVaultRoot(), 'string');
   });
 });
+
+test('detectVaultRoot: 3) resolves from script location <vault>/.bin/<name> when cwd has no anchor', () => {
+  // Behavioral claim: step 3 in the documented discovery order — when env is
+  // unset and cwd-walk finds no .alfred.yml, the function inspects where the
+  // running script lives (process.argv[1]). If the script's parent dir is
+  // `.bin`, the function returns the `.bin`'s parent as the vault root.
+  // This is the production path: `wiki` invoked from any cwd should still find
+  // the vault that owns the binary.
+  // Plausible bugs:
+  //   - returns the .bin dir itself instead of its parent (off-by-one)
+  //   - swallows the realpath error and skips silently to step 4
+  //   - matches any dir literal called ".bin" anywhere in the path (loose check)
+  const vault = mkTempVault();
+  const binDir = path.join(vault, '.bin');
+  fs.mkdirSync(binDir, { recursive: true });
+  const fakeScript = path.join(binDir, 'wiki-fake');
+  fs.writeFileSync(fakeScript, '#!/usr/bin/env node\n', { mode: 0o755 });
+  const emptyCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'no-alfred-cwd-'));
+  const prevArgv1 = process.argv[1];
+  process.argv[1] = fakeScript;
+  try {
+    withEnv({ WIKI_ROOT: undefined }, () => {
+      withCwd(emptyCwd, () => {
+        // realpathSync handles macOS /tmp -> /private/tmp.
+        const resolved = fs.realpathSync(detectVaultRoot());
+        assert.equal(resolved, fs.realpathSync(vault),
+          'script in <vault>/.bin/ must resolve to <vault>, not to .bin or cwd');
+        // Negative: must NOT return the .bin dir itself.
+        assert.notEqual(resolved, fs.realpathSync(binDir),
+          'must return the .bin parent, not the .bin dir');
+      });
+    });
+  } finally {
+    process.argv[1] = prevArgv1;
+  }
+});
+
+test('detectVaultRoot: priority — env beats cwd-walk', () => {
+  // Behavioral claim: priority is env > cwd-walk > script-location > cwd.
+  // Plausible bug: a refactor that swaps step 1 and step 2 silently breaks
+  //   scripted invocations that rely on WIKI_ROOT to override an active vault cwd.
+  const vault = mkTempVault();
+  withEnv({ WIKI_ROOT: '/explicit-wins' }, () => {
+    withCwd(vault, () => {
+      assert.equal(detectVaultRoot(), '/explicit-wins',
+        'env beats cwd-walk even when cwd is a real vault');
+    });
+  });
+});
