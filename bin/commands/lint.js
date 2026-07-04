@@ -187,6 +187,7 @@ function cmdLint(args) {
     const sparse = [];
     for (const [slug, p] of Object.entries(pages)) {
       if (['todo', 'source'].includes(p.fm.type)) continue;
+      if (p.fm.source_file) continue;
       const words = p.body.split(/\s+/).filter(Boolean).length;
       if (words < 50) continue;
       const linkCount = extractWikilinks(p.body).length;
