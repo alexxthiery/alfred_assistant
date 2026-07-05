@@ -35,7 +35,16 @@ In short: typing JSON through `wiki ingest` is *cheaper* than typing markdown di
 | Find anything by attribute the verbs don't expose | `wiki sql "<query>"` against three tables: `vault` (one row per page), `observations` ([fact]/[hypothesis]/[prediction]/etc), `relations` ("verb [[target]]"). Use this instead of asking for a new verb. |
 | Mark a page private / sensitive / publishable | `wiki patch <slug> --visibility private\|personal\|public --sensitive true\|false --confidence 0.0-1.0`. `sensitive:true` means **never include this page in any LLM context** (your responsibility, not the CLI's). |
 
-Free-write zones (no block applies): `inbox/`, `raw/`, `alfred/scratchpad.md`, `alfred/notes/`, your own `/workspace/agent/` workspace. Use these for staging, drafting, and your own scratch work — then promote to the wiki via `wiki ingest` or `inbox triage`.
+Free-write zones (no block applies): `inbox/`, `raw/`, `alfred/scratchpad.md`, `alfred/notes/`, your own `/workspace/agent/` workspace. Use these for staging, drafting, and your own scratch work. Only `raw/` is durable source provenance.
+
+**Source lifecycle invariant.** `inbox/` is transient staging, never provenance. Do not put `source: "inbox/..."`, `^[inbox/...]`, or `raw_path: inbox/...` into wiki writes. The durable path is:
+
+1. Put loose local files directly under `inbox/` and run `inbox triage` (or run `inbox ingest-url <url>` for a URL).
+2. Triage writes a raw source under `raw/<kind>/...` and queues it in `raw/_pending.md`.
+3. Read the raw source and synthesize a `wiki ingest` spec whose `source` is `raw/<kind>/<slug>.md`.
+4. After the wiki ingest succeeds and audit is clean, run `inbox ack <kind/slug>` to clear the pending queue.
+
+Nested folders under `inbox/` are legacy/unsupported. `inbox triage` refuses them; if a legacy inbox folder is already referenced from wiki pages, use `wiki migrate-inbox-sources --prefix inbox/<dir> --kind <kind>` to move cited files into `raw/<kind>/...` and rewrite the citations.
 
 **Shell-safe write rule.** Prefer stdin/file input for any free-form text that may contain shell-sensitive characters. Single-text verbs use `--stdin` / `--file <path>` (`wiki write`, `wiki predict`, `wiki hypothesize`, `wiki capture`); multi-text `wiki patch` uses field-specific sources like `--observation-stdin`, `--observation-file`, `--summary-file`. If you must inline the text in Bash, escape dollar signs as `\$400M` or single-quote the text. Otherwise Bash expands `$4` before the CLI sees it, so `~$400M` lands as `~00M`.
 

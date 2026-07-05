@@ -3,5 +3,5 @@
   "setup": [
     ["write", "source-attribution-example", "--title", "Attribution Example (2026)", "--type", "source", "--kind", "article", "--url", "https://example.org/attribution", "--content", ""]
   ],
-  "cmd": ["write", "idea-cites-real-source", "--title", "Idea cites a real source", "--type", "concept", "--tags", "idea", "--content", "- [hypothesis] captured idea with source attribution ^[inbox/post_agi_transcripts/example.md]\n- cites [[source-attribution-example]]"]
+  "cmd": ["write", "idea-cites-real-source", "--title", "Idea cites a real source", "--type", "concept", "--tags", "idea", "--content", "- [hypothesis] captured idea with source attribution ^[raw/transcripts/post_agi_transcripts/example.md]\n- cites [[source-attribution-example]]"]
 }

@@ -1,0 +1,4 @@
+{
+  "_comment": "inbox/ is transient staging. Wiki pages must cite raw/<kind>/... after triage/migration, so inbox provenance is rejected at write time.",
+  "cmd": ["write", "bad-inbox-provenance", "--title", "Bad inbox provenance", "--type", "entity", "--tags", "person", "--content", "- [fact] This should not land ^[inbox/batch/source.md]"]
+}

@@ -154,6 +154,22 @@ function appendToPending(slug, kind) {
   }
 }
 
+function listActiveInboxFiles(dir = INBOX_DIR, prefix = '') {
+  if (!fs.existsSync(dir)) return [];
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+    const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+    const abs = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...listActiveInboxFiles(abs, rel));
+    } else if (entry.isFile()) {
+      out.push(rel);
+    }
+  }
+  return out.sort();
+}
+
 // --- verbs -----------------------------------------------------------------
 
 function cmdTriage(args) {
@@ -161,6 +177,16 @@ function cmdTriage(args) {
     console.error(`Inbox does not exist: ${INBOX_DIR}`);
     process.exit(1);
   }
+  const activeFiles = listActiveInboxFiles();
+  const nestedFiles = activeFiles.filter((rel) => rel.includes('/'));
+  if (nestedFiles.length > 0) {
+    console.error('error: inbox contains nested active file(s); triage only processes files directly under inbox/:');
+    for (const rel of nestedFiles.slice(0, 20)) console.error(`  inbox/${rel}`);
+    if (nestedFiles.length > 20) console.error(`  ... ${nestedFiles.length - 20} more`);
+    console.error('Move them to inbox/ root for triage, archive them under raw/<kind>/, or run wiki migrate-inbox-sources for referenced legacy inbox folders.');
+    process.exit(2);
+  }
+
   const entries = fs.readdirSync(INBOX_DIR, { withFileTypes: true })
     .filter((e) => e.isFile() && !e.name.startsWith('.') && !e.name.startsWith('_'));
 

@@ -38,7 +38,7 @@ const { cmdMeasure } = require('./commands/measure.js');
 const { cmdExport } = require('./commands/export.js');
 const { cmdReplay } = require('./commands/replay.js');
 const { cmdDiff, cmdRevert } = require('./commands/git.js');
-const { cmdBless, cmdAudit, cmdFixLinks, cmdGroom, cmdSize, cmdSyncIds, cmdReindex, cmdPreflight, cmdMigrate } = require('./commands/hygiene.js');
+const { cmdBless, cmdAudit, cmdFixLinks, cmdGroom, cmdSize, cmdSyncIds, cmdReindex, cmdPreflight, cmdMigrate, cmdMigrateInboxSources } = require('./commands/hygiene.js');
 const { cmdJobs } = require('./commands/jobs.js');
 const { cmdLinks, cmdBacklinks, cmdRelations, cmdObservations, cmdAutolink, cmdResolve, cmdPath, cmdHubs, cmdHooks, cmdProcess, cmdTimeline, cmdStubs, cmdPlace } = require('./commands/graph.js');
 
@@ -222,7 +222,7 @@ const cmds = {
   // hygiene
   lint: cmdLint, reindex: cmdReindex, 'sync-ids': cmdSyncIds, size: cmdSize, groom: cmdGroom, audit: cmdAudit,
   'fix-links': cmdFixLinks,
-  'persona-lint': cmdPersonaLint, migrate: cmdMigrate, preflight: cmdPreflight, bless: cmdBless,
+  'persona-lint': cmdPersonaLint, migrate: cmdMigrate, 'migrate-inbox-sources': cmdMigrateInboxSources, preflight: cmdPreflight, bless: cmdBless,
   // measurements (tabular time-series)
   measure: cmdMeasure,
   // output (free-form deliverables — gitignored, not graph content)

@@ -20,6 +20,7 @@ const { buildTitleMap, autolinkSlug } = require('../lib/autolink-runtime.js');
 const { regenerateIndex, appendLog, autoCommit } = require('../lib/page-io.js');
 const { auditSlug } = require('../lib/audit-runtime.js');
 const { loadConfig } = require('../lib/config.js');
+const { applyInboxSourceMigration } = require('../lib/inbox-migration.js');
 const {
   ALFRED_BIRD_AUTH_TOKEN_ENV,
   ALFRED_BIRD_BIN_ENV,
@@ -201,6 +202,40 @@ function cmdFixLinks(args) {
   }
   if (fixable.length) { regenerateIndex(); appendLog('fix-links', `repaired ${fixable.length} page(s)`); }
   console.log(`fix-links: repaired ${fixable.length} page(s)${skipped.length ? `, ${skipped.length} skipped (manual)` : ''}.`);
+}
+
+function cmdMigrateInboxSources(args) {
+  const dryRun = !!args['dry-run'];
+  const prefix = args.prefix || 'inbox';
+  const kind = args.kind || 'transcripts';
+  let result;
+  try {
+    result = applyInboxSourceMigration({ vaultRoot: VAULT_ROOT, prefix, kind, dryRun });
+  } catch (e) {
+    if (e.code === 'MIGRATION_BLOCKED' && e.plan) {
+      console.error(`migrate-inbox-sources: blocked (${e.plan.blocked.length} destination collision${e.plan.blocked.length === 1 ? '' : 's'})`);
+      for (const b of e.plan.blocked) console.error(`  ${b.oldRel} -> ${b.newRel}: ${b.reason}`);
+      process.exit(2);
+    }
+    console.error(`error: ${e.message}`);
+    process.exit(1);
+  }
+
+  const mode = dryRun ? 'migrate-inbox-sources --dry-run' : 'migrate-inbox-sources';
+  console.log(`${mode}: ${result.candidates.length} referenced inbox source${result.candidates.length === 1 ? '' : 's'} under ${prefix}`);
+  for (const m of result.candidates) {
+    console.log(`  ${m.oldRel} -> ${m.newRel} (${m.occurrenceCount} reference${m.occurrenceCount === 1 ? '' : 's'} in ${m.pages.length} page${m.pages.length === 1 ? '' : 's'})`);
+  }
+  if (result.unreferenced.length) {
+    console.log(`  skipped ${result.unreferenced.length} unreferenced inbox file${result.unreferenced.length === 1 ? '' : 's'}`);
+  }
+
+  if (dryRun) return;
+  if (result.migrated > 0) {
+    regenerateIndex();
+    appendLog('migrate-inbox-sources', `moved ${result.migrated} inbox source(s) to raw/${kind}`, { all: true });
+  }
+  console.log(`migrated ${result.migrated} source${result.migrated === 1 ? '' : 's'}; rewrote ${result.rewriteCount} reference${result.rewriteCount === 1 ? '' : 's'} across ${result.rewrittenPages} wiki page${result.rewrittenPages === 1 ? '' : 's'}`);
 }
 
 function cmdGroom(args) {
@@ -664,4 +699,5 @@ function cmdMigrate(args) {
 module.exports = {
   cmdBless, cmdAudit, cmdFixLinks, cmdGroom, cmdSize,
   cmdSyncIds, cmdReindex, cmdPreflight, cmdMigrate,
+  cmdMigrateInboxSources,
 };

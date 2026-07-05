@@ -128,7 +128,11 @@ if [ "${#failed_channels[@]}" -gt 0 ] && [ "$RETRY_ON_FAILURE" != "0" ]; then
       still_failed+=("$channel")
     fi
   done
-  failed_channels=("${still_failed[@]}")
+  if [ "${#still_failed[@]}" -gt 0 ]; then
+    failed_channels=("${still_failed[@]}")
+  else
+    failed_channels=()
+  fi
 elif [ "${#failed_channels[@]}" -gt 0 ]; then
   log_msg "retry disabled; failed channel(s): ${failed_channels[*]}"
 fi

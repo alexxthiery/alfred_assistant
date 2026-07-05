@@ -31,6 +31,7 @@ const SECTIONS = [
 const WRITE_VERB_NAMES = [
   'write', 'patch', 'ingest', 'predict', 'hypothesize', 'capture',
   'mv', 'delete', 'merge', 'link', 'autolink', 'groom', 'todo',
+  'migrate-inbox-sources',
 ];
 
 const RAW_VERBS = [
@@ -314,6 +315,9 @@ const RAW_VERBS = [
   },
   { name: 'persona-lint', section: 'HYGIENE', lines: ['  persona-lint                              grep persona/schema/docs for unknown `wiki <verb>` references'] },
   { name: 'migrate',      section: 'HYGIENE', lines: ['  migrate [<slug>] [--dry-run]              apply pending SCHEMA_MIGRATIONS; stamps schema_version on unversioned pages'] },
+  { name: 'migrate-inbox-sources', section: 'HYGIENE', lines: [
+    '  migrate-inbox-sources [--dry-run] [--prefix inbox/<dir>] [--kind transcripts]   move referenced inbox sources to raw/<kind>/ and rewrite wiki provenance',
+  ] },
   { name: 'preflight',    section: 'HYGIENE', lines: ['  preflight                                 smoke-test node/git/SCHEMA.md/duckdb/curl/SMTP/audit; one-command go/no-go'] },
 
   // SQL

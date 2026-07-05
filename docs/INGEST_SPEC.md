@@ -24,7 +24,9 @@ create/modify/skip plan, touching nothing.
 
 - `source` (**required**) — provenance stamped on every observation that doesn't
   carry its own `source`. Schemes: `telegram:<date>`, `arxiv:<id>`, `https://…`,
-  `gmail:<addr>:<date>`, `raw/clippings/<file>.md`, `inbox/<file>`.
+  `gmail:<addr>:<date>`, `raw/clippings/<file>.md`, `raw/notes/<file>.md`.
+  Do not use `inbox/...` here: `inbox/` is transient staging. Move or triage
+  the file into `raw/<kind>/...` first, then cite the raw path.
 - `msg_id` (optional for host-side maintenance, required by policy for
   Telegram-triggered Alfred ingests) — captures the spec+result for
   `wiki replay`. Set `WIKI_REQUIRE_REPLAY_MSG_ID=1` in environments where missing

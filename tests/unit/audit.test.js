@@ -373,6 +373,35 @@ test('missing-provenance: silent on non-strict types', () => {
   assert.equal(out, null);
 });
 
+test('transient-inbox-provenance: is strict and high severity', () => {
+  const r = findRule('transient-inbox-provenance');
+  assert.equal(r.strict, true);
+  assert.equal(r.severity, 'high');
+});
+
+test('transient-inbox-provenance: fires on inbox body provenance marker', () => {
+  const r = findRule('transient-inbox-provenance');
+  const out = r.check({ body: '- [fact] something ^[inbox/batch/source.md]', fm: {} }, deps());
+  assert.ok(out);
+  assert.match(out.detail, /inbox\/batch\/source\.md/);
+});
+
+test('transient-inbox-provenance: fires on inbox raw_path frontmatter', () => {
+  const r = findRule('transient-inbox-provenance');
+  const out = r.check({ body: '', fm: { raw_path: 'inbox/batch/source.md' } }, deps());
+  assert.ok(out);
+  assert.match(out.message, /raw\/<kind>/);
+});
+
+test('transient-inbox-provenance: silent on raw provenance', () => {
+  const r = findRule('transient-inbox-provenance');
+  const out = r.check({
+    body: '- [fact] something ^[raw/transcripts/batch/source.md]',
+    fm: { raw_path: 'raw/transcripts/batch/source.md' },
+  }, deps());
+  assert.equal(out, null);
+});
+
 // ─── unattributed-idea (strict attribution gate for distilled ideas) ─────────
 // Behavioral claim: a concept page tagged idea/opinion/principle that carries
 // observations must record which work it came from (origin field, derived_from,
@@ -1125,7 +1154,7 @@ test('alias-collision: silent on legitimate non-overlapping aliases', () => {
 
 test('idea-source-attribution: rejects cites relations that only point to concepts', () => {
   const thisPage = mkIdeaPage('uniform-ai-regularization',
-    '- [hypothesis] a claim ^[inbox/post_agi_transcripts/example.md]\n- cites [[related-concept]]');
+    '- [hypothesis] a claim ^[raw/transcripts/post_agi_transcripts/example.md]\n- cites [[related-concept]]');
   const allPages = [
     thisPage,
     mkIdeaPage('related-concept', '- [hypothesis] another claim ^[web:example]'),
@@ -1139,7 +1168,7 @@ test('idea-source-attribution: rejects cites relations that only point to concep
 
 test('idea-source-attribution: accepts a cites relation to a real source page', () => {
   const thisPage = mkIdeaPage('uniform-ai-regularization',
-    '- [hypothesis] a claim ^[inbox/post_agi_transcripts/example.md]\n- cites [[source-example]]');
+    '- [hypothesis] a claim ^[raw/transcripts/post_agi_transcripts/example.md]\n- cites [[source-example]]');
   const source = mkAllPage('source-example', '- [fact] source record ^[web:example]', {
     type: 'source',
     tags: [],
@@ -1184,7 +1213,7 @@ test('idea-source-attribution: control-word origins remain valid escape valves',
 test('auditVault: surfaces idea-source-attribution for existing bad concept cites', () => {
   const pages = [
     mkIdeaPage('uniform-ai-regularization',
-      '- [hypothesis] a claim ^[inbox/post_agi_transcripts/example.md]\n- cites [[related-concept]]'),
+      '- [hypothesis] a claim ^[raw/transcripts/post_agi_transcripts/example.md]\n- cites [[related-concept]]'),
     mkIdeaPage('related-concept', '- [hypothesis] another claim ^[web:example]'),
   ];
   const out = auditVault({ pages, ...deps() });

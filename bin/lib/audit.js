@@ -78,6 +78,21 @@ function findShellExpandedCurrencyArtifact(text) {
   return null;
 }
 
+function transientInboxProvenancePaths({ body, fm }) {
+  const hits = new Set();
+  const text = String(body || '');
+  const markerRe = /\^\[(inbox\/[^\]]+)\]/g;
+  let m;
+  while ((m = markerRe.exec(text)) !== null) hits.add(m[1]);
+
+  for (const key of ['raw_path', 'source_path']) {
+    const value = fm && fm[key];
+    if (typeof value === 'string' && value.startsWith('inbox/')) hits.add(value);
+  }
+
+  return [...hits].sort();
+}
+
 const STRICT_PROV_TYPES = new Set(['entity', 'event', 'concept', 'synthesis']);
 // Some schema event keywords are intentionally broad. On todos, words like
 // "review" and "holiday" often describe the action target rather than a
@@ -438,6 +453,29 @@ const AUDIT_RULES = [
         detail: `${obs.length} observation(s) with no ^[...] marker on page`,
         message: `Page has ${obs.length} observation(s) but no ^[...] provenance marker. ` +
           `Add ^[telegram:YYYY-MM-DD] or ^[raw/<kind>/<slug>.md] in body, or set raw_path / derived_from in frontmatter.`,
+      };
+    },
+  },
+
+  {
+    // `inbox/` is a transient drop zone. Once content is cited from wiki pages,
+    // the underlying source must live under raw/ so provenance survives triage,
+    // cleanup, and git history. This is strict because accepting inbox paths
+    // creates exactly the stale-reference failure mode the inbox pipeline is
+    // meant to prevent.
+    name: 'transient-inbox-provenance',
+    severity: 'high',
+    strict: true,
+    check: ({ body, fm }) => {
+      const hits = transientInboxProvenancePaths({ body, fm });
+      if (!hits.length) return null;
+      const shown = hits.slice(0, 3).join(', ');
+      const suffix = hits.length > 3 ? `, ... (${hits.length} total)` : '';
+      return {
+        detail: `transient inbox path(s) used as durable provenance: ${shown}${suffix}`,
+        message: `inbox/ is transient staging, not durable provenance. ` +
+          `Move the source into raw/<kind>/... and cite ^[raw/<kind>/...]. ` +
+          `For referenced legacy inbox files, run wiki migrate-inbox-sources --prefix inbox/<dir> --kind <kind>.`,
       };
     },
   },

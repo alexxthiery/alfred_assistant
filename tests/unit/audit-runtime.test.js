@@ -87,7 +87,7 @@ test('postWriteAudit: cross-page strict errors surface their specific fix line',
 
 test('auditSlug: reports concept cites that do not point to a source', () => {
   page('related-concept', '---\nid: related-concept\ntitle: Related Concept\ntype: concept\ntags: [idea]\n---\n- [hypothesis] related claim ^[web:example]\n');
-  page('bad-idea', '---\nid: bad-idea\ntitle: Bad Idea\ntype: concept\ntags: [idea]\n---\n- [hypothesis] claim from capture ^[inbox/post_agi_transcripts/example.md]\n- cites [[related-concept]]\n');
+  page('bad-idea', '---\nid: bad-idea\ntitle: Bad Idea\ntype: concept\ntags: [idea]\n---\n- [hypothesis] claim from capture ^[raw/transcripts/post_agi_transcripts/example.md]\n- cites [[related-concept]]\n');
   const r = auditSlug('bad-idea');
   const hit = r.issues.find((i) => i.rule === 'idea-source-attribution');
   assert.ok(hit, 'single-page audit wrapper must include cross-page source-attribution failures');

@@ -54,7 +54,7 @@ Override discipline: if you genuinely need an overview page (e.g. "my profession
 - **This file (`SCHEMA.md`)** — the contract.
 
 Sibling folders not governed by this schema:
-- `inbox/` — drop-zone; files leave on triage
+- `inbox/` — transient drop-zone; files must leave on triage and must never be cited from `wiki/` as durable provenance
 - `alfred/` — agent state (persona, daily logs, scratch)
 - `.bin/` — CLI scripts
 
@@ -233,7 +233,7 @@ Model the origin two ways, both pointing at a `type: source` node:
 - **`- cites [[source-slug]]`** relation in the body — the graph edge; gives backlinks. Preferred when you want the work discoverable as a hub.
 - **`origin:` frontmatter** — a `type: source` slug, or the control word `original` (genuinely your own thought) or `unattributed` (known-external, origin not yet identified — a backfill debt).
 
-The `unattributed-idea` audit rule (strict, high) **blocks writes** of `type: concept` pages tagged `idea`, `opinion`, or `principle` that have observations but none of: an `origin`, a `derived_from` (the instance/principle trail), a `cites [[source-slug]]` relation whose target is `type: source`, or an inline provenance marker that names the work (`^[arxiv:...]`, `^[doi:...]`, `^[web:...]`, `^[author-year]`). A pure-capture marker (`^[raw/...]`, `^[telegram:...]`, `^[lab:...]`, `^[inbox/...]`) does not count — it records where the fact was captured, not which work the idea came from. A `cites` edge to another concept is allowed as a semantic relation, but it does **not** satisfy intellectual attribution. The two control words are escape valves so capture is never forced to invent an attribution — mark `unattributed` and ask, never fabricate. `origin: unattributed` pages are then surfaced by the non-blocking `idea-attribution-pending` rule as a `wiki audit` backfill worklist.
+The `unattributed-idea` audit rule (strict, high) **blocks writes** of `type: concept` pages tagged `idea`, `opinion`, or `principle` that have observations but none of: an `origin`, a `derived_from` (the instance/principle trail), a `cites [[source-slug]]` relation whose target is `type: source`, or an inline provenance marker that names the work (`^[arxiv:...]`, `^[doi:...]`, `^[web:...]`, `^[author-year]`). A pure-capture marker (`^[raw/...]`, `^[telegram:...]`, `^[lab:...]`) does not count — it records where the fact was captured, not which work the idea came from. `^[inbox/...]` is not valid durable provenance at all; move or triage the file to `raw/<kind>/...` first. A `cites` edge to another concept is allowed as a semantic relation, but it does **not** satisfy intellectual attribution. The two control words are escape valves so capture is never forced to invent an attribution — mark `unattributed` and ask, never fabricate. `origin: unattributed` pages are then surfaced by the non-blocking `idea-attribution-pending` rule as a `wiki audit` backfill worklist.
 
 A bibliographic source page is a `type: source` node created without a local file: `wiki write smith-2024 --type source --title "Title (Smith 2024)" --kind paper --url ... --doi ... --author "Smith" --year 2024`.
 

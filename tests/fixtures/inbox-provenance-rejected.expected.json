@@ -1,0 +1,7 @@
+{
+  "exitCode": 3,
+  "stderrContains": ["transient-inbox-provenance", "inbox/ is transient staging"],
+  "wikiAssertions": {
+    "bad-inbox-provenance": { "fileExists": false }
+  }
+}
