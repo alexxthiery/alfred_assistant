@@ -363,12 +363,14 @@ function cmdReview(args) {
   const SIX_MONTHS_MS = 1000 * 60 * 60 * 24 * 30 * 6;
   const staleTemporal = [];
   for (const p of all) {
-    for (const obs of parseObservations(p.body)) {
+    const observations = parseObservations(p.body);
+    for (let obsIndex = 0; obsIndex < observations.length; obsIndex++) {
+      const obs = observations[obsIndex];
       if (obs.dates.asOf) {
         // [as-of YYYY-MM] — assume 1st of month.
         const d = new Date(obs.dates.asOf.length === 7 ? `${obs.dates.asOf}-01` : obs.dates.asOf);
         if (isFinite(d.getTime()) && today.getTime() - d.getTime() > SIX_MONTHS_MS) {
-          staleTemporal.push({ slug: p.slug, kind: 'as-of', when: obs.dates.asOf, body: obs.body, obsId: obs.id });
+          staleTemporal.push({ slug: p.slug, kind: 'as-of', when: obs.dates.asOf, body: obs.body, obsId: obs.id, obsIndex });
         }
       }
       // [until YYYY-MM-DD] on a non-superseded hypothesis is genuinely stale —
@@ -378,7 +380,7 @@ function cmdReview(args) {
       if (obs.dates.until && !obs.superseded && obs.category === 'hypothesis') {
         const d = new Date(obs.dates.until.length === 7 ? `${obs.dates.until}-01` : obs.dates.until);
         if (isFinite(d.getTime()) && d.getTime() < today.getTime()) {
-          staleTemporal.push({ slug: p.slug, kind: 'hypothesis past [until]', when: obs.dates.until, body: obs.body, obsId: obs.id });
+          staleTemporal.push({ slug: p.slug, kind: 'hypothesis past [until]', when: obs.dates.until, body: obs.body, obsId: obs.id, obsIndex });
         }
       }
     }
@@ -387,7 +389,7 @@ function cmdReview(args) {
     title: 'Stale temporal markers',
     note: '`[as-of YYYY-MM]` markers > 6 months old (likely outdated) or unsupserseded `[until YYYY-MM-DD]` past today.',
     items: staleTemporal.slice(0, 20).map((e) => ({
-      id: `temporal:${e.slug}:${reviewIdSegment(e.kind)}:${reviewIdSegment(e.when)}:${e.obsId || stableReviewHash(e.body)}`,
+      id: `temporal:${e.slug}:${reviewIdSegment(e.kind)}:${reviewIdSegment(e.when)}:${e.obsId || `${stableReviewHash(e.body)}-${e.obsIndex}`}`,
       head: `${e.slug} (${e.kind} ${e.when})`,
       lines: [`    ${e.body.slice(0, 140)}`],
     })),
@@ -476,7 +478,7 @@ function cmdReview(args) {
     .slice(-10) // oldest-touched: end of desc-sort
     .reverse()
     .slice(0, 5);
-  // Deterministic-by-day random sample: hash today's YYYY-MM-DD as a seed.
+  // Deterministic-by-review-date random sample.
   const dayStr = reviewDate;
   let seed = 0;
   for (let i = 0; i < dayStr.length; i++) seed = ((seed << 5) - seed + dayStr.charCodeAt(i)) | 0;
@@ -497,12 +499,12 @@ function cmdReview(args) {
     for (const s of stale) reEncounterItems.push({ id: `reencounter:stale:${s.slug}`, head: `  ${s.slug} (${s.type}, updated ${(s.updated || '').slice(0, 10)})`, lines: [] });
   }
   if (randomSample.length) {
-    reEncounterItems.push({ id: 'reencounter:random-heading', head: '*random sample (seeded by today\'s date)* — forced serendipity', lines: [] });
+    reEncounterItems.push({ id: 'reencounter:random-heading', head: '*random sample (seeded by review date)* — forced serendipity', lines: [] });
     for (const r of randomSample) reEncounterItems.push({ id: `reencounter:random:${r.slug}`, head: `  ${r.slug} (${r.type})`, lines: [] });
   }
   sections.push({
     title: 'Re-encounter (forcing function for retrieval)',
-    note: 'A vault becomes write-only without scheduled re-reading. Open one or two of these. The random sample is deterministic per-day so revisits are stable.',
+    note: 'A vault becomes write-only without scheduled re-reading. Open one or two of these. The random sample is deterministic per review date so revisits are stable.',
     items: reEncounterItems,
   });
 
