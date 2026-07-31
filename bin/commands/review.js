@@ -387,7 +387,7 @@ function cmdReview(args) {
   }
   sections.push({
     title: 'Stale temporal markers',
-    note: '`[as-of YYYY-MM]` markers > 6 months old (likely outdated) or unsupserseded `[until YYYY-MM-DD]` past today.',
+    note: '`[as-of YYYY-MM]` markers > 6 months old (likely outdated) or unsuperseded `[until YYYY-MM-DD]` past today.',
     items: staleTemporal.slice(0, 20).map((e) => ({
       id: `temporal:${e.slug}:${reviewIdSegment(e.kind)}:${reviewIdSegment(e.when)}:${e.obsId || `${stableReviewHash(e.body)}-${e.obsIndex}`}`,
       head: `${e.slug} (${e.kind} ${e.when})`,
