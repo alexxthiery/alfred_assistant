@@ -572,19 +572,21 @@ function cmdPreflight(args) {
   }
 
   // 10. wiki audit --all smoke. We don't FAIL on rule hits — only on execution
-  // errors (broken SCHEMA.md, fs issues, etc.). Rule hits are reported as PASS
-  // with a count so the forker sees their baseline.
+  // errors (broken SCHEMA.md, fs issues, etc.). Use the same vault-wide audit
+  // surface as `wiki audit --all` so preflight cannot report a different
+  // scoring baseline from the normal maintenance command.
   try {
-    const schema = loadSchema();
-    const knownVerbs = knownRelationVerbs(schema);
-    const pages = listWikiPages();
-    let issueCount = 0;
-    for (const f of pages) {
-      const slug = f.replace(/\.md$/, '');
-      const r = auditSlug(slug, { schema, knownVerbs });
-      issueCount += r.issues.length;
-    }
-    push('audit-smoke', 'PASS', `${pages.length} page${pages.length === 1 ? '' : 's'}, ${issueCount} audit issue${issueCount === 1 ? '' : 's'}`);
+    const { perPage } = auditAll();
+    const dirtyCount = perPage.filter((p) => p.score > 0).length;
+    const advisoryCount = perPage.reduce(
+      (acc, p) => acc + p.issues.filter((i) => i.severity === 'advisory').length,
+      0,
+    );
+    const advisorySuffix = advisoryCount
+      ? `, ${advisoryCount} advisory finding${advisoryCount === 1 ? '' : 's'}`
+      : '';
+    push('audit-smoke', 'PASS',
+      `${perPage.length} page${perPage.length === 1 ? '' : 's'}, ${dirtyCount} with scoring audit issue${dirtyCount === 1 ? '' : 's'}${advisorySuffix}`);
   } catch (e) {
     push('audit-smoke', 'FAIL', `execution error: ${e.message.split('\n')[0]}`,
       'Likely a malformed SCHEMA.md. Compare against docs/SCHEMA.md in the alfred_assistant repo.');
