@@ -1,0 +1,4 @@
+{
+  "exitCode": 1,
+  "stderrContains": ["error: --asof must be YYYY-MM-DD"]
+}

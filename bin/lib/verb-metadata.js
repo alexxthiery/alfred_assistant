@@ -374,7 +374,7 @@ const RAW_VERBS = [
 
   // REVIEW
   { name: 'review', section: 'REVIEW', lines: [
-    '  review                                    Markdown digest of:',
+    '  review [--json] [--asof YYYY-MM-DD]       deterministic maintenance digest of:',
     '                                            (1) independent mentions (promotion candidates)',
     '                                            (2) co-occurring slugs with no typed relation',
     '                                            (3) concept anchors missing (heavily-used tag, no canonical page)',

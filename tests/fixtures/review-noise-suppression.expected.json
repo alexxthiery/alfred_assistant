@@ -1,0 +1,10 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "# Vault review — 2026-07-31",
+    "Latent Foobar (2 pages)"
+  ],
+  "stdoutNotContains": [
+    "Assistant Professor (2 pages)"
+  ]
+}

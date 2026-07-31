@@ -1,0 +1,4 @@
+{
+  "_comment": "wiki review --asof rejects non-reproducible date shapes instead of silently using today.",
+  "cmd": ["review", "--asof", "soon"]
+}

@@ -15,6 +15,39 @@ const { OBSERVATION_BLOAT_THRESHOLD } = require('../lib/audit.js');
 
 const loadSchema = () => _loadSchema(SCHEMA_PATH);
 
+function reviewIdSegment(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'unknown';
+}
+
+function stableReviewHash(value) {
+  let h = 2166136261;
+  const s = String(value || '');
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
+
+function parseReviewDate(args) {
+  if (!args.asof) return new Date();
+  const s = String(args.asof);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    console.error('error: --asof must be YYYY-MM-DD');
+    process.exit(1);
+  }
+  const d = new Date(`${s}T00:00:00.000Z`);
+  if (!isFinite(d.getTime()) || d.toISOString().slice(0, 10) !== s) {
+    console.error('error: --asof must be a real YYYY-MM-DD date');
+    process.exit(1);
+  }
+  return d;
+}
+
 const REVIEW_STOPWORDS = new Set([
   // Calendar
   'January','February','March','April','May','June','July','August','September','October','November','December',
@@ -56,6 +89,8 @@ const REVIEW_STOPWORDS = new Set([
 ]);
 
 function cmdReview(args) {
+  const today = parseReviewDate(args);
+  const reviewDate = today.toISOString().slice(0, 10);
   const all = [];
   forEachPage(({ slug, fm, body }) => all.push({ slug, fm, body }));
 
@@ -146,6 +181,7 @@ function cmdReview(args) {
     title: 'Independent mentions — promotion candidates',
     note: 'Capitalized names/phrases appearing as plain text in ≥2 pages and not already a slug/title/alias. Likely a person/place/concept that should be its own atomic page.',
     items: promotionCandidates.slice(0, 20).map((c) => ({
+      id: `mention:${reviewIdSegment(c.display)}`,
       head: `${c.display} (${c.pages.length} pages)`,
       lines: c.pages.slice(0, 4).map(([slug, snip]) => `    ${slug}: ${snip}`),
     })),
@@ -189,6 +225,7 @@ function cmdReview(args) {
     title: 'Co-occurring slugs with no typed relation',
     note: 'Pairs of existing pages that appear together via wikilinks in ≥3 pages but have no relation. Suggests a missing edge.',
     items: missingEdges.slice(0, 15).map((e) => ({
+      id: `edge:${e.a}|${e.b}`,
       head: `${e.a} ↔ ${e.b} (co-mentioned in ${e.n} pages)`,
       lines: [],
     })),
@@ -225,6 +262,7 @@ function cmdReview(args) {
     title: 'Concept anchors missing',
     note: 'Topic/discipline tags used ≥ 8 times but no canonical concept page. Consider a `type: synthesis` or `type: concept` page tying them together. Closed-taxonomy classifier tags (person, family, work, …) are excluded.',
     items: missingAnchors.slice(0, 15).map((e) => ({
+      id: `tag-anchor:${reviewIdSegment(e.tag)}`,
       head: `#${e.tag} (${e.n} pages)`,
       lines: [],
     })),
@@ -277,6 +315,7 @@ function cmdReview(args) {
     title: 'Hook promotion candidates',
     note: `Connective hooks recurring across ${HOOK_PROMOTE_THRESHOLD}–${HOOK_DILUTION_THRESHOLD} atoms with no concept page yet. Promote each to a \`type: concept\` principle and link the carrying atoms via instance_of/about (canonical name + aliases synonym ring). Before promoting, reread the carriers and drop any whose own claim does not instantiate the hook.`,
     items: hookCandidates.slice(0, 15).map((e) => ({
+      id: `hook:${reviewIdSegment(e.hook)}`,
       head: `${e.hook} (${e.n} atoms)`,
       lines: [`carried by: ${hookSamples.get(e.hook).join(', ')}`],
     })),
@@ -286,6 +325,7 @@ function cmdReview(args) {
       title: 'Diluted hooks (audit, do not promote as-is)',
       note: `Hooks carried by > ${HOOK_DILUTION_THRESHOLD} atoms. A hook this common has likely been over-applied into a semi-stopword and is bridging loosely-related cards. Audit each member for aptness; prune the inapt ones (or split the hook into specific sub-concepts) BEFORE promoting. Do not promote a diluted hook to a principle as-is.`,
       items: dilutedHooks.slice(0, 15).map((e) => ({
+        id: `diluted-hook:${reviewIdSegment(e.hook)}`,
         head: `${e.hook} (${e.n} atoms)`,
         lines: [`sample: ${hookSamples.get(e.hook).join(', ')}`],
       })),
@@ -312,6 +352,7 @@ function cmdReview(args) {
       title: 'Bloated cards (consider observation-level promotion)',
       note: `Pages with >= ${OBSERVATION_BLOAT_THRESHOLD} active categorized observations. Each is a candidate for the bloat remediation playbook (\`persona/pipeline.md\`): cluster the observations by shape and promote each cluster to its own page (time-series → \`wiki measure\`, qualitative cluster → \`type: concept\`, events → \`type: event\`, sub-facets of a hub → sub-page with \`part_of\`). Same shortlist as \`wiki audit --all --rule bloated-card\`.`,
       items: bloated.slice(0, 15).map((e) => ({
+        id: `bloated:${e.slug}`,
         head: `${e.slug} (${e.n} active observations)`,
         lines: [],
       })),
@@ -319,7 +360,6 @@ function cmdReview(args) {
   }
 
   // ── Section 4: stale temporal markers ────────────────────────────────────
-  const today = new Date();
   const SIX_MONTHS_MS = 1000 * 60 * 60 * 24 * 30 * 6;
   const staleTemporal = [];
   for (const p of all) {
@@ -328,7 +368,7 @@ function cmdReview(args) {
         // [as-of YYYY-MM] — assume 1st of month.
         const d = new Date(obs.dates.asOf.length === 7 ? `${obs.dates.asOf}-01` : obs.dates.asOf);
         if (isFinite(d.getTime()) && today.getTime() - d.getTime() > SIX_MONTHS_MS) {
-          staleTemporal.push({ slug: p.slug, kind: 'as-of', when: obs.dates.asOf, body: obs.body });
+          staleTemporal.push({ slug: p.slug, kind: 'as-of', when: obs.dates.asOf, body: obs.body, obsId: obs.id });
         }
       }
       // [until YYYY-MM-DD] on a non-superseded hypothesis is genuinely stale —
@@ -338,7 +378,7 @@ function cmdReview(args) {
       if (obs.dates.until && !obs.superseded && obs.category === 'hypothesis') {
         const d = new Date(obs.dates.until.length === 7 ? `${obs.dates.until}-01` : obs.dates.until);
         if (isFinite(d.getTime()) && d.getTime() < today.getTime()) {
-          staleTemporal.push({ slug: p.slug, kind: 'hypothesis past [until]', when: obs.dates.until, body: obs.body });
+          staleTemporal.push({ slug: p.slug, kind: 'hypothesis past [until]', when: obs.dates.until, body: obs.body, obsId: obs.id });
         }
       }
     }
@@ -347,6 +387,7 @@ function cmdReview(args) {
     title: 'Stale temporal markers',
     note: '`[as-of YYYY-MM]` markers > 6 months old (likely outdated) or unsupserseded `[until YYYY-MM-DD]` past today.',
     items: staleTemporal.slice(0, 20).map((e) => ({
+      id: `temporal:${e.slug}:${reviewIdSegment(e.kind)}:${reviewIdSegment(e.when)}:${e.obsId || stableReviewHash(e.body)}`,
       head: `${e.slug} (${e.kind} ${e.when})`,
       lines: [`    ${e.body.slice(0, 140)}`],
     })),
@@ -365,7 +406,7 @@ function cmdReview(args) {
   sections.push({
     title: 'Decisions without rationale',
     note: '`type: decision` pages with no `[claim]`, no "because"/"reason" prose, and no `derived_from` frontmatter. Decisions without a recorded *why* lose half their value when re-read.',
-    items: noRationale.slice(0, 15).map((s) => ({ head: s, lines: [] })),
+    items: noRationale.slice(0, 15).map((s) => ({ id: `decision-rationale:${s}`, head: s, lines: [] })),
   });
 
   // ── Section 6: orphan sources ─────────────────────────────────────────────
@@ -393,7 +434,7 @@ function cmdReview(args) {
   sections.push({
     title: 'Orphan sources',
     note: '`type: source` pages not referenced by any other page (no wikilink, no provenance pointer). Why was it ingested?',
-    items: orphanSources.slice(0, 15).map((s) => ({ head: s, lines: [] })),
+    items: orphanSources.slice(0, 15).map((s) => ({ id: `orphan-source:${s}`, head: s, lines: [] })),
   });
 
   // ── Section 7: stale open todos ──────────────────────────────────────────
@@ -412,6 +453,7 @@ function cmdReview(args) {
     title: 'Stale open todos',
     note: '`type: todo` with `status: open` and `updated` > 60 days ago. Rotate forward or close.',
     items: staleTodos.slice(0, 15).map((e) => ({
+      id: `stale-todo:${e.slug}`,
       head: `${e.slug} (${e.ageDays} days stale)`,
       lines: [],
     })),
@@ -435,7 +477,7 @@ function cmdReview(args) {
     .reverse()
     .slice(0, 5);
   // Deterministic-by-day random sample: hash today's YYYY-MM-DD as a seed.
-  const dayStr = today.toISOString().slice(0, 10);
+  const dayStr = reviewDate;
   let seed = 0;
   for (let i = 0; i < dayStr.length; i++) seed = ((seed << 5) - seed + dayStr.charCodeAt(i)) | 0;
   const rng = () => { seed = (seed * 1664525 + 1013904223) | 0; return ((seed >>> 0) / 0x100000000); };
@@ -447,16 +489,16 @@ function cmdReview(args) {
   }
   const reEncounterItems = [];
   if (recent.length) {
-    reEncounterItems.push({ head: '*recently touched* — open these to remember what you just told yourself', lines: [] });
-    for (const r of recent) reEncounterItems.push({ head: `  ${r.slug} (${r.type}, updated ${(r.updated || '').slice(0, 10)})`, lines: [] });
+    reEncounterItems.push({ id: 'reencounter:recent-heading', head: '*recently touched* — open these to remember what you just told yourself', lines: [] });
+    for (const r of recent) reEncounterItems.push({ id: `reencounter:recent:${r.slug}`, head: `  ${r.slug} (${r.type}, updated ${(r.updated || '').slice(0, 10)})`, lines: [] });
   }
   if (stale.length) {
-    reEncounterItems.push({ head: '*stale long-tail* — untouched >6 months; revisit or retire', lines: [] });
-    for (const s of stale) reEncounterItems.push({ head: `  ${s.slug} (${s.type}, updated ${(s.updated || '').slice(0, 10)})`, lines: [] });
+    reEncounterItems.push({ id: 'reencounter:stale-heading', head: '*stale long-tail* — untouched >6 months; revisit or retire', lines: [] });
+    for (const s of stale) reEncounterItems.push({ id: `reencounter:stale:${s.slug}`, head: `  ${s.slug} (${s.type}, updated ${(s.updated || '').slice(0, 10)})`, lines: [] });
   }
   if (randomSample.length) {
-    reEncounterItems.push({ head: '*random sample (seeded by today\'s date)* — forced serendipity', lines: [] });
-    for (const r of randomSample) reEncounterItems.push({ head: `  ${r.slug} (${r.type})`, lines: [] });
+    reEncounterItems.push({ id: 'reencounter:random-heading', head: '*random sample (seeded by today\'s date)* — forced serendipity', lines: [] });
+    for (const r of randomSample) reEncounterItems.push({ id: `reencounter:random:${r.slug}`, head: `  ${r.slug} (${r.type})`, lines: [] });
   }
   sections.push({
     title: 'Re-encounter (forcing function for retrieval)',
@@ -465,7 +507,12 @@ function cmdReview(args) {
   });
 
   // ── Render ────────────────────────────────────────────────────────────────
-  console.log(`# Vault review — ${new Date().toISOString().slice(0, 10)}`);
+  if (args.json) {
+    console.log(JSON.stringify({ date: reviewDate, pages: all.length, sections }, null, 2));
+    return;
+  }
+
+  console.log(`# Vault review — ${reviewDate}`);
   console.log('');
   console.log(`Pages: ${all.length}`);
   console.log('');

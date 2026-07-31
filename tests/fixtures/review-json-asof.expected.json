@@ -1,0 +1,9 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "\"date\": \"2026-07-31\"",
+    "\"pages\":",
+    "\"id\": \"hook:deterministic-review-hook\"",
+    "\"head\": \"deterministic-review-hook (3 atoms)\""
+  ]
+}

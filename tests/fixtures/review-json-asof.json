@@ -1,0 +1,9 @@
+{
+  "_comment": "wiki review --json --asof emits a machine-readable deterministic report with stable item IDs for automation.",
+  "setup": [
+    ["write", "json-hook-a", "--title", "JSON Hook A", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] a ^[telegram:2026-05-20]", "--hooks", "deterministic-review-hook"],
+    ["write", "json-hook-b", "--title", "JSON Hook B", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] b ^[telegram:2026-05-20]", "--hooks", "deterministic-review-hook"],
+    ["write", "json-hook-c", "--title", "JSON Hook C", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] c ^[telegram:2026-05-20]", "--hooks", "deterministic-review-hook"]
+  ],
+  "cmd": ["review", "--json", "--asof", "2026-07-31"]
+}
