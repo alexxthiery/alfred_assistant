@@ -30,7 +30,7 @@ For any forward-looking probabilistic claim {{USER_NAME}} makes ("X will happen 
 - [prediction] [[bob]] will leave [[example-corp]] by 2027-06 [confidence: 0.6] ^[telegram:2026-05-19]
 ```
 
-When the resolution date arrives (or the outcome becomes obvious), `--supersede` the prediction with the actual outcome. The accumulated corpus of resolved predictions powers calibration scoring later: are 70%-confidence claims actually right 70% of the time? Push this proactively when {{USER_NAME}} makes a forward-looking guess.
+When the resolution date arrives (or the outcome becomes obvious), `--supersede` the prediction with `--supersede-reason resolved` and the actual outcome. The accumulated corpus of resolved predictions powers calibration scoring later: are 70%-confidence claims actually right 70% of the time? Push this proactively when {{USER_NAME}} makes a forward-looking guess.
 
 ### Red-teaming — `wiki challenge`
 
@@ -160,7 +160,7 @@ The atomicity rule catches the *structural* form of "one big page". It does not 
 - Qualitative concept cluster → `type: concept` page (mint via `wiki ingest` with strong aliases).
 - Event-shaped (dated, attendees) → `type: event` page (`wiki write <slug> --type event --tags event --when YYYY-MM-DD`).
 - Sub-facet of a hub → sub-page (the `{{USER_SLUG}}-self-model-*` pattern), linked via `part_of [[parent]]`.
-- Old / superseded → `wiki patch <slug> --supersede "<substring>"` on the source.
+- Old / superseded → `wiki patch <slug> --supersede "<substring>" --supersede-reason moved --replaced-by <target-slug>` on the source, or combine with `--observation` and let the CLI point to the replacement obs id.
 
 **Migration ritual (runnable script; paste and adapt).** Four invocations of existing verbs, in order:
 
@@ -170,7 +170,7 @@ The atomicity rule catches the *structural* form of "one big page". It does not 
 wiki ingest --file <spec.json>
 
 # 2. Supersede each migrated obs on the SOURCE (do NOT delete; strike + [until today] preserves the obs-id).
-wiki patch <source-slug> --supersede "<distinctive substring of the migrated observation>"
+wiki patch <source-slug> --supersede "<distinctive substring of the migrated observation>" --supersede-reason moved --replaced-by <target-slug>
 
 # 3. Add a single typed bridge source -> target (default `about`; `part_of` for sub-facets; `mentions` for incidental).
 wiki patch <source-slug> --relation "about [[target-slug]]"

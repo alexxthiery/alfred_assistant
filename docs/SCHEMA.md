@@ -177,11 +177,18 @@ The value must be a number in `[0, 1]`. Out-of-range or malformed values are sil
 When a fact becomes outdated, do not delete the old observation — supersede it. The page tells a story over time.
 
 ```
-- ~~[fact] Associate Prof at ExampleU~~ [until 2026-05]
+- ~~[fact] Associate Prof at ExampleU~~ [until 2026-05] [reason: moved] [replaced_by: obs:a3f7q9]
 - [fact] Joined AnotherCorp as portfolio manager [since 2026-05] #work
 ```
 
-Use `wiki patch <slug> --supersede "<substring>"` to auto-transform the matching line (adds strikethrough + `[until <today>]`). Optionally combine with `--observation "..."` to append the replacement.
+Use `wiki patch <slug> --supersede "<substring>"` to auto-transform the matching line (adds strikethrough + `[until <today>]`). Prefer also passing `--supersede-reason <token>` when the old line is retired. Recommended reason tokens: `corrected`, `reclassified`, `split`, `moved`, `stale`, `duplicate`, `pruned`, `resolved`, `replaced`.
+
+Optionally combine with `--observation "..."` to append the replacement. The CLI mints the replacement observation id before writing and adds `[replaced_by: obs:<id>]` to the retired line automatically. Use `--replaced-by obs:<id>|<slug>|<slug>#obs:<id>` when the replacement already exists elsewhere.
+
+The parseable supersession metadata is:
+
+- `[reason: token]` — lowercase reason token explaining why the old line retired.
+- `[replaced_by: handle, ...]` — one or more replacement handles. Handles are `obs:abc123`, `page-slug`, or `page-slug#obs:abc123`.
 
 Lint can list pages with superseded facts to confirm the new state was added.
 
@@ -485,6 +492,8 @@ For ad-hoc questions that don't fit any CLI verb, `wiki sql "<query>"` exposes t
 
 Setup (one-time): `brew install duckdb` (host) or `apt install duckdb` inside the container. The CLI prints a friendly error if the binary isn't on PATH.
 
+The `observations` table exposes one row per categorized bullet, including `id`, `category`, `body`, `superseded`, date columns (`since`, `until`, `as_of`, `on_date`, `by_date`), `confidence`, `provenance`, and supersession columns `supersede_reason` plus `replaced_by`.
+
 Use `wiki sql --schema` to introspect, `wiki sql --explore` for an interactive REPL.
 
 ## Measurement series (tabular time-series)
@@ -576,7 +585,7 @@ Modifies an existing page.
   "add_facts":      [{"body": "...", "asOf": "2026-05-17"}],
   "add_hypotheses": [...],
   "add_relations":  [{"verb": "from", "target": "springfield"}],
-  "supersede":      [{"match": "<substring of old obs>", "replacement_fact": {"body": "...", "since": "..."}}]
+  "supersede":      [{"match": "<substring of old obs>", "reason": "split", "replacement_fact": {"body": "...", "since": "..."}}]
 }
 ```
 

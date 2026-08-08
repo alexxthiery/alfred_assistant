@@ -22,6 +22,12 @@ const { readPageForWrite, regenerateIndex, appendLog } = require('../lib/page-io
 const { readTextSource } = require('../lib/text-input.js');
 const { validateBody, warnHooks } = require('../lib/write-validate.js');
 const { postWriteAudit } = require('../lib/audit-runtime.js');
+const {
+  ensureObservationLineId,
+  parseReplacedBy,
+  supersedeObservationLine,
+  validateSupersedeReason,
+} = require('../lib/supersession.js');
 
 const loadSchema = () => _loadSchema(SCHEMA_PATH);
 
@@ -52,6 +58,8 @@ function cmdPatch(args) {
   let newBody = body;
   let observationInput = null;
   let summaryInput = null;
+  let observationLine = null;
+  let observationId = null;
   try {
     observationInput = readTextSource(args, {
       inlineFlag: 'observation',
@@ -70,8 +78,37 @@ function cmdPatch(args) {
     process.exit(1);
   }
 
+  if (!args.supersede) {
+    if (args['supersede-reason'] !== undefined && args['supersede-reason'] !== false) {
+      console.error('error: --supersede-reason requires --supersede');
+      process.exit(1);
+    }
+    if (args['replaced-by'] !== undefined && args['replaced-by'] !== false) {
+      console.error('error: --replaced-by requires --supersede');
+      process.exit(1);
+    }
+  }
+
+  if (observationInput !== null) {
+    const obs = String(observationInput).trim();
+    // Allow "fact: body" or full "- [fact] body" or just "[fact] body"
+    if (/^- \[/.test(obs)) observationLine = obs;
+    else if (/^\[/.test(obs)) observationLine = `- ${obs}`;
+    else observationLine = `- [fact] ${obs}`;
+    const withId = ensureObservationLineId(observationLine);
+    observationLine = withId.line;
+    observationId = withId.id;
+  }
+
   // Supersede an old observation (do this BEFORE appending the replacement)
   if (args.supersede) {
+    const reasonError = validateSupersedeReason(args['supersede-reason']);
+    if (reasonError) { console.error(`error: ${reasonError}`); process.exit(1); }
+    const explicitReplacedBy = parseReplacedBy(args['replaced-by']);
+    if (explicitReplacedBy.error) { console.error(`error: ${explicitReplacedBy.error}`); process.exit(1); }
+    const replacedBy = explicitReplacedBy.values.length
+      ? explicitReplacedBy.values
+      : (observationId ? [`obs:${observationId}`] : []);
     const needle = String(args.supersede);
     const lines = newBody.split('\n');
     const idx = lines.findIndex((l) => /^- (?:~~)?\[/.test(l) && l.includes(needle));
@@ -84,22 +121,24 @@ function cmdPatch(args) {
       process.exit(3);
     }
     const today = nowISO().slice(0, 10);
-    // - [cat] body  →  - ~~[cat] body~~ [until YYYY-MM-DD]
-    lines[idx] = lines[idx].replace(/^- (\[[a-z]+\][\s\S]+?)\s*$/, `- ~~$1~~ [until ${today}]`);
+    const rendered = supersedeObservationLine(lines[idx], {
+      until: today,
+      reason: args['supersede-reason'],
+      replacedBy,
+    });
+    if (rendered.error) {
+      console.error(`error: ${rendered.error}`);
+      process.exit(3);
+    }
+    lines[idx] = rendered.line;
     newBody = lines.join('\n');
     ops.push(`supersede:${needle.slice(0, 30)}`);
   }
 
   // Append observation
-  if (observationInput !== null) {
-    const obs = String(observationInput).trim();
-    // Allow "fact: body" or full "- [fact] body" or just "[fact] body"
-    let line;
-    if (/^- \[/.test(obs)) line = obs;
-    else if (/^\[/.test(obs)) line = `- ${obs}`;
-    else line = `- [fact] ${obs}`;
-    newBody = newBody.trimEnd() + '\n' + line + '\n';
-    ops.push(`obs:${line.slice(0, 50)}`);
+  if (observationLine !== null) {
+    newBody = newBody.trimEnd() + '\n' + observationLine + '\n';
+    ops.push(`obs:${observationLine.slice(0, 50)}`);
   }
 
   // Append relation

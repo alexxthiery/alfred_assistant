@@ -172,6 +172,19 @@ test('parseObservations: marks strikethrough as superseded', () => {
   assert.equal(obs[0].superseded, true);
 });
 
+test('parseObservations: extracts supersession reason and replacement handles', () => {
+  const body = '- ~~[fact] Old claim ^[t:1] <!--obs:old123-->~~ [until 2026-06-22] [reason: split] [replaced_by: obs:new123, target-card#obs:def456]';
+  const obs = parseObservations(body);
+  assert.equal(obs.length, 1);
+  assert.equal(obs[0].superseded, true);
+  assert.equal(obs[0].dates.until, '2026-06-22');
+  assert.deepEqual(obs[0].supersession, {
+    reason: 'split',
+    replacedBy: ['obs:new123', 'target-card#obs:def456'],
+  });
+  assert.equal(obs[0].body, 'Old claim');
+});
+
 test('parseObservations: parses prediction category', () => {
   const body = '- [prediction] X will happen by 2027-06 [confidence: 0.6] ^[telegram:1]';
   const obs = parseObservations(body);

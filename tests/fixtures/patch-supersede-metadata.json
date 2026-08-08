@@ -1,0 +1,3 @@
+{
+  "cmd": ["patch", "alice", "--supersede", "Used as default subject", "--supersede-reason", "split", "--observation", "[fact] No longer the default subject ^[telegram:2026-05-17]"]
+}

@@ -26,6 +26,12 @@ const { buildTitleMap, autolinkSlug } = require('../lib/autolink-runtime.js');
 const { regenerateIndex, appendLog } = require('../lib/page-io.js');
 const { validateBody, warnHooks } = require('../lib/write-validate.js');
 const { auditSlug } = require('../lib/audit-runtime.js');
+const {
+  ensureObservationLineId,
+  parseReplacedBy,
+  supersedeObservationLine,
+  validateSupersedeReason,
+} = require('../lib/supersession.js');
 
 const loadSchema = () => _loadSchema(SCHEMA_PATH);
 
@@ -205,6 +211,23 @@ function cmdIngest(args) {
           warnings.push({ slug: p.slug, kind: 'supersede-entry' });
           continue;
         }
+        const reasonError = validateSupersedeReason(sup.reason);
+        if (reasonError) throw new Error(`patches[${p.slug}]: ${reasonError}`);
+        const explicitReplacedBy = parseReplacedBy(sup.replaced_by);
+        if (explicitReplacedBy.error) throw new Error(`patches[${p.slug}]: ${explicitReplacedBy.error}`);
+        let replacementLine = null;
+        let replacementId = null;
+        if (sup.replacement_fact) {
+          const line = formatObservation(sup.replacement_fact, 'fact', source);
+          if (line) {
+            const withId = ensureObservationLineId(line);
+            replacementLine = withId.line;
+            replacementId = withId.id;
+          }
+        }
+        const replacedBy = explicitReplacedBy.values.length
+          ? explicitReplacedBy.values
+          : (replacementId ? [`obs:${replacementId}`] : []);
         const needle = sup.match;
         const lines = newBody.split('\n');
         const matches = [];
@@ -219,14 +242,17 @@ function cmdIngest(args) {
           const idx = matches[0];
           if (!/^- ~~/.test(lines[idx])) {
             const today = nowISO().slice(0, 10);
-            lines[idx] = lines[idx].replace(/^- (\[[a-z]+\][\s\S]+?)\s*$/, `- ~~$1~~ [until ${today}]`);
+            const rendered = supersedeObservationLine(lines[idx], {
+              until: today,
+              reason: sup.reason,
+              replacedBy,
+            });
+            if (rendered.error) throw new Error(`patches[${p.slug}]: ${rendered.error}`);
+            lines[idx] = rendered.line;
             newBody = lines.join('\n');
           }
         }
-        if (sup.replacement_fact) {
-          const line = formatObservation(sup.replacement_fact, 'fact', source);
-          if (line) additions.push(line);
-        }
+        if (replacementLine) additions.push(replacementLine);
       }
     }
     const obsGroups = [

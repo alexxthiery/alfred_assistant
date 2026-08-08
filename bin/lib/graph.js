@@ -83,6 +83,13 @@ function parseObservations(body) {
       const n = Number(cMatch[1]);
       if (Number.isFinite(n) && n >= 0 && n <= 1) confidence = n;
     }
+    const supersession = { reason: null, replacedBy: [] };
+    const reasonMatch = text.match(/\[reason:\s*([a-z][a-z0-9-]{0,31})\]/i);
+    if (reasonMatch) supersession.reason = reasonMatch[1];
+    const replacedByMatch = text.match(/\[replaced_by:\s*([^\]\n]+)\]/i);
+    if (replacedByMatch) {
+      supersession.replacedBy = replacedByMatch[1].split(',').map((s) => s.trim()).filter(Boolean);
+    }
     const provenance = [];
     const provRe = /\^\[([^\]]+)\]/g;
     let pm;
@@ -96,11 +103,13 @@ function parseObservations(body) {
       .replace(/<!--obs:[a-z0-9]{6}-->/g, '')
       .replace(/\[(since|until|on|as-of|by)\s+\d{4}(?:-\d{2}(?:-\d{2})?)?\]/g, '')
       .replace(/\[confidence:\s*\d+(?:\.\d+)?\]/gi, '')
+      .replace(/\[reason:\s*[a-z][a-z0-9-]{0,31}\]/gi, '')
+      .replace(/\[replaced_by:\s*[^\]\n]+\]/gi, '')
       .replace(/\^\[[^\]]+\]/g, '')
       .replace(/~~/g, '')
       .replace(/\s+/g, ' ')
       .trim();
-    out.push({ category, body: cleaned, text, dates, provenance, superseded, confidence, id });
+    out.push({ category, body: cleaned, text, dates, provenance, superseded, confidence, supersession, id });
   }
   return out;
 }

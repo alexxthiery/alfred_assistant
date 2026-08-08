@@ -749,6 +749,10 @@ function cmdContext(args) {
       if (o.dates.until) marks.push(`until ${o.dates.until}`);
       if (o.dates.on) marks.push(`on ${o.dates.on}`);
       if (o.dates.asOf) marks.push(`as-of ${o.dates.asOf}`);
+      if (o.supersession && o.supersession.reason) marks.push(`reason ${o.supersession.reason}`);
+      if (o.supersession && o.supersession.replacedBy && o.supersession.replacedBy.length) {
+        marks.push(`replaced_by ${o.supersession.replacedBy.join(',')}`);
+      }
       const annot = marks.length ? `  (${marks.join(', ')})` : '';
       console.log(`- [${o.category}] ${o.body}${annot}`);
     }

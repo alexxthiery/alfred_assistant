@@ -1,0 +1,4 @@
+{
+  "exitCode": 1,
+  "stderrContains": ["--supersede-reason requires --supersede"]
+}

@@ -8,7 +8,7 @@ The reasoning: the vault is a typed graph, not a folder of notes. Every page has
 
 1. **Schema validation** — `type` must be in the closed set; `tags` must be in the SCHEMA taxonomy; relation verbs must be in the registered symmetric/inverse-pair/one-way registries; forbidden aggregator slugs (`family`, `friends`, `tools`, …) are rejected.
 2. **Microsyntax** — every body bullet must be a categorized observation (`- [fact]`, `- [hypothesis]`, …) or a typed relation. Every observation on entity/event/concept/synthesis pages must carry a `^[telegram:...]` / `^[raw/...]` provenance marker. A raw markdown edit would skip this and lint would later flag it as `uncategorized-bullets` or missing-provenance.
-3. **Temporal + supersede semantics** — `[on YYYY-MM-DD]`, `[until ...]`, `[~ ...]` are CLI-parsed; supersede is a structured `strike-through + [until today]` operation, not an arbitrary edit.
+3. **Temporal + supersede semantics** — `[on YYYY-MM-DD]`, `[until ...]`, `[~ ...]` are CLI-parsed; supersede is a structured `strike-through + [until today] + optional [reason: ...] + [replaced_by: ...]` operation, not an arbitrary edit.
 4. **Cascading effects** — every CLI write appends to `wiki/log.md`, regenerates `wiki/index.md` if needed, runs a post-write audit, and triggers `autoCommit()` so the change goes into git history with a meaningful message. A raw edit produces a dirty working tree that the host watcher then logs to `alfred/tamper.log` — which is exactly the bypass-detection signal {{USER_NAME}} relies on.
 5. **Identity discipline** — `wiki ingest` runs fuzzy duplicate detection before creating new slugs (`bob-jones` vs existing `bob`). A raw write bypasses this and fragments the graph.
 6. **Audit fix-lines are authoritative.** When CLI output (strict rejection, `postWriteAudit`, or `wiki audit`) includes a `→ fix: <command>` line, run that command verbatim. The rule that emitted it has already evaluated the situation and produced the correct remediation; do not improvise an alternative.
@@ -22,7 +22,7 @@ In short: typing JSON through `wiki ingest` is *cheaper* than typing markdown di
 | --- | --- |
 | Create new entities / events / stubs from a message | `wiki ingest --stdin` (or `--file`) with a JSON spec — **default path** |
 | Add one observation or relation to an existing page | `wiki patch <slug> --observation "[fact] ... ^[telegram:...]"` or `--observation-stdin` / `--observation-file <path>` or `--relation "verb [[target]]"` |
-| Strike an old observation and replace it | `wiki patch <slug> --supersede "<substring>" --observation "[fact] new ^[...]"` |
+| Strike an old observation and replace it | `wiki patch <slug> --supersede "<substring>" --supersede-reason split --observation "[fact] new ^[...]"` |
 | Rename a page (rewrites backlinks, adds alias) | `wiki mv <old> <new>` |
 | {{USER_NAME}} says "X is the same person/thing as Y" OR "X is a nickname/alias for Y" | `wiki merge X Y` — **do not** reach for `wiki patch Y --alias X` while `X.md` exists; the alias would be inert |
 | Merge a duplicate into the canonical page | `wiki merge <source> <target>` |
@@ -106,7 +106,7 @@ Required fields per kind:
 - **event**: `slug, title, tags (must include "event"), when`, and `attendees` or `relations`
 - **patch**: `slug` (must exist), and ≥1 of `add_facts/add_hypotheses/add_opinions/add_relations/supersede`
 
-Provenance is auto-stamped from `source` on every observation. Date tags come from the per-observation `since/until/on/asOf` fields.
+Provenance is auto-stamped from `source` on every observation. Date tags come from the per-observation `since/until/on/asOf` fields. Supersede entries may carry `reason`, `replaced_by`, and `replacement_fact`; when `replacement_fact` is present, the retired line automatically points at the new observation id.
 
 **Intellectual attribution (where an idea came from).** The `source` marker records *where you captured* a fact (a clipping, a Telegram message). It does NOT record *which work an idea came from*. Any `type: concept` page tagged `idea`, `opinion`, or `principle` that you ingest from a book, paper, or blog must also record its origin, or the CLI **blocks the write** (`unattributed-idea`). When ingesting from an external work:
 

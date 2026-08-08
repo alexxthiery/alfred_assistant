@@ -12,7 +12,7 @@ review:  review          (wiki review — cross-vault digest, weekly-ish)
 replay:  replay          (wiki replay <msg-id> | --all — re-run captured specs vs current pipeline)
 sql:     sql             (wiki sql "<query>" — DuckDB view over frontmatter; --schema, --explore)
 
-patch flags:  --observation  --relation  --supersede  --add-tag  --remove-tag  --alias  --summary  --title
+patch flags:  --observation  --relation  --supersede  --supersede-reason  --replaced-by  --add-tag  --remove-tag  --alias  --summary  --title
 ingest:       --stdin  --file <path.json>  [--allow-duplicates]
 ```
 

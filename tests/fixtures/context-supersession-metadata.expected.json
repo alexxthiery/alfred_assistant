@@ -1,0 +1,7 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "reason split",
+    "replaced_by obs:abc123"
+  ]
+}

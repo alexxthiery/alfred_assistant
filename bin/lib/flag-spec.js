@@ -46,7 +46,7 @@ const WRITE_CORE_FLAGS = new Set([
   'add-tag', 'alias', 'allow-duplicates', 'allow-duplicate-slug', 'allow-secret', 'append', 'content',
   'force-alias', 'force-duplicate', 'no-alias', 'no-anchor', 'observation',
   'provenance', 'relation', 'remove-relation', 'remove-tag', 'remove-hooks', 'remove-alias', 'replace', 'replay',
-  'soft', 'summary', 'supersede', 'tags', 'title', 'type', 'dry-run',
+  'replaced-by', 'soft', 'summary', 'supersede', 'supersede-reason', 'tags', 'title', 'type', 'dry-run',
   'today', 'on', 'dedupe',
 ]);
 
@@ -114,7 +114,7 @@ const VALUE_REQUIRED_FLAGS = new Set([
   'title', 'summary', 'content', 'type', 'tags', 'tag', 'alias', 'add-tag', 'remove-tag',
   'hooks', 'remove-hooks', 'remove-alias',
   // observations / relations
-  'observation', 'observation-file', 'relation', 'remove-relation', 'supersede', 'provenance', 'file',
+  'observation', 'observation-file', 'relation', 'remove-relation', 'supersede', 'supersede-reason', 'replaced-by', 'provenance', 'file',
   // typed frontmatter + external links
   'born', 'visibility', 'confidence', 'source', 'location', 'duration',
   'recurrence', 'attendees', 'derived_from', 'supersedes', 'decided_on',

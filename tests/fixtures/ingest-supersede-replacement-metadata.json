@@ -1,0 +1,15 @@
+{
+  "source": "telegram:2026-05-17",
+  "patches": [
+    {
+      "slug": "morgan-smith",
+      "supersede": [
+        {
+          "match": "Atlantean",
+          "reason": "corrected",
+          "replacement_fact": { "body": "Lives in Singapore" }
+        }
+      ]
+    }
+  ]
+}

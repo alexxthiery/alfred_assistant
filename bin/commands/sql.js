@@ -36,6 +36,8 @@ function cmdSql(args) {
     console.log('  - observations.by_date     [by YYYY-MM-DD] resolution date for predictions (and any other observation).');
     console.log('  - observations.confidence  [confidence: 0..1] inline tag, primarily for [prediction] rows.');
     console.log('  - observations.superseded  true when the bullet is wrapped in ~~ strikethrough.');
+    console.log('  - observations.supersede_reason  [reason: token] explaining why a superseded row retired.');
+    console.log('  - observations.replaced_by       VARCHAR[] handles from [replaced_by: ...].');
     console.log('');
     console.log('BM25 full-text search:');
     console.log('  SELECT slug, fts_main_observations.match_bm25(obs_uid, \'query\') AS score');

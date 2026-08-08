@@ -1,0 +1,6 @@
+{
+  "setup": [
+    ["patch", "alice", "--supersede", "Used as default subject", "--supersede-reason", "split", "--replaced-by", "obs:abc123", "--observation", "[fact] No longer the default subject ^[telegram:2026-05-17]"]
+  ],
+  "cmd": ["context", "alice", "--compact"]
+}

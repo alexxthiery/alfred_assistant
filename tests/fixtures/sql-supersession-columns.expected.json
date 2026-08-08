@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "supersede_reason",
+    "split",
+    "obs:abc123"
+  ]
+}

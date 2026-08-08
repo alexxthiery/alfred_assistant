@@ -102,11 +102,21 @@ Edits to an **existing** page:
   "add_hypotheses": [ … ], "add_opinions": [ … ], "add_claims": [ … ],
   "add_relations": [{ "verb", "target" }],
   "add_hooks": ["…"],
-  "supersede": [{ "match": "<substring>", "with": { "body": "… ^[…]" } }] }
+  "supersede": [{
+    "match": "<substring>",
+    "reason": "split",
+    "replaced_by": "obs:abc123",
+    "replacement_fact": { "body": "… ^[…]" }
+  }] }
 ```
 
 - `slug` must exist; provide **≥1** of `add_facts` / `add_hypotheses` /
   `add_opinions` / `add_claims` / `add_relations` / `add_hooks` / `supersede`.
+- `supersede[].reason` is a lowercase token such as `corrected`, `split`,
+  `moved`, `stale`, or `duplicate`.
+- `supersede[].replacement_fact` appends a new `[fact]` and automatically
+  records `[replaced_by: obs:<new-id>]` on the retired line unless
+  `replaced_by` is supplied explicitly.
 
 ## Validation & exit codes
 

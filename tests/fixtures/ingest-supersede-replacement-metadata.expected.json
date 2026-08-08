@@ -7,8 +7,10 @@
     "morgan-smith": {
       "bodyContains": [
         "Atlantean",
-        "[reason: moved]",
-        "Now lives in Singapore"
+        "[reason: corrected]",
+        "[replaced_by: obs:",
+        "Lives in Singapore",
+        "<!--obs:"
       ]
     }
   }

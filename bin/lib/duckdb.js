@@ -69,7 +69,7 @@ const REBUILD_LOCK_STALE_MS = Number(process.env.WIKI_DUCKDB_LOCK_STALE_MS || 60
 // it to the value persisted on disk and forces rebuild on mismatch, so a CLI
 // upgrade automatically refreshes stale .duckdb files without manual
 // intervention.
-const SNAPSHOT_SCHEMA_VERSION = 'v4-2026-05-25-label-fts'; // bumped: + FTS index on vault.label_text (title+aliases) for alias resolution
+const SNAPSHOT_SCHEMA_VERSION = 'v5-2026-08-08-supersession'; // bumped: observations.supersede_reason + observations.replaced_by
 
 function sleepMs(ms) {
   const sab = new SharedArrayBuffer(4);
@@ -140,6 +140,8 @@ function buildVaultNdjson() {
         on_date: o.dates && o.dates.on || null,
         by_date: o.dates && o.dates.by || null,
         confidence: typeof o.confidence === 'number' ? o.confidence : null,
+        supersede_reason: o.supersession && o.supersession.reason || null,
+        replaced_by: arr(o.supersession && o.supersession.replacedBy),
         provenance: arr(o.provenance),
       });
     }
