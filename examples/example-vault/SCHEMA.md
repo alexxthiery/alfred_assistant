@@ -161,6 +161,12 @@ Variants:
 
 Date precision is flexible: `2024`, `2024-08`, or `2024-08-15` all valid.
 
+### Observation provenance
+
+New observations added with `wiki patch --observation` must carry an inline provenance marker such as `^[telegram:2026-08-08]` or `^[raw/<kind>/<slug>.md]`; `--soft` is the explicit escape hatch for rare scratch/legacy repair cases. `wiki ingest` stamps provenance from its top-level `source` when an observation has no per-observation override.
+
+CLI body writes (`wiki write`, `wiki patch`) auto-run outbound autolink before commit so plain mentions of known page titles become `[[wikilinks]]`; `--no-autolink` is the explicit escape hatch for discovery tests or deliberate bare mentions.
+
 ### Confidence tag (CLI-parseable)
 
 An optional inline confidence reading on any observation:

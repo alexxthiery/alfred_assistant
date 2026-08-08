@@ -246,6 +246,25 @@ test('buildTitleEntries: a generic alias is NOT an autolink anchor; the title st
   assert.ok(tm.some((e) => e.title === 'Bellman optimality control problem'));
 });
 
+test('buildTitleEntries: lowercase person aliases get title-case anchors', () => {
+  const tm = buildTitleEntries([
+    { slug: 'personone-card', fm: { title: 'Personone Card', type: 'entity', tags: ['person'], aliases: ['personone'] } },
+    { slug: 'persontwo-card', fm: { title: 'persontwo', type: 'entity', tags: ['person'], aliases: [] } },
+  ]);
+  assert.ok(tm.some((e) => e.slug === 'personone-card' && e.title === 'Personone'));
+  assert.ok(tm.some((e) => e.slug === 'persontwo-card' && e.title === 'Persontwo'));
+  assert.equal(tm.some((e) => e.title === 'personone'), false, 'lowercase generic form remains excluded');
+});
+
+test('autolinkBody: title-case person mention from lowercase alias links', () => {
+  const tm = buildTitleEntries([
+    { slug: 'personone-card', fm: { title: 'Personone Card', type: 'entity', tags: ['person'], aliases: ['personone'] } },
+  ]);
+  const out = autolinkBody('Personone performs intellectual sophistication.\n', 'identity-note', tm);
+  assert.equal(out.injections, 1);
+  assert.ok(out.body.includes('[[personone-card]] performs'));
+});
+
 test('autolinkBody: generic-alias phrase in prose is left untouched (V1)', () => {
   const tm = buildTitleEntries([
     { slug: 'bellman-optimality-control', fm: { title: 'Bellman optimality control problem', aliases: ['optimal policy'] } },

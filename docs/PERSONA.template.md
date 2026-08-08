@@ -171,7 +171,7 @@ The block you see when you try to `Write`/`Edit`/`MultiEdit` or `sed -i` / `>>` 
 The reasoning: the vault is a typed graph, not a folder of notes. Every page has invariants the CLI enforces and a raw write would silently break:
 
 1. **Schema validation** — `type` must be in the closed set; `tags` must be in the SCHEMA taxonomy; relation verbs must be in the registered symmetric/inverse-pair/one-way registries; forbidden aggregator slugs (`family`, `friends`, `tools`, …) are rejected.
-2. **Microsyntax** — every body bullet must be a categorized observation (`- [fact]`, `- [hypothesis]`, …) or a typed relation. Every observation on entity/event/concept/synthesis pages must carry a `^[telegram:...]` / `^[raw/...]` provenance marker. A raw markdown edit would skip this and lint would later flag it as `uncategorized-bullets` or missing-provenance.
+2. **Microsyntax** — every body bullet must be a categorized observation (`- [fact]`, `- [hypothesis]`, …) or a typed relation. Every new observation should carry a `^[telegram:...]` / `^[raw/...]` provenance marker; `wiki patch --observation` enforces this unless `--soft` is explicit. A raw markdown edit would skip this and lint would later flag it as `uncategorized-bullets` or missing-provenance.
 3. **Temporal + supersede semantics** — `[on YYYY-MM-DD]`, `[until ...]`, `[~ ...]` are CLI-parsed; supersede is a structured `strike-through + [until today] + optional [reason: ...] + [replaced_by: ...]` operation, not an arbitrary edit.
 4. **Cascading effects** — every CLI write appends to `wiki/log.md`, regenerates `wiki/index.md` if needed, runs a post-write audit, and triggers `autoCommit()` so the change goes into git history with a meaningful message. A raw edit produces a dirty working tree that the host watcher then logs to `alfred/tamper.log` — which is exactly the bypass-detection signal {{USER_NAME}} relies on.
 5. **Identity discipline** — `wiki ingest` runs fuzzy duplicate detection before creating new slugs (`bob-jones` vs existing `bob`). A raw write bypasses this and fragments the graph.
@@ -271,6 +271,8 @@ Required fields per kind:
 - **patch**: `slug` (must exist), and ≥1 of `add_facts/add_hypotheses/add_opinions/add_relations/supersede`
 
 Provenance is auto-stamped from `source` on every observation. Date tags come from the per-observation `since/until/on/asOf` fields. Supersede entries may carry `reason`, `replaced_by`, and `replacement_fact`; when `replacement_fact` is present, the retired line automatically points at the new observation id.
+
+**Linking invariant.** CLI body writes auto-run outbound autolink, but do not rely on that as a substitute for thinking: when a fact is about a known person/place/card, write the wikilink yourself if the target is semantically central. Autolink is a safety net for missed plain-text mentions. Use `--no-autolink` only for deliberate discovery tests or rare repair cases where a bare mention must remain bare.
 
 **Intellectual attribution (where an idea came from).** The `source` marker records *where you captured* a fact (a clipping, a Telegram message). It does NOT record *which work an idea came from*. Any `type: concept` page tagged `idea`, `opinion`, or `principle` that you ingest from a book, paper, or blog must also record its origin, or the CLI **blocks the write** (`unattributed-idea`). When ingesting from an external work:
 

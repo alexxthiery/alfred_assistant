@@ -117,7 +117,7 @@ test('autolink command commits page edits and regenerated index together', () =>
       '--tags', 'meta', '--content', '- [fact] target page ^[telegram:2026-06-03]', '--soft']);
     assert.equal(target.status, 0, `target write should succeed: ${target.stderr}`);
     const source = wiki(v, ['write', 'recipe-notes', '--title', 'Recipe Notes', '--type', 'concept',
-      '--tags', 'meta', '--content', '- [fact] Banana Bread appears here ^[telegram:2026-06-03]', '--soft']);
+      '--tags', 'meta', '--content', '- [fact] Banana Bread appears here ^[telegram:2026-06-03]', '--soft', '--no-autolink']);
     assert.equal(source.status, 0, `source write should succeed: ${source.stderr}`);
     assert.equal(git(v, ['status', '--porcelain']).stdout.trim(), '', 'clean after setup writes');
     const beforeCount = Number(git(v, ['rev-list', '--count', 'HEAD']).stdout.trim());

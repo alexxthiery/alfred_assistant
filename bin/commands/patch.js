@@ -95,6 +95,10 @@ function cmdPatch(args) {
     if (/^- \[/.test(obs)) observationLine = obs;
     else if (/^\[/.test(obs)) observationLine = `- ${obs}`;
     else observationLine = `- [fact] ${obs}`;
+    if (!args.soft && !/\^\[[^\]\n]+\]/.test(observationLine)) {
+      console.error('error: observation is missing provenance; add ^[telegram:YYYY-MM-DD] or ^[raw/<kind>/<slug>.md] (bypass with --soft)');
+      process.exit(3);
+    }
     const withId = ensureObservationLineId(observationLine);
     observationLine = withId.line;
     observationId = withId.id;
@@ -398,10 +402,16 @@ function cmdPatch(args) {
   // Mint obs-ids on any newly-added observation lines. Idempotent — pre-existing
   // markers pass through. Applied here so cmdPatch's --observation / --append
   // flows always land an id without each call-site needing to remember.
+  const bodyChanged = newBody !== body;
   fs.writeFileSync(p, serializeFrontmatter(fm, mintIdsForBody(newBody)));
+  let autolinkResult = { out: 0, in: 0, total: 0 };
+  if (bodyChanged && !args['no-autolink']) {
+    autolinkResult = autolinkSlug(slug, { direction: 'out', verbose: false, log: false });
+  }
   regenerateIndex();
-  appendLog('patch', `${slug} (${ops.join(', ')})`);
-  console.log(`patched: ${slug} (${ops.join(', ')})`);
+  const autoLinkDetail = autolinkResult.total ? `, autolink:+${autolinkResult.out}/out` : '';
+  appendLog('patch', `${slug} (${ops.join(', ')}${autoLinkDetail})`);
+  console.log(`patched: ${slug} (${ops.join(', ')}${autoLinkDetail})`);
 
   // Auto-inverse-closure: if this patch added a typed relation, ensure the
   // symmetric/inverse edge exists on the target page. Scoped to <slug> so

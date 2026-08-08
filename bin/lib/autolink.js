@@ -36,12 +36,33 @@ function buildTitleEntries(pages) {
   for (const { slug, fm } of pages) {
     const title = (fm.title || '').trim();
     const aliases = Array.isArray(fm.aliases) ? fm.aliases : (fm.aliases ? [fm.aliases] : []);
+    const tags = Array.isArray(fm.tags) ? fm.tags : [];
+    const isPersonEntity = (fm.type === 'entity' || tags.includes('person')) && tags.includes('person');
+    const titleCasePersonAnchor = (v) => {
+      const s = String(v || '').trim();
+      if (!isPersonEntity || !/^[a-z][a-z-]{3,}$/.test(s)) return null;
+      return s.split('-').map((part) => part ? part[0].toUpperCase() + part.slice(1) : part).join('-');
+    };
     // V1: the canonical TITLE is always an anchor, but a GENERIC alias ("optimal
     // policy", "successor measure") is NOT — autolink would splice it wherever
     // the common phrase appears in prose, often linking to the wrong card. Only
     // distinctive aliases earn an anchor; generic ones are excluded here so they
     // never enter the matcher set. (Genericness predicate shared with V6.)
-    const variants = [title, ...aliases.filter((a) => !isGenericAlias(a))]
+    //
+    // Person pages are the exception: a private vault frequently refers to a
+    // person by first name, while the alias/title may be stored lowercase for
+    // slug-like normalization (`personone`, `persontwo`). Add a title-case anchor
+    // for lowercase person names, but keep the lowercase generic form excluded
+    // so ordinary prose words are not linked.
+    const variants = [
+      title,
+      titleCasePersonAnchor(title),
+      ...aliases.flatMap((a) => {
+        if (!isGenericAlias(a)) return [a];
+        const personAnchor = titleCasePersonAnchor(a);
+        return personAnchor ? [personAnchor] : [];
+      }),
+    ]
       .filter((v) => v && v.length >= 4 && !/^\s*$/.test(v));
     for (const v of variants) {
       const escaped = v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

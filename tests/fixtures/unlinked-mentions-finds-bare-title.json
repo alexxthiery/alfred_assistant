@@ -2,7 +2,7 @@
   "_comment": "wiki unlinked-mentions <slug>: a page mentions the slug's title in prose without a [[wikilink]] → must be surfaced as a promotion candidate.",
   "setup": [
     ["write", "unlinked-target", "--title", "Magnesium glycinate", "--type", "concept", "--tags", "meta", "--content", "- [fact] a supplement ^[t:1]", "--soft"],
-    ["write", "unlinked-mention-source", "--title", "Mention source", "--type", "concept", "--tags", "meta", "--content", "- [fact] I started taking Magnesium glycinate last week ^[t:1]", "--soft"]
+    ["write", "unlinked-mention-source", "--title", "Mention source", "--type", "concept", "--tags", "meta", "--content", "- [fact] I started taking Magnesium glycinate last week ^[t:1]", "--soft", "--no-autolink"]
   ],
   "cmd": ["unlinked-mentions", "unlinked-target"]
 }

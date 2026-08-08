@@ -1,0 +1,3 @@
+{
+  "cmd": ["patch", "alice", "--observation", "[fact] Unsourced patch observation should not land"]
+}

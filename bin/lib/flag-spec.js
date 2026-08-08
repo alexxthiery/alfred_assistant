@@ -44,7 +44,7 @@ const FREEFORM_VERBS = new Set(['measure']);
 const WRITE_CORE_FLAGS = new Set([
   ...EXTRA_FIELDS,
   'add-tag', 'alias', 'allow-duplicates', 'allow-duplicate-slug', 'allow-secret', 'append', 'content',
-  'force-alias', 'force-duplicate', 'no-alias', 'no-anchor', 'observation',
+  'force-alias', 'force-duplicate', 'no-alias', 'no-anchor', 'no-autolink', 'observation',
   'provenance', 'relation', 'remove-relation', 'remove-tag', 'remove-hooks', 'remove-alias', 'replace', 'replay',
   'replaced-by', 'soft', 'summary', 'supersede', 'supersede-reason', 'tags', 'title', 'type', 'dry-run',
   'today', 'on', 'dedupe',

@@ -6,7 +6,8 @@
       "--type", "note",
       "--tags", "meta",
       "--content", "- [fact] Discussed Bob Jones and Alice yesterday ^[telegram:2026-05-17]",
-      "--soft"
+      "--soft",
+      "--no-autolink"
     ]
   ],
   "cmd": ["autolink", "note-meeting", "--dry-run"]

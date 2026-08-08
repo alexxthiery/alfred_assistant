@@ -1,0 +1,13 @@
+{
+  "exitCode": 3,
+  "stderrContains": [
+    "observation is missing provenance"
+  ],
+  "wikiAssertions": {
+    "alice": {
+      "bodyMissing": [
+        "Unsourced patch observation should not land"
+      ]
+    }
+  }
+}

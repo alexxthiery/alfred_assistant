@@ -1,0 +1,3 @@
+{
+  "cmd": ["write", "write-autolink-smoke", "--title", "Write autolink smoke", "--type", "note", "--content", "- [fact] Morgan appears in a newly written note. ^[telegram:2026-08-08]"]
+}

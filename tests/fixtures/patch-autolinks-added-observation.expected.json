@@ -1,0 +1,14 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "patched: alice",
+    "autolink:+"
+  ],
+  "wikiAssertions": {
+    "alice": {
+      "bodyContains": [
+        "[[morgan-smith]] helped test the automatic patch autolinker"
+      ]
+    }
+  }
+}

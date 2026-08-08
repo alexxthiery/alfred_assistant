@@ -1,0 +1,10 @@
+{
+  "exitCode": 0,
+  "wikiAssertions": {
+    "write-autolink-smoke": {
+      "bodyContains": [
+        "[[morgan-smith]] appears in a newly written note"
+      ]
+    }
+  }
+}

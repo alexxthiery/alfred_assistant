@@ -23,6 +23,7 @@ const { mintIdsForBody } = require('../lib/obsid.js');
 const { extractWikilinks, backlinkRegex } = require('../lib/graph.js');
 const { redactSecrets } = require('../lib/secrets.js');
 const { readTextSource } = require('../lib/text-input.js');
+const { autolinkSlug } = require('../lib/autolink-runtime.js');
 
 const loadSchema = () => _loadSchema(SCHEMA_PATH);
 
@@ -232,8 +233,12 @@ function cmdWrite(args) {
     fs.writeFileSync(filePath, serializeFrontmatter(fm, mintIdsForBody(finalBody)));
   }
 
+  const autolinkResult = args['no-autolink']
+    ? { out: 0, in: 0, total: 0 }
+    : autolinkSlug(slug, { direction: 'out', verbose: false, log: false });
   regenerateIndex();
-  appendLog(op, slug);
+  const autoLinkDetail = autolinkResult.total ? ` (autolink:+${autolinkResult.out}/out)` : '';
+  appendLog(op, `${slug}${autoLinkDetail}`);
   console.log(filePath);
 
   // Post-write audit hook
@@ -241,7 +246,7 @@ function cmdWrite(args) {
 
   // Warn on orphan-by-construction (create only, not append/replace)
   if (op === 'create' && !args['no-anchor']) {
-    const writtenBody = body;
+    const writtenBody = readPageForWrite(filePath).body;
     const hasOutbound = extractWikilinks(writtenBody).length > 0;
     let hasInbound = false;
     if (!hasOutbound) {
