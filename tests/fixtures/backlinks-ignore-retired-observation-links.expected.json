@@ -1,0 +1,5 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["active-backlink-source"],
+  "stdoutNotContains": ["retired-backlink-source"]
+}

@@ -1,0 +1,9 @@
+{
+  "setup": [
+    ["write", "backlink-target", "--title", "Backlink Target", "--type", "concept", "--tags", "meta", "--content", "- [fact] Target page for retired backlink tests ^[t:1]", "--soft"],
+    ["write", "retired-backlink-source", "--title", "Retired Backlink Source", "--type", "concept", "--tags", "meta", "--content", "- [fact] retiredbacklinksentinel points only to [[backlink-target]] ^[t:1]\n- [fact] active filler keeps the source page substantive ^[t:1]", "--soft"],
+    ["patch", "retired-backlink-source", "--supersede", "retiredbacklinksentinel points only to", "--supersede-reason", "stale"],
+    ["write", "active-backlink-source", "--title", "Active Backlink Source", "--type", "concept", "--tags", "meta", "--content", "- [fact] activebacklinksentinel points to [[backlink-target]] ^[t:1]", "--soft"]
+  ],
+  "cmd": ["backlinks", "backlink-target"]
+}

@@ -704,6 +704,13 @@ test('empty-page: fires on substantive type with no obs or relations', () => {
     'message must name what is missing (observations or relations)');
 });
 
+test('empty-page: retired-only observations do not count as active content', () => {
+  const r = findRule('empty-page');
+  const body = '- ~~[fact] retired claim ^[t:1] <!--obs:old111-->~~ [until 2026-08-10]';
+  const out = r.check({ type: 'concept', body }, deps());
+  assert.ok(out, 'substantive pages with only retired observations should be treated as empty');
+});
+
 test('empty-page: silent on frontmatter-only event records', () => {
   const r = findRule('empty-page');
   const out = r.check({ type: 'event', body: '', fm: { when: '2026-06-06' } }, deps());

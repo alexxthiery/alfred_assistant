@@ -40,11 +40,22 @@ function firstBodyLine(body) {
   return '';
 }
 
+const OBSERVATION_CATEGORIES_RE = '(?:fact|hypothesis|opinion|claim|quote|question|decision|todo|idea|prediction)';
+const SUPERSEDED_OBSERVATION_LINE_RE = new RegExp(`^\\s*-\\s+~~\\[${OBSERVATION_CATEGORIES_RE}\\]\\s`);
+
+function stripSupersededObservationLines(body) {
+  return String(body || '')
+    .split('\n')
+    .filter((line) => !SUPERSEDED_OBSERVATION_LINE_RE.test(line))
+    .join('\n');
+}
+
 function extractWikilinks(body) {
+  const activeBody = stripSupersededObservationLines(body);
   const re = /\[\[([a-z0-9][a-z0-9-]*)\]\]/g;
   const out = new Set();
   let m;
-  while ((m = re.exec(body)) !== null) out.add(m[1]);
+  while ((m = re.exec(activeBody)) !== null) out.add(m[1]);
   return [...out].sort();
 }
 
@@ -240,6 +251,7 @@ module.exports = {
   backlinkRegex,
   firstBodyLine,
   extractWikilinks,
+  stripSupersededObservationLines,
   extractProvenanceMarkers,
   parseObservations,
   parseRelations,

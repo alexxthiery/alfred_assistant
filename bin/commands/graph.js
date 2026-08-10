@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const { VAULT_ROOT, wikiPath, listWikiPages, readPage, forEachPage } = require('../lib/vault.js');
 const { parseFrontmatter } = require('../lib/frontmatter.js');
-const { aliasesOf, backlinkRegex, extractWikilinks, parseObservations, parseRelations } = require('../lib/graph.js');
+const { aliasesOf, backlinkRegex, extractWikilinks, parseObservations, parseRelations, stripSupersededObservationLines } = require('../lib/graph.js');
 const { resolveSlugCandidates } = require('../lib/resolve.js');
 const { buildTitleMap, autolinkSlug } = require('../lib/autolink-runtime.js');
 const { regenerateIndex, appendLog } = require('../lib/page-io.js');
@@ -35,7 +35,7 @@ function cmdBacklinks(args) {
   const hits = [];
   forEachPage(({ slug: fromSlug, body }) => {
     if (fromSlug === slug) return;
-    if (re.test(body)) hits.push(fromSlug);
+    if (re.test(stripSupersededObservationLines(body))) hits.push(fromSlug);
   });
   for (const s of hits) console.log(s);
   if (hits.length === 0) console.log('(no inbound links)');
@@ -77,8 +77,10 @@ function cmdRelations(args) {
 function cmdObservations(args) {
   const slug = args._[0];
   const category = args.category;
+  const includeRetired = !!args['include-retired'];
   const collect = (slug, body) => {
     for (const o of parseObservations(body)) {
+      if (o.superseded && !includeRetired) continue;
       if (category && o.category !== category) continue;
       const marks = [];
       if (o.superseded) marks.push('superseded');
@@ -305,9 +307,11 @@ function cmdTimeline(args) {
   if (!slug) { console.error('Usage: wiki timeline <slug>'); process.exit(1); }
   const page = readPage(slug);
   if (!page) { console.error(`error: page ${slug} does not exist`); console.error(`  Hint: \`wiki resolve "${slug}"\` to fuzzy-match similar slugs.`); process.exit(2); }
+  const includeRetired = !!args['include-retired'];
 
   const events = [];
   for (const o of parseObservations(page.body)) {
+    if (o.superseded && !includeRetired) continue;
     if (o.dates.since) events.push({ date: o.dates.since, mark: 'since', obs: o });
     if (o.dates.until) events.push({ date: o.dates.until, mark: 'until', obs: o });
     if (o.dates.on)    events.push({ date: o.dates.on,    mark: 'on',    obs: o });
@@ -401,8 +405,9 @@ function cmdPlace(args) {
     let score = 0;
     for (const t of titleTokens) if (queryTokensSet.has(t)) score += 3;
     // Body contains any query token?
+    const activeBodyLower = stripSupersededObservationLines(body).toLowerCase();
     for (const t of queryTokens) {
-      if (body.toLowerCase().includes(t)) { score += 1; break; }
+      if (activeBodyLower.includes(t)) { score += 1; break; }
     }
     if (score > 0) similar[slug] = { score, fm };
   });

@@ -1,0 +1,9 @@
+{
+  "_comment": "`wiki search` must ignore retired observation rows. Regression for BM25 returning a superseded observation above its active replacement.",
+  "setup": [
+    ["write", "search-retired-only", "--title", "Retired search page", "--type", "concept", "--tags", "meta", "--content", "- [fact] searchsentinel retired-only phrase ^[t:1]\n- [fact] active filler keeps the page substantive ^[t:1]", "--soft"],
+    ["patch", "search-retired-only", "--supersede", "searchsentinel retired-only phrase", "--supersede-reason", "stale"],
+    ["write", "search-active-hit", "--title", "Active search page", "--type", "concept", "--tags", "meta", "--content", "- [fact] searchsentinel active phrase ^[t:1]", "--soft"]
+  ],
+  "cmd": ["search", "searchsentinel"]
+}

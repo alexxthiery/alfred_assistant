@@ -1,6 +1,9 @@
 {
   "exitCode": 0,
   "stdoutContains": [
+    "No longer the default subject"
+  ],
+  "stdoutNotContains": [
     "reason split",
     "replaced_by obs:abc123"
   ]

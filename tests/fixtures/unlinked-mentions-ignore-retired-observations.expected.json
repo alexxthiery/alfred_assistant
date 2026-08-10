@@ -1,0 +1,5 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["active-mention-source"],
+  "stdoutNotContains": ["retired-mention-source", "retiredmentionsentinel"]
+}

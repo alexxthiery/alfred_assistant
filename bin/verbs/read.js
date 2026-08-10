@@ -15,7 +15,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const { parseFrontmatter } = require('../lib/frontmatter.js');
-const { extractWikilinks, parseObservations, parseRelations } = require('../lib/graph.js');
+const { extractWikilinks, parseObservations, parseRelations, stripSupersededObservationLines } = require('../lib/graph.js');
 const { VAULT_ROOT, WIKI_DIR, wikiPath, listWikiPages, readPage, forEachPage } = require('../lib/vault.js');
 const { loadVaultDb, ensureDuckdbAvailable, resolveDuckdbBin } = require('../lib/duckdb.js');
 const { parseSynonymsFile, expandQuery } = require('../lib/synonyms.js');
@@ -141,7 +141,8 @@ function cmdSearchBm25(query, opts) {
              fts_main_observations.match_bm25(o.obs_uid, '${sqlQ}') AS score
       FROM observations o
       LEFT JOIN vault v ON v.slug = o.slug
-      WHERE fts_main_observations.match_bm25(o.obs_uid, '${sqlQ}') IS NOT NULL${tagClause}
+      WHERE NOT o.superseded
+        AND fts_main_observations.match_bm25(o.obs_uid, '${sqlQ}') IS NOT NULL${tagClause}
       ORDER BY score DESC
       LIMIT ${opts.limit}
     ),
@@ -206,7 +207,7 @@ function cmdSearchBm25(query, opts) {
 function collectSearchPages() {
   const pages = [];
   forEachPage(({ slug: fileSlug, fm, body }) => {
-    pages.push({ slug: fm.id || fileSlug, fm, body });
+    pages.push({ slug: fm.id || fileSlug, fm, body: stripSupersededObservationLines(body) });
   });
   return pages;
 }
@@ -243,6 +244,7 @@ function cmdSearchJs(query, opts) {
   }
   let count = 0;
   forEachPage(({ slug: fileSlug, fm, body }) => {
+    const activeBody = stripSupersededObservationLines(body);
     if (tagAst && !matchesTagExpression(Array.isArray(fm.tags) ? fm.tags : [], tagAst)) return;
     const slug = fm.id || fileSlug;
     if (opts.doneSet && opts.doneSet.has(slug)) return;
@@ -252,13 +254,13 @@ function cmdSearchJs(query, opts) {
         if (!re.test(title)) return;
       } else {
         const titleMatch = re.test(title);
-        const idx = body.search(re);
+        const idx = activeBody.search(re);
         if (!titleMatch && idx < 0) return;
         console.log(`${slug}\t${title}`);
         if (idx >= 0) {
           const start = Math.max(0, idx - 40);
-          const end = Math.min(body.length, idx + 80);
-          console.log(`    …${body.slice(start, end).replace(/\s+/g, ' ').trim()}…`);
+          const end = Math.min(activeBody.length, idx + 80);
+          console.log(`    …${activeBody.slice(start, end).replace(/\s+/g, ' ').trim()}…`);
         }
         count++;
         return;
@@ -464,7 +466,7 @@ function cmdPrint(args) {
     const hits = [];
     forEachPage(({ slug: from, body: b }) => {
       if (from === slug) return;
-      if (re.test(b)) hits.push(from);
+      if (re.test(stripSupersededObservationLines(b))) hits.push(from);
     });
     for (const s of hits) console.log(`- [[${s}]]`);
     if (hits.length === 0) console.log('_(none)_');
@@ -570,13 +572,14 @@ function cmdRelated(args) {
   const hookDf = new Map();
   let pageCount = 0;
   forEachPage(({ slug: other, fm, body }) => {
+    const activeBody = stripSupersededObservationLines(body);
     pageCount += 1;
     for (const h of (Array.isArray(fm.hooks) ? fm.hooks : [])) {
       if (typeof h === 'string' && h) hookDf.set(h, (hookDf.get(h) || 0) + 1);
     }
     if (other === slug) return;
-    if (re.test(body)) backlinks.add(other);
-    others.push({ slug: other, fm, body, outbound: new Set(extractWikilinks(body)) });
+    if (re.test(activeBody)) backlinks.add(other);
+    others.push({ slug: other, fm, body: activeBody, outbound: new Set(extractWikilinks(activeBody)) });
   });
 
   // A shared hook is the primary connection signal for the idea-atom layer, but
@@ -642,23 +645,24 @@ function cmdUnlinkedMentions(args) {
   const hits = []; // { srcSlug, title, snippet }
   forEachPage(({ slug: srcSlug, fm, body }) => {
     if (srcSlug === slug) return;
+    const activeBody = stripSupersededObservationLines(body);
     // If srcSlug already wikilinks to <slug>, no promotion needed — skip.
-    if (wikilinkRe.test(body)) return;
+    if (wikilinkRe.test(activeBody)) return;
     for (const { pattern, title } of entries) {
       pattern.lastIndex = 0;
-      const m = pattern.exec(body);
+      const m = pattern.exec(activeBody);
       if (!m) continue;
       // Skip matches already inside a `[[...]]` (different target, same text)
       // or inside the target of a markdown link `[text](target)`.
       const idx = m.index;
-      const before = body.slice(Math.max(0, idx - 2), idx);
-      const after = body.slice(idx + m[0].length, idx + m[0].length + 2);
+      const before = activeBody.slice(Math.max(0, idx - 2), idx);
+      const after = activeBody.slice(idx + m[0].length, idx + m[0].length + 2);
       if (before.endsWith('[[') || after.startsWith(']]')) continue;
-      if (/\]\([^)]*$/.test(body.slice(0, idx))) continue;
+      if (/\]\([^)]*$/.test(activeBody.slice(0, idx))) continue;
       // Build a single-line snippet around the match for visual context.
-      const lineStart = body.lastIndexOf('\n', idx) + 1;
-      const lineEnd = body.indexOf('\n', idx);
-      const line = body.slice(lineStart, lineEnd === -1 ? body.length : lineEnd).trim();
+      const lineStart = activeBody.lastIndexOf('\n', idx) + 1;
+      const lineEnd = activeBody.indexOf('\n', idx);
+      const line = activeBody.slice(lineStart, lineEnd === -1 ? activeBody.length : lineEnd).trim();
       hits.push({ srcSlug, title: title, snippet: line.slice(0, 160) });
       break; // one hit per source page is enough — autolink would inject once.
     }
@@ -687,13 +691,14 @@ function cmdPreview(args) {
     const t = l.trim();
     return t && !t.startsWith('#') && !t.startsWith('- [') && !t.startsWith('- "') && !/^- [a-z][a-z_]+ \[\[/.test(t);
   }).slice(0, 3);
-  const obs = parseObservations(body).length;
+  const allObs = parseObservations(body);
+  const activeObs = allObs.filter((o) => !o.superseded).length;
   const rels = parseRelations(body).length;
   const re = new RegExp(`\\[\\[${slug}\\]\\]`);
   let inbound = 0;
   forEachPage(({ slug: from, body: b }) => {
     if (from === slug) return;
-    if (re.test(b)) inbound++;
+    if (re.test(stripSupersededObservationLines(b))) inbound++;
   });
   console.log(`${slug} · ${fm.title || ''} · ${fm.type || 'note'} · ${updated} · [${tags}]`);
   if (aliases.length) console.log(`aliases: ${aliases.join(', ')}`);
@@ -703,7 +708,8 @@ function cmdPreview(args) {
     for (const l of lines) console.log(`  ${l.trim().slice(0, 120)}`);
   }
   if (!compact) console.log('');
-  console.log(`${obs} observations · ${rels} outbound relations · ${inbound} inbound wikilinks`);
+  const retiredSuffix = allObs.length > activeObs ? ` (${allObs.length - activeObs} retired)` : '';
+  console.log(`${activeObs} active observations${retiredSuffix} · ${rels} outbound relations · ${inbound} inbound wikilinks`);
 }
 
 function cmdContext(args) {
@@ -739,24 +745,22 @@ function cmdContext(args) {
 
   // First 5 observations
   const obs = parseObservations(body);
-  if (obs.length) {
+  const activeObs = obs.filter((o) => !o.superseded);
+  if (activeObs.length) {
     sep();
     section('observations');
-    for (const o of obs.slice(0, 5)) {
+    for (const o of activeObs.slice(0, 5)) {
       const marks = [];
-      if (o.superseded) marks.push('superseded');
       if (o.dates.since) marks.push(`since ${o.dates.since}`);
       if (o.dates.until) marks.push(`until ${o.dates.until}`);
       if (o.dates.on) marks.push(`on ${o.dates.on}`);
       if (o.dates.asOf) marks.push(`as-of ${o.dates.asOf}`);
-      if (o.supersession && o.supersession.reason) marks.push(`reason ${o.supersession.reason}`);
-      if (o.supersession && o.supersession.replacedBy && o.supersession.replacedBy.length) {
-        marks.push(`replaced_by ${o.supersession.replacedBy.join(',')}`);
-      }
       const annot = marks.length ? `  (${marks.join(', ')})` : '';
       console.log(`- [${o.category}] ${o.body}${annot}`);
     }
-    if (obs.length > 5) console.log(`${compact ? '' : '  '}(...${obs.length - 5} more)`);
+    if (activeObs.length > 5) console.log(`${compact ? '' : '  '}(...${activeObs.length - 5} more active)`);
+    const retired = obs.length - activeObs.length;
+    if (retired > 0 && !compact) console.log(`  (${retired} retired observation(s) hidden; use \`wiki print ${slug}\` or SQL superseded=true for history)`);
   }
 
   // Outbound relations grouped by verb
@@ -780,7 +784,7 @@ function cmdContext(args) {
     for (const r of parseRelations(b)) {
       if (r.target === slug) (incomingRels[r.verb] ||= []).push(from);
     }
-    if (incomingLinkRe.test(b)) incomingLinks.add(from);
+    if (incomingLinkRe.test(stripSupersededObservationLines(b))) incomingLinks.add(from);
   });
   if (Object.keys(incomingRels).length) {
     sep();

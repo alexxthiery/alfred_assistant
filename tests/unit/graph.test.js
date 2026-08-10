@@ -12,6 +12,7 @@ const {
   backlinkRegex,
   firstBodyLine,
   extractWikilinks,
+  stripSupersededObservationLines,
   extractProvenanceMarkers,
   parseObservations,
   parseRelations,
@@ -111,6 +112,26 @@ test('extractWikilinks: empty body → empty array', () => {
 test('extractWikilinks: ignores malformed wikilinks', () => {
   const body = '[[ ]] [[InvalidCase]] [[-leading-dash]] [[valid-one]]';
   assert.deepEqual(extractWikilinks(body), ['valid-one']);
+});
+
+test('stripSupersededObservationLines: removes retired observations but keeps active prose', () => {
+  const body = [
+    '- ~~[fact] Old mention [[retired-target]] <!--obs:old111-->~~ [until 2026-08-10]',
+    '- [fact] Active mention [[active-target]] <!--obs:new111-->',
+    'Plain prose [[prose-target]]',
+  ].join('\n');
+  const out = stripSupersededObservationLines(body);
+  assert.equal(out.includes('retired-target'), false);
+  assert.ok(out.includes('active-target'));
+  assert.ok(out.includes('prose-target'));
+});
+
+test('extractWikilinks: ignores links that occur only inside retired observations', () => {
+  const body = [
+    '- ~~[fact] Old link [[retired-target]] <!--obs:old111-->~~ [until 2026-08-10]',
+    '- [fact] Current link [[active-target]] <!--obs:new111-->',
+  ].join('\n');
+  assert.deepEqual(extractWikilinks(body), ['active-target']);
 });
 
 // ─── extractProvenanceMarkers ──────────────────────────────────────────────

@@ -10,7 +10,7 @@
 
 const { forEachPage, SCHEMA_PATH } = require('../lib/vault.js');
 const { loadSchema: _loadSchema, KNOWN_TYPES, STALE_THRESHOLDS, STALE_DEFAULT_DAYS } = require('../lib/schema.js');
-const { extractWikilinks, parseObservations, parseRelations, extractProvenanceMarkers } = require('../lib/graph.js');
+const { extractWikilinks, parseObservations, parseRelations, extractProvenanceMarkers, stripSupersededObservationLines } = require('../lib/graph.js');
 
 // A single CLI invocation parses SCHEMA.md once (lib/schema.js memoizes on mtime).
 const loadSchema = () => _loadSchema(SCHEMA_PATH);
@@ -31,7 +31,8 @@ function cmdLint(args) {
   const pages = {};
   forEachPage(({ slug, fm, body }) => {
     slugs.add(slug);
-    pages[slug] = { fm, body };
+    const activeBody = stripSupersededObservationLines(body);
+    pages[slug] = { fm, body, activeBody };
     const out = extractWikilinks(body);
     outboundByPage[slug] = out;
     for (const t of out) (inboundByPage[t] ||= []).push(slug);
@@ -169,9 +170,9 @@ function cmdLint(args) {
     const narrative = [];
     for (const [slug, p] of Object.entries(pages)) {
       if (!['entity', 'concept'].includes(p.fm.type)) continue;
-      const obs = parseObservations(p.body).length;
+      const obs = parseObservations(p.body).filter((o) => !o.superseded).length;
       const rels = parseRelations(p.body).length;
-      const meaningful = p.body.split('\n').filter((l) => l.trim() && !l.trim().startsWith('#')).length;
+      const meaningful = p.activeBody.split('\n').filter((l) => l.trim() && !l.trim().startsWith('#')).length;
       if (meaningful >= 2 && obs === 0 && rels === 0) narrative.push(slug);
     }
     if (narrative.length) {
@@ -188,9 +189,9 @@ function cmdLint(args) {
     for (const [slug, p] of Object.entries(pages)) {
       if (['todo', 'source'].includes(p.fm.type)) continue;
       if (p.fm.source_file) continue;
-      const words = p.body.split(/\s+/).filter(Boolean).length;
+      const words = p.activeBody.split(/\s+/).filter(Boolean).length;
       if (words < 50) continue;
-      const linkCount = extractWikilinks(p.body).length;
+      const linkCount = extractWikilinks(p.activeBody).length;
       if (linkCount < 2) sparse.push([slug, words, linkCount]);
     }
     if (sparse.length) {
@@ -230,9 +231,9 @@ function cmdLint(args) {
     const unsourced = [];
     for (const [slug, p] of Object.entries(pages)) {
       if (!['entity', 'synthesis'].includes(p.fm.type)) continue;
-      const meaningful = p.body.split('\n').filter((l) => l.trim() && !l.trim().startsWith('#')).length;
+      const meaningful = p.activeBody.split('\n').filter((l) => l.trim() && !l.trim().startsWith('#')).length;
       if (meaningful < 2) continue;
-      if (extractProvenanceMarkers(p.body).length === 0) unsourced.push(slug);
+      if (extractProvenanceMarkers(p.activeBody).length === 0) unsourced.push(slug);
     }
     if (unsourced.length) {
       console.log(`# Unsourced (${unsourced.length}) — entity/synthesis pages without ^[...] markers`);

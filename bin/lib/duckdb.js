@@ -69,7 +69,7 @@ const REBUILD_LOCK_STALE_MS = Number(process.env.WIKI_DUCKDB_LOCK_STALE_MS || 60
 // it to the value persisted on disk and forces rebuild on mismatch, so a CLI
 // upgrade automatically refreshes stale .duckdb files without manual
 // intervention.
-const SNAPSHOT_SCHEMA_VERSION = 'v5-2026-08-08-supersession'; // bumped: observations.supersede_reason + observations.replaced_by
+const SNAPSHOT_SCHEMA_VERSION = 'v6-2026-08-10-active-snapshot'; // bumped: vault counts/graph ignore superseded observations
 
 function sleepMs(ms) {
   const sab = new SharedArrayBuffer(4);
@@ -126,7 +126,10 @@ function buildVaultNdjson() {
     const obs = parseObservations(body);
     const rels = parseRelations(body);
     const counts = { fact: 0, hypothesis: 0, opinion: 0, claim: 0, prediction: 0, question: 0, decision: 0, todo: 0, idea: 0, quote: 0 };
-    for (const o of obs) if (counts[o.category] !== undefined) counts[o.category]++;
+    for (const o of obs) {
+      if (o.superseded) continue;
+      if (counts[o.category] !== undefined) counts[o.category]++;
+    }
     for (const o of obs) {
       obsRows.push({
         slug,

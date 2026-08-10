@@ -53,7 +53,7 @@ Distinguished by the presence of a top-level `source` field.
 | Key | Type | Behavior |
 |---|---|---|
 | `exitCode` | number | Required. Asserts the process exit code. |
-| `stdoutContains` | string[] | Each entry must appear (substring match) in stdout. |
+| `stdoutContains` / `stdoutNotContains` | string[] | Each `stdoutContains` entry must appear in stdout; each `stdoutNotContains` entry must be absent. |
 | `stderrContains` | string[] | Each entry must appear in stderr. |
 | `created` / `modified` / `skipped` | string[] | (ingest-shape only) Parsed from `wiki ingest`'s "created: …" lines; sorted set-equal check. |
 | `wikiAssertions` | object | Per-slug assertions on the resulting page file. See below. |

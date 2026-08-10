@@ -1,0 +1,4 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["2026-01-01", "oldtimelinesentinel", "2026-01-02", "activetimelinesentinel"]
+}

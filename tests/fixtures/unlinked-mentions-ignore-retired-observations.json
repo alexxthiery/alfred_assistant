@@ -1,0 +1,9 @@
+{
+  "setup": [
+    ["write", "mention-sentinel", "--title", "Mention Sentinel", "--type", "concept", "--tags", "meta", "--content", "- [fact] Target page for retired mention tests ^[t:1]", "--soft"],
+    ["write", "retired-mention-source", "--title", "Retired Mention Source", "--type", "concept", "--tags", "meta", "--content", "- [fact] retiredmentionsentinel says Mention Sentinel without a link ^[t:1]\n- [fact] active filler keeps the source page substantive ^[t:1]", "--soft", "--no-autolink"],
+    ["patch", "retired-mention-source", "--supersede", "retiredmentionsentinel says Mention Sentinel", "--supersede-reason", "stale"],
+    ["write", "active-mention-source", "--title", "Active Mention Source", "--type", "concept", "--tags", "meta", "--content", "- [fact] activementionsentinel says Mention Sentinel without a link ^[t:1]", "--soft", "--no-autolink"]
+  ],
+  "cmd": ["unlinked-mentions", "mention-sentinel"]
+}

@@ -6,6 +6,7 @@
 
 'use strict';
 
+const { stripSupersededObservationLines } = require('./graph.js');
 const { matchesTagExpression, parseTagExpression } = require('./tag-filter.js');
 
 const STOPWORDS = new Set([
@@ -53,7 +54,7 @@ function excerptForBody(body, tokens) {
 
 function scoreSearchPage(page, tokens, query) {
   if (!tokens.length) return null;
-  const body = String(page.body || '');
+  const body = stripSupersededObservationLines(page.body);
   const labelText = labelsForPage(page).join(' ').toLowerCase();
   const bodyText = body.toLowerCase();
   const queryText = String(query || '').trim().toLowerCase();

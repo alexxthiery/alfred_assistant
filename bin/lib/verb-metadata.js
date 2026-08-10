@@ -44,7 +44,7 @@ const RAW_VERBS = [
   { name: 'context',  section: 'READ', lines: ['  context <slug> [--compact]                bundled: FM + obs + relations + 1-hop neighbors (--compact: agent-friendly, ~30% fewer lines)'] },
   { name: 'sources',  section: 'READ', lines: ['  sources                                   list type=source pages'] },
   { name: 'related',  section: 'READ', lines: ['  related <slug> [--unconnected]            pages by tag/link proximity; --unconnected = zk-style connection candidates (shared neighbor, not yet directly linked)'] },
-  { name: 'unlinked-mentions', section: 'READ', lines: ['  unlinked-mentions <slug> [--limit N]      pages whose body mentions <slug>\'s title/aliases but lacks a [[wikilink]] (wikilink-promotion candidates)'] },
+  { name: 'unlinked-mentions', section: 'READ', lines: ['  unlinked-mentions <slug> [--limit N]      active pages whose body mentions <slug>\'s title/aliases but lacks a [[wikilink]] (wikilink-promotion candidates)'] },
   { name: 'render',   section: 'READ', lines: ['  render <slug>                             execute the first ```sql fence on a type=view page'] },
   { name: 'agenda',   section: 'READ', lines: [
     '  agenda [today|week|upcoming|past|all] [--asof YYYY-MM-DD]   list type=event pages by when (also accepts --window <w>)',
@@ -216,9 +216,9 @@ const RAW_VERBS = [
 
   // GRAPH + NAVIGATION
   { name: 'links',         section: 'GRAPH + NAVIGATION', lines: ['  links <slug>                              outbound wikilinks'] },
-  { name: 'backlinks',     section: 'GRAPH + NAVIGATION', lines: ['  backlinks <slug>                          inbound wikilinks'] },
+  { name: 'backlinks',     section: 'GRAPH + NAVIGATION', lines: ['  backlinks <slug>                          active inbound wikilinks'] },
   { name: 'relations',     section: 'GRAPH + NAVIGATION', lines: ['  relations [<slug>]                        parsed typed edges'] },
-  { name: 'observations',  section: 'GRAPH + NAVIGATION', lines: ['  observations [<slug>] [--category fact]   parsed inline facts'] },
+  { name: 'observations',  section: 'GRAPH + NAVIGATION', lines: ['  observations [<slug>] [--category fact] [--include-retired]   parsed active inline facts'] },
   {
     name: 'autolink', section: 'GRAPH + NAVIGATION',
     lines: [
@@ -232,7 +232,7 @@ const RAW_VERBS = [
   { name: 'place',    section: 'GRAPH + NAVIGATION', lines: ['  place "concept"                           pre-write helper: existing? similar? suggested'] },
   { name: 'stubs',    section: 'GRAPH + NAVIGATION', lines: ['  stubs [--top N] [--show-refs]             referenced-but-missing slugs, ranked'] },
   { name: 'hooks',    section: 'GRAPH + NAVIGATION', lines: ['  hooks [--min N]                           connective hooks in use + page counts (live vocabulary for reuse-first; --min filters to recurring)'] },
-  { name: 'timeline', section: 'GRAPH + NAVIGATION', lines: ['  timeline <slug>                           dated observations + events involving slug, sorted'] },
+  { name: 'timeline', section: 'GRAPH + NAVIGATION', lines: ['  timeline <slug> [--include-retired]       active dated observations + events involving slug, sorted'] },
 
   // TODO
   { name: 'todo', section: 'TODO', lines: [

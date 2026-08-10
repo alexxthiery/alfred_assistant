@@ -1,0 +1,7 @@
+{
+  "setup": [
+    ["write", "timeline-retired-subject", "--title", "Timeline Retired Subject", "--type", "concept", "--tags", "meta", "--content", "- [fact] oldtimelinesentinel dated retired event [on 2026-01-01] ^[t:1]\n- [fact] activetimelinesentinel dated active event [on 2026-01-02] ^[t:1]", "--soft"],
+    ["patch", "timeline-retired-subject", "--supersede", "oldtimelinesentinel dated retired event", "--supersede-reason", "stale"]
+  ],
+  "cmd": ["timeline", "timeline-retired-subject", "--include-retired"]
+}

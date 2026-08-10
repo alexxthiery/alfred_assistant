@@ -47,3 +47,20 @@ test('searchPagesLexical hides completed todos by doneSet', () => {
 
   assert.deepEqual(rows.map((r) => r.slug), ['open-task']);
 });
+
+test('searchPagesLexical ignores text that occurs only inside retired observations', () => {
+  const rows = searchPagesLexical([
+    {
+      slug: 'retired-only',
+      fm: { title: 'Retired only', tags: ['research'] },
+      body: '- ~~[fact] quokkasentinel appeared here <!--obs:old111-->~~ [until 2026-08-10]',
+    },
+    {
+      slug: 'active-hit',
+      fm: { title: 'Active hit', tags: ['research'] },
+      body: '- [fact] quokkasentinel appears here now <!--obs:new111-->',
+    },
+  ], { query: 'quokkasentinel', limit: 10 });
+
+  assert.deepEqual(rows.map((r) => r.slug), ['active-hit']);
+});

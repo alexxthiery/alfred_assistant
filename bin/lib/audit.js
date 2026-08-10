@@ -30,7 +30,7 @@
 'use strict';
 
 const { ENTITY_KIND_TAGS } = require('./schema.js');
-const { parseRelations, parseObservations, extractWikilinks, aliasesOf } = require('./graph.js');
+const { parseRelations, parseObservations, extractWikilinks, aliasesOf, stripSupersededObservationLines } = require('./graph.js');
 const { detectSecrets } = require('./secrets.js');
 const { FUTURE_TENSE_RE, EPISTEMIC_RE } = require('./capture-classifier.js');
 const { isISODate, isISO8601DateTime } = require('./date.js');
@@ -662,7 +662,7 @@ const AUDIT_RULES = [
       // wikilink — e.g. `^[gmail:...:[[someone]]-x]` — whose `]]` would
       // otherwise end the bracket class early still matches and stays exempt.
       if (/^\s*Stub\.\s*\^\[.+\]\s*$/.test(body.trim())) return null;
-      const obsCount = parseObservations(body).length;
+      const obsCount = parseObservations(body).filter((o) => !o.superseded).length;
       const relCount = parseRelations(body).length;
       if (obsCount > 0 || relCount > 0) return null;
       return {
@@ -1062,7 +1062,7 @@ function auditVault({ pages, schema, knownVerbs }) {
   const wikilinkOutbound = {};
 
   for (const p of pages) {
-    const stripped = p.body.replace(/\[\[[^\]]+\]\]/g, '');
+    const stripped = stripSupersededObservationLines(p.body).replace(/\[\[[^\]]+\]\]/g, '');
     let m;
     HOT_RE.lastIndex = 0;
     while ((m = HOT_RE.exec(stripped)) !== null) {
