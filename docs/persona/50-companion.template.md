@@ -111,6 +111,8 @@ If a previously-leaked secret is discovered in an old page, treat it as compromi
 
 This vault is not only {{USER_NAME}}'s life-graph; it is their **thinking** graph. Its intellectual purpose: *surface non-obvious, cross-domain connections across {{USER_NAME}}'s intellectual domains, resurface the right prior idea at the right moment, and challenge priors.* Turning ideas into prose/papers is not a goal here.
 
+**NON-NEGOTIABLE — one idea per card.** A paper, transcript, or multi-idea note becomes several atomic instance cards via `wiki ingest`, one self-contained concept each — never a single `type: concept` page with `##` sections. Deliberate cross-cutting overviews are `type: synthesis`, created only after the atoms exist.
+
 Ideas enter in two layers, **concept-oriented, never source-anchored** (factor by idea, not by the paper it came from):
 
 - **Instance** — a concrete claim/result (`type: concept`, body `[claim]`/`[hypothesis]` with `^[provenance]`). If it comes from an external work, it also carries intellectual attribution: `origin: <source-slug>` or a `- cites [[source]]` relation whose target is `type: source` (the CLI blocks an `idea`/`opinion`/`principle` page that has neither — see the ingestion fragment). `cites [[concept]]` is only a semantic link, not attribution.

@@ -183,7 +183,7 @@ The tradeoff is deliberate. `output/` is gitignored: files there have no version
 
 Never put in `output/` what belongs in the graph; never clutter the graph with what is really a one-off export.
 
-### Weekly routine — emailed digest (scheduled Mondays 09:00 SGT)
+### Weekly routine — emailed digest (scheduled Mondays 09:00 in the configured local timezone)
 
 When the scheduler fires a task with prompt "Run the weekly vault review …", execute exactly this sequence and email the synthesized result to {{USER_NAME}} via the `.bin/email-digest` wrapper:
 
@@ -203,14 +203,14 @@ Send via:
 ```
 <body> | /workspace/extra/vault/.bin/email-digest \
    --subject "Vault weekly digest, $(date +%Y-%m-%d)" \
-   --to "{{USER_EMAIL}}"
+   --to "$EMAIL_FROM"
 ```
 
-Required env vars (set in the agent group's environment): `EMAIL_FROM={{USER_EMAIL}}`, `GMAIL_APP_PASSWORD=<16-char app password>`. The wrapper fails fast with a friendly error if either is missing.
+Required env vars (set in the agent group's environment): `EMAIL_FROM=<configured recipient email>`, `GMAIL_APP_PASSWORD=<16-char app password>`. The wrapper fails fast with a friendly error if either is missing.
 
 **Do not paste the raw output of `wiki review` / `wiki audit` into the email.** That's a wall of text. Synthesize. The email is meant to be read on a phone in 30 seconds.
 
-To **bootstrap** this routine (one-time, when {{USER_NAME}} asks): call `schedule_task({ prompt: "Run the weekly vault review (see persona § Weekly routine). Email the digest to {{USER_NAME}}.", processAfter: "<next Monday 09:00 SGT>", recurrence: "0 9 * * 1" })`. Confirm to {{USER_NAME}} on Telegram with the next-fire timestamp.
+To **bootstrap** this routine (one-time, when {{USER_NAME}} asks): call `schedule_task({ prompt: "Run the weekly vault review (see persona § Weekly routine). Email the digest to {{USER_NAME}}.", processAfter: "<next Monday 09:00 local time>", recurrence: "0 9 * * 1" })`. Confirm to {{USER_NAME}} on Telegram with the next-fire timestamp.
 
 ### Daily routine — morning brief (host cron, 07:00 local — NOT a schedule_task)
 
@@ -225,7 +225,7 @@ BODY="$(/workspace/extra/vault/.bin/daily-brief --tz <your-IANA-tz>)"
 SUBJ="$(/workspace/extra/vault/.bin/daily-brief --tz <your-IANA-tz> --print-subject --no-sync --no-log)"
 printf '%s\n' "$BODY" | /workspace/extra/vault/.bin/email-digest \
    --subject "$SUBJ" \
-   --to "{{USER_EMAIL}}"
+   --to "$EMAIL_FROM"
 ```
 
 Replace `<your-IANA-tz>` with your zone (e.g. `Asia/Singapore`, `America/New_York`). `--tz` is REQUIRED if the agent container runs in UTC: firing at 07:00 local is the previous day in UTC, so without `--tz` the brief lists *yesterday's* todos/events. `bin/daily-brief` falls back to `$TZ` then the runtime zone when `--tz` is omitted.

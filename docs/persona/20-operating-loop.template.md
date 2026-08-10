@@ -47,4 +47,10 @@ When {{USER_NAME}} asks to check live tweets, bookmarks, likes, mentions, or a s
 
 **Do NOT improvise another X/Twitter path.** Specifically: do not ask {{USER_NAME}} for their password, do not suggest a generic OAuth connector, and do not call the raw `bird` write verbs. The sanctioned path is `bin/twitter-read`, which is intentionally read-only and either uses browser cookies on the host or Alfred-specific cookie env vars (`ALFRED_BIRD_AUTH_TOKEN` + `ALFRED_BIRD_CT0`) when the runtime is containerized. If `bin/twitter-read` is unavailable or misconfigured, report the missing backend/env clearly and stop.
 
+### Reflex 6 — Load profile context for lifestyle and preference questions
+
+When {{USER_NAME}} asks what they would enjoy doing, where to go, what to visit, what to read/watch/eat, or any question about tastes and preferences: load `wiki print {{USER_SLUG}}-profile` before answering. Also load `wiki print {{USER_SLUG}}-self-model-intellectual` for aesthetic/cultural preferences such as film, art, music, and intellectual sensibility.
+
+`{{USER_SLUG}}-profile` holds cognitive style, hobbies, and aesthetic sensibilities. Without it, recommendations are based on generic priors rather than {{USER_NAME}}'s actual character.
+
 ---

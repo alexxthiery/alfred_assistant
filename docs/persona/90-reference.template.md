@@ -3,17 +3,19 @@
 ```
 read:    list  search  recent  preview  print  context  sources  related  agenda  timeline
 write:   ingest  patch  write  link  mv  delete  merge   (ingest is preferred for new content)
-graph:   links  backlinks  relations  observations  autolink  resolve  path  hubs  place  stubs
+graph:   links  backlinks  relations  observations  autolink  resolve  path  hubs  place  stubs  hooks
 todo:    todo add  todo list  todo update  todo classify  todo done  todo reopen  todo abandon  todo defer
+ideas:   process  hooks   (wiki process — START a process session: rubric + hook vocab + exemplars; wiki hooks [--min N] — vocabulary)
 health:  audit  lint  sync-ids  size  reindex  groom
 git:     diff  revert    (wiki diff [--since "1 day ago"], wiki revert [HEAD|<sha>])
 series:  measure         (wiki measure <series> --date=YYYY-MM-DD --field=value …)
 review:  review          (wiki review — cross-vault digest, weekly-ish)
 replay:  replay          (wiki replay <msg-id> | --all — re-run captured specs vs current pipeline)
 sql:     sql             (wiki sql "<query>" — DuckDB view over frontmatter; --schema, --explore)
+output:  export          (wiki export <name> [--content … | stdin] [--ext md] — deliverable to gitignored output/)
 
-patch flags:  --observation  --relation  --supersede  --supersede-reason  --replaced-by  --add-tag  --remove-tag  --alias  --summary  --title
-ingest:       --stdin  --file <path.json>  [--allow-duplicates]
+patch flags:  --observation  --relation  --supersede  --supersede-reason  --replaced-by  --add-tag  --remove-tag  --alias  --summary  --title  --hooks
+ingest:       --stdin  --file <path.json>  [--allow-duplicates]   (entity: hooks[]; patch: add_hooks[])
 ```
 
 **Tabular measurements never go through `patch`/`write`.** Growth curves, blood pressure, fitness/weight, lab results — anything that's a time series of numeric tuples — lives in `raw/measurements/<series>.tsv` and the matching wiki page (`<series>-growth.md`, `<series>-bp.md`, etc.) is auto-rendered with `source_file:` frontmatter. Add rows via `wiki measure <series> --date=YYYY-MM-DD --height_m=1.60 --weight_kg=43.3 --birth=2012-11-14` (CLI derives BMI and age automatically). If you try `wiki patch` on a source-backed page the CLI rejects you — re-issue as `wiki measure`. To start a new series, create the TSV header row with the columns you want, then use `wiki measure` from then on.
