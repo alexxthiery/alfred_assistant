@@ -1,0 +1,13 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "school-visit-plan",
+    "explain: via=title-exact confident=yes"
+  ],
+  "stdoutNotContains": [
+    "weak-deadline-decoy"
+  ],
+  "stderrContains": [
+    "warning: duckdb unavailable; using JS lexical fallback search"
+  ]
+}

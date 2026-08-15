@@ -41,6 +41,7 @@ const { cmdDiff, cmdRevert } = require('./commands/git.js');
 const { cmdBless, cmdAudit, cmdFixLinks, cmdGroom, cmdSize, cmdSyncIds, cmdReindex, cmdPreflight, cmdMigrate, cmdMigrateInboxSources } = require('./commands/hygiene.js');
 const { cmdJobs } = require('./commands/jobs.js');
 const { cmdLinks, cmdBacklinks, cmdRelations, cmdObservations, cmdAutolink, cmdResolve, cmdPath, cmdHubs, cmdHooks, cmdProcess, cmdTimeline, cmdStubs, cmdPlace } = require('./commands/graph.js');
+const { cmdEvalRetrieval } = require('./commands/retrieval.js');
 
 const { tamperCheck } = require('./lib/page-io.js');
 
@@ -206,6 +207,7 @@ const cmds = {
   list: cmdList, search: cmdSearch, recent: cmdRecent, print: cmdPrint,
   sources: cmdSources, related: cmdRelated, 'unlinked-mentions': cmdUnlinkedMentions, render: cmdRender,
   preview: cmdPreview, context: cmdContext, agenda: cmdAgenda, day: cmdDay, challenge: cmdChallenge,
+  'eval-retrieval': cmdEvalRetrieval,
   // write
   write: cmdWrite, link: cmdLink, mv: cmdMv, delete: cmdDelete, patch: cmdPatch, merge: cmdMerge,
   ingest: cmdIngest,

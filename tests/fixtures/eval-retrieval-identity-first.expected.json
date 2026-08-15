@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "PASS identity-first",
+    "ronald-fisher via=title-exact confidence=yes",
+    "1/1 retrieval evals passed"
+  ]
+}

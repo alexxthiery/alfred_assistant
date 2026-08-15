@@ -1,0 +1,12 @@
+{
+  "setup": [
+    ["write", "fisher-reading-notes", "--title", "Statistics Reading Notes", "--type", "note", "--content", "- [fact] Ronald Fisher is mentioned here several times; Fisher appears again in this note. ^[test]"],
+    ["write", "ronald-fisher", "--title", "Ronald Fisher", "--type", "entity", "--tags", "person", "--content", "- [fact] Statistician associated with likelihood, experimental design, and population genetics. ^[test]"]
+  ],
+  "cmd": [
+    "eval-retrieval",
+    "--case",
+    "{\"name\":\"identity-first\",\"question\":\"Ronald Fisher\",\"expectFirstSlug\":\"ronald-fisher\",\"expectSlugs\":[\"ronald-fisher\"],\"expectConfident\":true}",
+    "--explain"
+  ]
+}

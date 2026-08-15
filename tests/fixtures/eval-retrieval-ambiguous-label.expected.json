@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "PASS ambiguous-fisher",
+    "ambiguous=yes",
+    "1/1 retrieval evals passed"
+  ]
+}

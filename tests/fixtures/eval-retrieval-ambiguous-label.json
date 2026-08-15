@@ -1,0 +1,12 @@
+{
+  "setup": [
+    ["write", "ronald-fisher", "--title", "Ronald Fisher", "--type", "entity", "--tags", "person", "--content", "- [fact] Statistician. ^[test]"],
+    ["write", "fisher-information", "--title", "Fisher Information", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [fact] A local information measure. ^[test]"]
+  ],
+  "cmd": [
+    "eval-retrieval",
+    "--case",
+    "{\"name\":\"ambiguous-fisher\",\"question\":\"Fisher\",\"expectAmbiguous\":true,\"expectConfident\":true}",
+    "--explain"
+  ]
+}

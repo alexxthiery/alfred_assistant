@@ -8,20 +8,10 @@
 
 const { stripSupersededObservationLines } = require('./graph.js');
 const { matchesTagExpression, parseTagExpression } = require('./tag-filter.js');
-
-const STOPWORDS = new Set([
-  'about', 'after', 'also', 'and', 'are', 'but', 'can', 'did', 'does', 'for',
-  'from', 'has', 'have', 'how', 'into', 'not', 'that', 'the', 'their', 'then',
-  'there', 'this', 'was', 'what', 'when', 'where', 'which', 'who', 'why', 'with',
-]);
+const { confidenceForCandidate, labelMatch, queryTokens } = require('./retrieval.js');
 
 function tokenizeSearchQuery(value) {
-  const raw = String(value || '')
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean);
-  const kept = raw.filter((t) => t.length >= 2 && !STOPWORDS.has(t));
-  return [...new Set(kept.length ? kept : raw.filter((t) => t.length >= 2))];
+  return queryTokens(value);
 }
 
 function labelsForPage(page) {
@@ -75,10 +65,14 @@ function scoreSearchPage(page, tokens, query) {
   score += matched / tokens.length;
 
   const fm = page.fm || {};
+  const confidence = confidenceForCandidate(query, { ...page, body }, { threshold: page.threshold });
+  const label = labelMatch(query, page);
   return {
     slug: fm.id || page.slug,
     title: fm.title || '',
     score,
+    via: label ? label.via : 'lexical',
+    confidence,
     excerpt: excerptForBody(body, tokens),
   };
 }
@@ -96,7 +90,7 @@ function searchPagesLexical(pages, opts) {
     const slug = fm.id || page.slug;
     if (doneSet && doneSet.has(slug)) continue;
     if (tagAst && !matchesTagExpression(Array.isArray(fm.tags) ? fm.tags : [], tagAst)) continue;
-    const scored = scoreSearchPage({ ...page, slug }, tokens, query);
+    const scored = scoreSearchPage({ ...page, slug, threshold: opts.threshold }, tokens, query);
     if (scored) rows.push(scored);
   }
 

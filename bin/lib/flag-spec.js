@@ -66,6 +66,7 @@ const VERB_EXTRA_FLAGS = {
   predict: ['stdin', 'file'],
   hypothesize: ['stdin', 'file'],
   capture: ['stdin', 'file'],
+  'eval-retrieval': ['case', 'file'],
   export: ['file'],
   groom: ['propose', 'apply'],
   patch: ['observation-file', 'observation-stdin', 'summary-file', 'summary-stdin'],
@@ -126,6 +127,7 @@ const VALUE_REQUIRED_FLAGS = new Set([
   'on', 'by', 'since', 'until', 'days', 'limit', 'max-hops', 'threshold',
   'only', 'date', 'birth', 'window', 'month-day', 'to', 'asof',
   'allow-duplicate-slug', 'rule',
+  'case',
   // export
   'ext',
 ]);

@@ -37,7 +37,8 @@ const WRITE_VERB_NAMES = [
 const RAW_VERBS = [
   // READ
   { name: 'list',     section: 'READ', lines: ['  list [--tag t] [--type t] [--limit N] [--slugs-only] [--include-done]   list pages (alphabetical); done todos hidden unless --include-done'] },
-  { name: 'search',   section: 'READ', lines: ['  search <query> [--tag T] [--limit N] [--literal] [--regex] [--title-only] [--include-done]   BM25 + synonyms; done todos hidden unless --include-done'] },
+  { name: 'search',   section: 'READ', lines: ['  search <query> [--tag T] [--limit N] [--literal] [--regex] [--title-only] [--include-done] [--explain] [--require-confidence] [--threshold N]   BM25 + synonyms; optional confidence/explain diagnostics'] },
+  { name: 'eval-retrieval', section: 'READ', lines: ['  eval-retrieval [--file path.json | --case JSON] [--threshold N] [--limit N] [--explain]   deterministic retrieval-quality checks'] },
   { name: 'recent',   section: 'READ', lines: ['  recent [--days N] [--type T]              pages updated recently'] },
   { name: 'preview',  section: 'READ', lines: ['  preview <slug> [--compact]                cheap peek (~10 lines, ~150 tokens); --compact trims further'] },
   { name: 'print',    section: 'READ', lines: ['  print <slug> [--backlinks] [--links]      full page with optional context'] },

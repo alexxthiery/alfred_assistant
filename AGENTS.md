@@ -48,6 +48,7 @@ No file sizes here on purpose: they rot. The durable signal is *which file owns 
 | `docs/PERSONA.template.md`          | Assembled compatibility aggregate for the runtime persona; must equal the fragments. |
 | `docs/CONVENTIONS.md`               | Naming, error format, exit codes, where-things-live.      |
 | `docs/WEEKLY-DIGEST.md`, `docs/DAILY-BRIEF.md` | Cron + SMTP pipelines.                         |
+| `docs/RETRIEVAL-HARDENING.md` | Retrieval evals, confidence/explain diagnostics, and the boundary against heavier search machinery. |
 | `docs/NANOCLAW-PATCHES.md`          | Host-side patches; out of agent's normal scope.           |
 | `schemas/wiki-ingest.schema.json`   | JSON-spec field shapes (the input to `wiki ingest`).      |
 | `tests/fixtures/*.json` + `README.md` | Test-by-analogy. Read the README before writing a fixture. |
@@ -242,6 +243,7 @@ After landing, the rule shows up automatically in `wiki audit` (which iterates A
 - **Why the codebase looks the way it does (design principles)** → `docs/PHILOSOPHY.md`
 - **What an agent should do at runtime** → `docs/persona/*.template.md` (source) and `docs/PERSONA.template.md` (assembled compatibility aggregate)
 - **The vault contract** → `docs/SCHEMA.md`
+- **Retrieval confidence/eval discipline** → `docs/RETRIEVAL-HARDENING.md`
 - **The four host-side patches Alfred needs from nanoclaw** → `docs/NANOCLAW-PATCHES.md`
 - **Cron + SMTP weekly digest** → `docs/WEEKLY-DIGEST.md`
 - **Fixture format and the hidden tests/vault coupling** → `tests/fixtures/README.md`

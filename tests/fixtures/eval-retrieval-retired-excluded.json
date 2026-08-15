@@ -1,0 +1,12 @@
+{
+  "setup": [
+    ["write", "retired-only-page", "--title", "Retired Only Page", "--type", "note", "--soft", "--content", "- ~~[fact] retired retrieval sentinel~~ [until 2026-01-01] ^[test]"],
+    ["write", "active-control-page", "--title", "Active Control Page", "--type", "note", "--content", "- [fact] active retrieval control. ^[test]"]
+  ],
+  "cmd": [
+    "eval-retrieval",
+    "--case",
+    "{\"name\":\"retired-excluded\",\"question\":\"retired retrieval sentinel\",\"expectConfident\":false,\"expectNotContains\":\"retired retrieval sentinel\"}",
+    "--explain"
+  ]
+}

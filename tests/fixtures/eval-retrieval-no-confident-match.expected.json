@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "PASS no-confident-match",
+    "(no confident candidates)",
+    "1/1 retrieval evals passed"
+  ]
+}

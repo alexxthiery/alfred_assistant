@@ -1,0 +1,11 @@
+{
+  "setup": [
+    ["write", "deadline-note", "--title", "Deadline Note", "--type", "note", "--soft", "--content", "- [fact] The deadline moved. ^[test]"]
+  ],
+  "cmd": [
+    "eval-retrieval",
+    "--case",
+    "{\"name\":\"no-confident-match\",\"question\":\"bicycle tire repair\",\"expectConfident\":false}",
+    "--explain"
+  ]
+}

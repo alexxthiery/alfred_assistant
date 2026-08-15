@@ -23,6 +23,7 @@ const { buildTitleEntries } = require('../lib/autolink.js');
 const { compileTagExpressionToSql, matchesTagExpression, parseTagExpression } = require('../lib/tag-filter.js');
 const { searchPagesLexical } = require('../lib/search-fallback.js');
 const { isISODate } = require('../lib/date.js');
+const { confidenceForCandidate, formatCoverage } = require('../lib/retrieval.js');
 
 function cmdList(args) {
   // HR25: --slugs-only emits one slug per line, no title/tags. Token-economy
@@ -65,6 +66,8 @@ function cmdList(args) {
 //                when you want to find raw markdown like "<!--obs:abc123-->".
 //   --regex      regex match (anchored is up to the caller).
 //   --title-only restrict to page titles (substring); always JS-side, no FTS.
+//   --explain    print why a row matched and whether it clears the coverage
+//                threshold. --require-confidence hides low-confidence rows.
 // Slugs of completed todos — hidden from list/search by default (chores, not
 // live content). Pass --include-done to see them.
 function doneTodoSet() {
@@ -78,7 +81,7 @@ function doneTodoSet() {
 function cmdSearch(args) {
   const query = args._[0];
   if (!query && !args.tag) {
-    console.error('Usage: wiki search <query> [--tag T] [--limit N] [--literal] [--regex] [--title-only] [--include-done]');
+    console.error('Usage: wiki search <query> [--tag T] [--limit N] [--literal] [--regex] [--title-only] [--include-done] [--explain] [--require-confidence] [--threshold N]');
     process.exit(1);
   }
   const limit = Math.max(1, parseInt(args.limit, 10) || 20);
@@ -86,16 +89,19 @@ function cmdSearch(args) {
   const useRegex = !!args.regex;
   const useTitleOnly = !!args['title-only'];
   const doneSet = args['include-done'] ? null : doneTodoSet();
+  const explain = !!args.explain;
+  const requireConfidence = !!args['require-confidence'];
+  const threshold = args.threshold !== undefined ? Number(args.threshold) : 0.5;
   const useFts = query && !useLiteral && !useRegex && !useTitleOnly;
   if (useFts) {
     if (process.env.WIKI_DISABLE_DUCKDB !== '1' && resolveDuckdbBin()) {
-      cmdSearchBm25(query, { limit, tag: args.tag, doneSet });
+      cmdSearchBm25(query, { limit, tag: args.tag, doneSet, explain, requireConfidence, threshold });
       return;
     }
-    cmdSearchLexicalFallback(query, { limit, tag: args.tag, doneSet });
+    cmdSearchLexicalFallback(query, { limit, tag: args.tag, doneSet, explain, requireConfidence, threshold });
     return;
   }
-  cmdSearchJs(query, { tag: args.tag, useLiteral, useRegex, useTitleOnly, doneSet });
+  cmdSearchJs(query, { tag: args.tag, useLiteral, useRegex, useTitleOnly, doneSet, explain, requireConfidence, threshold });
 }
 
 // FTS retrieval: spawn duckdb against the cached vault.duckdb, BM25-rank
@@ -137,7 +143,7 @@ function cmdSearchBm25(query, opts) {
   // presented in separate sections — content ranking is byte-identical to before.
   const sql = `
     WITH content AS (
-      SELECT v.slug AS slug, v.title AS title, o.body AS body,
+      SELECT v.slug AS slug, v.title AS title, v.label_text AS label_text, o.body AS body,
              fts_main_observations.match_bm25(o.obs_uid, '${sqlQ}') AS score
       FROM observations o
       LEFT JOIN vault v ON v.slug = o.slug
@@ -147,16 +153,16 @@ function cmdSearchBm25(query, opts) {
       LIMIT ${opts.limit}
     ),
     labels AS (
-      SELECT v.slug AS slug, v.title AS title, CAST(NULL AS VARCHAR) AS body,
+      SELECT v.slug AS slug, v.title AS title, v.label_text AS label_text, CAST(NULL AS VARCHAR) AS body,
              fts_main_vault.match_bm25(v.slug, '${sqlQ}') AS score
       FROM vault v
       WHERE fts_main_vault.match_bm25(v.slug, '${sqlQ}') IS NOT NULL${tagClause}
       ORDER BY score DESC
       LIMIT ${opts.limit}
     )
-    SELECT slug, title, body, score, 'content' AS via FROM content
+    SELECT slug, title, label_text, body, score, 'content' AS via FROM content
     UNION ALL
-    SELECT slug, title, body, score, 'label' AS via FROM labels;
+    SELECT slug, title, label_text, body, score, 'label' AS via FROM labels;
   `;
   const r = spawnSync(resolveDuckdbBin(), ['-readonly', dbPath, '-jsonlines', '-noheader', '-c', sql], {
     encoding: 'utf-8',
@@ -176,6 +182,18 @@ function cmdSearchBm25(query, opts) {
   // Tag filter is applied in SQL; both result sets are already tag-correct.
   // UNION ALL does not preserve per-CTE ordering, so re-sort each group by score.
   const fmtScore = (s) => (typeof s === 'number' ? s.toFixed(3) : s);
+  const explainFor = (row, via) => confidenceForCandidate(query, {
+    slug: row.slug,
+    fm: { title: row.title || '' },
+    body: row.body || row.label_text || '',
+  }, { threshold: opts.threshold });
+  const printExplain = (row, via) => {
+    if (!opts.explain) return;
+    const c = explainFor(row, via);
+    const matched = c.matchedTokens.length ? c.matchedTokens.join(',') : '-';
+    const missing = c.missingTokens.length ? c.missingTokens.join(',') : '-';
+    console.log(`    explain: via=${via} confident=${c.confident ? 'yes' : 'no'} reason=${c.reason} coverage=${formatCoverage(c.coverage)} threshold=${formatCoverage(c.threshold)} matched=${matched} missing=${missing}`);
+  };
   const contentRows = rows.filter((r) => r.via === 'content').sort((a, b) => b.score - a.score);
   const labelRows = rows.filter((r) => r.via === 'label').sort((a, b) => b.score - a.score);
 
@@ -183,21 +201,28 @@ function cmdSearchBm25(query, opts) {
   const shown = new Set();
   for (const row of contentRows) {
     if (opts.doneSet && opts.doneSet.has(row.slug)) continue;
+    const confidence = explainFor(row, 'content');
+    if (opts.requireConfidence && !confidence.confident) continue;
     console.log(`${row.slug}\t${fmtScore(row.score)}\t${row.title || ''}`);
     const excerpt = (row.body || '').replace(/\s+/g, ' ').trim().slice(0, 160);
     if (excerpt) console.log(`    …${excerpt}…`);
+    printExplain(row, 'content');
     shown.add(row.slug);
     printed++;
   }
 
   // Pages resolved by title/alias that content search did not already surface.
-  const labelOnly = labelRows.filter(
-    (r) => !shown.has(r.slug) && !(opts.doneSet && opts.doneSet.has(r.slug)),
-  );
+  const labelOnly = labelRows.filter((r) => {
+    if (shown.has(r.slug)) return false;
+    if (opts.doneSet && opts.doneSet.has(r.slug)) return false;
+    const confidence = explainFor(r, 'label');
+    return !opts.requireConfidence || confidence.confident;
+  });
   if (labelOnly.length) {
     console.log('matched by title/alias:');
     for (const row of labelOnly) {
       console.log(`${row.slug}\t${fmtScore(row.score)}\t${row.title || ''}`);
+      printExplain(row, 'label');
       printed++;
     }
   }
@@ -222,11 +247,19 @@ function cmdSearchLexicalFallback(query, opts) {
     process.exit(1);
   }
 
+  let printed = 0;
   for (const row of rows) {
+    if (opts.requireConfidence && row.confidence && !row.confidence.confident) continue;
     console.log(`${row.slug}\t${row.score.toFixed(3)}\t${row.title || ''}`);
     if (row.excerpt) console.log(`    …${row.excerpt}…`);
+    if (opts.explain && row.confidence) {
+      const matched = row.confidence.matchedTokens.length ? row.confidence.matchedTokens.join(',') : '-';
+      const missing = row.confidence.missingTokens.length ? row.confidence.missingTokens.join(',') : '-';
+      console.log(`    explain: via=${row.via || 'lexical'} confident=${row.confidence.confident ? 'yes' : 'no'} reason=${row.confidence.reason} coverage=${formatCoverage(row.confidence.coverage)} threshold=${formatCoverage(row.confidence.threshold)} matched=${matched} missing=${missing}`);
+    }
+    printed++;
   }
-  if (rows.length === 0) console.log('(no matches)');
+  if (printed === 0) console.log('(no matches)');
 }
 
 // Legacy JS-side search path: substring (regex-escaped) or regex (raw) match
@@ -256,17 +289,31 @@ function cmdSearchJs(query, opts) {
         const titleMatch = re.test(title);
         const idx = activeBody.search(re);
         if (!titleMatch && idx < 0) return;
+        const confidence = confidenceForCandidate(query, { slug, fm, body: activeBody }, { threshold: opts.threshold });
+        if (opts.requireConfidence && !confidence.confident) return;
         console.log(`${slug}\t${title}`);
         if (idx >= 0) {
           const start = Math.max(0, idx - 40);
           const end = Math.min(activeBody.length, idx + 80);
           console.log(`    …${activeBody.slice(start, end).replace(/\s+/g, ' ').trim()}…`);
         }
+        if (opts.explain) {
+          const matched = confidence.matchedTokens.length ? confidence.matchedTokens.join(',') : '-';
+          const missing = confidence.missingTokens.length ? confidence.missingTokens.join(',') : '-';
+          console.log(`    explain: via=${opts.useRegex ? 'regex' : 'literal'} confident=${confidence.confident ? 'yes' : 'no'} reason=${confidence.reason} coverage=${formatCoverage(confidence.coverage)} threshold=${formatCoverage(confidence.threshold)} matched=${matched} missing=${missing}`);
+        }
         count++;
         return;
       }
     }
+    const confidence = confidenceForCandidate(query, { slug, fm, body: activeBody }, { threshold: opts.threshold });
+    if (opts.requireConfidence && !confidence.confident) return;
     console.log(`${slug}\t${title}`);
+    if (opts.explain) {
+      const matched = confidence.matchedTokens.length ? confidence.matchedTokens.join(',') : '-';
+      const missing = confidence.missingTokens.length ? confidence.missingTokens.join(',') : '-';
+      console.log(`    explain: via=${opts.useTitleOnly ? 'title-only' : 'literal'} confident=${confidence.confident ? 'yes' : 'no'} reason=${confidence.reason} coverage=${formatCoverage(confidence.coverage)} threshold=${formatCoverage(confidence.threshold)} matched=${matched} missing=${missing}`);
+    }
     count++;
   });
   if (count === 0) console.log('(no matches)');

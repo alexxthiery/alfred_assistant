@@ -1,0 +1,8 @@
+{
+  "env": { "WIKI_DISABLE_DUCKDB": "1" },
+  "setup": [
+    ["write", "weak-deadline-decoy", "--title", "Weak Deadline Decoy", "--type", "note", "--soft", "--content", "- [fact] The deadline moved. ^[test]"],
+    ["write", "school-visit-plan", "--title", "School Visit Deadline", "--type", "note", "--soft", "--content", "- [fact] The school visit deadline is Friday. ^[test]"]
+  ],
+  "cmd": ["search", "school visit deadline", "--explain", "--require-confidence", "--threshold", "0.5"]
+}

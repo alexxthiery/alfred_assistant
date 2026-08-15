@@ -67,7 +67,12 @@ Use when the question is topical and not perfectly captured by frontmatter field
 wiki search "school visit"
 wiki search "doctor" --tag health --limit 5
 wiki search "<!--obs:a3f7q9-->" --literal       # find a specific obs by id
+wiki search "Fisher" --explain                  # debug title/alias/content evidence
+wiki search "school visit deadline" --require-confidence --threshold 0.5
 ```
+Use `--explain` when retrieval looks surprising or when an answer depends on a weak topical match. The diagnostic line reports where the hit came from (`content`, `label`, `literal`, etc.), whether it cleared the confidence threshold, query-word coverage, and missing tokens. Treat low-confidence or ambiguous hits as uncertainty; do not turn them into a grounded answer. Retired observations are excluded from active search by default.
+
+Run `wiki eval-retrieval` after changing retrieval behavior, alias/title handling, retired-observation filtering, or persona rules that affect vault lookup. The eval suite is the regression guard for "does Alfred retrieve the right context?", not just "is the vault syntactically clean?"
 
 **Layer 3 — saved-query views (`wiki render`)**
 For questions you ask repeatedly, materialise the query as a `type=view` page whose body holds the SQL. Re-evaluated against current state each time.
