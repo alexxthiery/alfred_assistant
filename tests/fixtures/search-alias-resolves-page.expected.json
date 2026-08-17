@@ -1,4 +1,4 @@
 {
   "exitCode": 0,
-  "stdoutContains": ["matched by title/alias:", "mcmc"]
+  "stdoutContains": ["mcmc", "reason=alias-exact"]
 }

@@ -143,7 +143,7 @@ function cmdSearchBm25(query, opts) {
   // presented in separate sections — content ranking is byte-identical to before.
   const sql = `
     WITH content AS (
-      SELECT v.slug AS slug, v.title AS title, v.label_text AS label_text, o.body AS body,
+      SELECT v.slug AS slug, v.title AS title, v.aliases AS aliases, v.label_text AS label_text, o.body AS body,
              fts_main_observations.match_bm25(o.obs_uid, '${sqlQ}') AS score
       FROM observations o
       LEFT JOIN vault v ON v.slug = o.slug
@@ -153,16 +153,16 @@ function cmdSearchBm25(query, opts) {
       LIMIT ${opts.limit}
     ),
     labels AS (
-      SELECT v.slug AS slug, v.title AS title, v.label_text AS label_text, CAST(NULL AS VARCHAR) AS body,
+      SELECT v.slug AS slug, v.title AS title, v.aliases AS aliases, v.label_text AS label_text, CAST(NULL AS VARCHAR) AS body,
              fts_main_vault.match_bm25(v.slug, '${sqlQ}') AS score
       FROM vault v
       WHERE fts_main_vault.match_bm25(v.slug, '${sqlQ}') IS NOT NULL${tagClause}
       ORDER BY score DESC
       LIMIT ${opts.limit}
     )
-    SELECT slug, title, label_text, body, score, 'content' AS via FROM content
+    SELECT slug, title, aliases, label_text, body, score, 'content' AS via FROM content
     UNION ALL
-    SELECT slug, title, label_text, body, score, 'label' AS via FROM labels;
+    SELECT slug, title, aliases, label_text, body, score, 'label' AS via FROM labels;
   `;
   const r = spawnSync(resolveDuckdbBin(), ['-readonly', dbPath, '-jsonlines', '-noheader', '-c', sql], {
     encoding: 'utf-8',
@@ -182,11 +182,31 @@ function cmdSearchBm25(query, opts) {
   // Tag filter is applied in SQL; both result sets are already tag-correct.
   // UNION ALL does not preserve per-CTE ordering, so re-sort each group by score.
   const fmtScore = (s) => (typeof s === 'number' ? s.toFixed(3) : s);
+  const aliasesFor = (row) => {
+    if (Array.isArray(row.aliases)) return row.aliases;
+    if (typeof row.aliases === 'string' && row.aliases.trim()) {
+      try {
+        const parsed = JSON.parse(row.aliases);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (_) {}
+    }
+    return [];
+  };
   const explainFor = (row, via) => confidenceForCandidate(query, {
     slug: row.slug,
-    fm: { title: row.title || '' },
+    fm: { title: row.title || '', aliases: aliasesFor(row) },
     body: row.body || row.label_text || '',
   }, { threshold: opts.threshold });
+  const labelPriority = (row) => {
+    const c = confidenceForCandidate(query, {
+      slug: row.slug,
+      fm: { title: row.title || '', aliases: aliasesFor(row) },
+      body: '',
+    }, { threshold: opts.threshold });
+    if (c.reason === 'title-exact') return 4;
+    if (c.reason === 'alias-exact') return 3;
+    return 0;
+  };
   const printExplain = (row, via) => {
     if (!opts.explain) return;
     const c = explainFor(row, via);
@@ -194,13 +214,34 @@ function cmdSearchBm25(query, opts) {
     const missing = c.missingTokens.length ? c.missingTokens.join(',') : '-';
     console.log(`    explain: via=${via} confident=${c.confident ? 'yes' : 'no'} reason=${c.reason} coverage=${formatCoverage(c.coverage)} threshold=${formatCoverage(c.threshold)} matched=${matched} missing=${missing}`);
   };
-  const contentRows = rows.filter((r) => r.via === 'content').sort((a, b) => b.score - a.score);
-  const labelRows = rows.filter((r) => r.via === 'label').sort((a, b) => b.score - a.score);
+  const contentRows = rows.filter((r) => r.via === 'content').sort((a, b) => {
+    const byLabel = labelPriority(b) - labelPriority(a);
+    if (byLabel) return byLabel;
+    return b.score - a.score;
+  });
+  const labelRows = rows.filter((r) => r.via === 'label').sort((a, b) => {
+    const byLabel = labelPriority(b) - labelPriority(a);
+    if (byLabel) return byLabel;
+    return b.score - a.score;
+  });
 
   let printed = 0;
   const shown = new Set();
+  const leadingLabelRows = labelRows.filter((r) => {
+    if (opts.doneSet && opts.doneSet.has(r.slug)) return false;
+    if (labelPriority(r) === 0) return false;
+    const confidence = explainFor(r, 'label');
+    return !opts.requireConfidence || confidence.confident;
+  });
+  for (const row of leadingLabelRows) {
+    console.log(`${row.slug}\t${fmtScore(row.score)}\t${row.title || ''}`);
+    printExplain(row, 'label');
+    shown.add(row.slug);
+    printed++;
+  }
   for (const row of contentRows) {
     if (opts.doneSet && opts.doneSet.has(row.slug)) continue;
+    if (shown.has(row.slug)) continue;
     const confidence = explainFor(row, 'content');
     if (opts.requireConfidence && !confidence.confident) continue;
     console.log(`${row.slug}\t${fmtScore(row.score)}\t${row.title || ''}`);
