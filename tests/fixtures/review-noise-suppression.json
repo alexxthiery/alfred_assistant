@@ -2,7 +2,11 @@
   "_comment": "wiki review should suppress generic role/title phrases while preserving repeated real capitalized phrases.",
   "setup": [
     ["write", "noise-suppression-a", "--title", "Noise suppression A", "--type", "note", "--content", "Assistant Professor works on Latent Foobar with students.", "--no-anchor"],
-    ["write", "noise-suppression-b", "--title", "Noise suppression B", "--type", "note", "--content", "Another Assistant Professor mentioned Latent Foobar again.", "--no-anchor"]
+    ["write", "noise-suppression-b", "--title", "Noise suppression B", "--type", "note", "--content", "Another Assistant Professor mentioned Latent Foobar again.", "--no-anchor"],
+    ["write", "ronald-fisher", "--title", "Ronald Fisher", "--type", "entity", "--tags", "person", "--content", "- [fact] Statistician associated with experimental design. ^[test]"],
+    ["write", "fisher-information", "--title", "Fisher Information", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] Fisher information is a local information measure. ^[test]"],
+    ["write", "known-component-a", "--title", "Known component A", "--type", "note", "--content", "Fisher information appears in this note.", "--no-anchor"],
+    ["write", "known-component-b", "--title", "Known component B", "--type", "note", "--content", "Fisher randomization appears in another note.", "--no-anchor"]
   ],
   "cmd": ["review", "--asof", "2026-07-31"]
 }

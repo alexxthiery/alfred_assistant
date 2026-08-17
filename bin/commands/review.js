@@ -94,9 +94,25 @@ function cmdReview(args) {
   const all = [];
   forEachPage(({ slug, fm, body }) => all.push({ slug, fm, body }));
 
-  // Build a "known surface forms" set: every slug, every title, every alias, lowercased.
+  // Build known surface forms: every slug, every title, every alias, lowercased.
+  // Also remember single-token components of multi-token known forms. A bare
+  // surname-like token such as "Fisher" should not be proposed after
+  // [[ronald-fisher]] / [[fisher-information]] exist, but the unsafe bare token
+  // also should not need to live as an autolink alias.
   const known = new Set();
-  const addKnown = (s) => { if (s) known.add(String(s).toLowerCase()); };
+  const knownComponents = new Set();
+  const addKnown = (s) => {
+    if (!s) return;
+    const raw = String(s);
+    known.add(raw.toLowerCase());
+    const tokens = raw
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .split(/[^A-Za-z0-9]+/)
+      .filter((t) => t.length >= 4);
+    if (tokens.length >= 2) {
+      for (const t of tokens) knownComponents.add(t.toLowerCase());
+    }
+  };
   for (const p of all) {
     addKnown(p.slug);
     addKnown(p.slug.replace(/-/g, ' '));
@@ -150,6 +166,7 @@ function cmdReview(args) {
         if (cleaned.length < 4) continue;
         if (REVIEW_STOPWORDS.has(cleaned) || REVIEW_STOPWORDS.has(firstWord)) continue;
         if (known.has(key) || known.has(firstWord.toLowerCase())) continue;
+        if (!isMultiWord && knownComponents.has(key)) continue;
         // Skip if it's just a number/date-ish token.
         if (/^\d/.test(cleaned)) continue;
         // Skip if it's all-caps short (probably an acronym we can't disambiguate).

@@ -6,6 +6,7 @@
     "random sample (seeded by review date)"
   ],
   "stdoutNotContains": [
-    "Assistant Professor (2 pages)"
+    "Assistant Professor (2 pages)",
+    "Fisher (2 pages)"
   ]
 }
