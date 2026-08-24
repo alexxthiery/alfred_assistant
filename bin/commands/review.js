@@ -9,7 +9,7 @@
 
 const fs = require('fs');
 const { forEachPage, wikiPath, SCHEMA_PATH } = require('../lib/vault.js');
-const { aliasesOf, parseRelations, parseObservations } = require('../lib/graph.js');
+const { aliasesOf, parseRelations, parseObservations, stripSupersededObservationLines } = require('../lib/graph.js');
 const { loadSchema: _loadSchema } = require('../lib/schema.js');
 const { OBSERVATION_BLOAT_THRESHOLD } = require('../lib/audit.js');
 
@@ -135,7 +135,7 @@ function cmdReview(args) {
 
   for (const p of all) {
     // Strip wikilinks, code fences, frontmatter-like lines, and provenance markers.
-    let text = p.body
+    let text = stripSupersededObservationLines(p.body)
       .replace(/\[\[[^\]]+\]\]/g, ' ')                 // remove wikilinks
       .replace(/```[\s\S]*?```/g, ' ')                  // remove fenced code
       .replace(/`[^`]+`/g, ' ')                         // inline code
@@ -383,6 +383,7 @@ function cmdReview(args) {
     const observations = parseObservations(p.body);
     for (let obsIndex = 0; obsIndex < observations.length; obsIndex++) {
       const obs = observations[obsIndex];
+      if (obs.superseded) continue;
       if (obs.dates.asOf) {
         // [as-of YYYY-MM] — assume 1st of month.
         const d = new Date(obs.dates.asOf.length === 7 ? `${obs.dates.asOf}-01` : obs.dates.asOf);

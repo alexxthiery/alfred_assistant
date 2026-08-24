@@ -1,0 +1,11 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "# Vault review — 2026-08-24"
+  ],
+  "stdoutNotContains": [
+    "Retired Sentinel Alpha",
+    "weekly-retired-a (as-of 2025-01)",
+    "weekly-retired-b (as-of 2025-01)"
+  ]
+}

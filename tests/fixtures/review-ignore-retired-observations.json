@@ -1,0 +1,10 @@
+{
+  "_comment": "wiki review must ignore retired observations in both raw-text promotion scanning and stale temporal-marker scanning.",
+  "setup": [
+    ["write", "weekly-retired-a", "--title", "Weekly Retired A", "--type", "note", "--content", "- [fact] Retired Sentinel Alpha appeared here [as-of 2025-01] ^[test]\n- [fact] active filler keeps the page substantive ^[test]", "--soft", "--no-autolink"],
+    ["write", "weekly-retired-b", "--title", "Weekly Retired B", "--type", "note", "--content", "- [fact] Retired Sentinel Alpha appeared again [as-of 2025-01] ^[test]\n- [fact] active filler keeps the page substantive ^[test]", "--soft", "--no-autolink"],
+    ["patch", "weekly-retired-a", "--supersede", "Retired Sentinel Alpha appeared here", "--supersede-reason", "stale"],
+    ["patch", "weekly-retired-b", "--supersede", "Retired Sentinel Alpha appeared again", "--supersede-reason", "stale"]
+  ],
+  "cmd": ["review", "--asof", "2026-08-24"]
+}
