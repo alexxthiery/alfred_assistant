@@ -78,6 +78,19 @@ function findShellExpandedCurrencyArtifact(text) {
   return null;
 }
 
+const CONCEPT_FACT_ROLE_LABEL_RE = /^\[(?:connection|extension|instance|mechanism|refinement|resolution|tension)\]\s+/i;
+
+function firstSpeculativeMatch(text, re, options = {}) {
+  const flags = re.flags.includes('g') ? re.flags : `${re.flags}g`;
+  const global = new RegExp(re.source, flags);
+  for (const m of String(text || '').matchAll(global)) {
+    const token = m[0] || '';
+    if (options.skipCapitalizedMonthMay && token === 'May') continue;
+    return m;
+  }
+  return null;
+}
+
 function transientInboxProvenancePaths({ body, fm }) {
   const hits = new Set();
   const text = String(body || '');
@@ -356,7 +369,7 @@ const AUDIT_RULES = [
     name: 'speculative-shape-fact',
     severity: 'low',
     strict: false,
-    check: ({ body }) => {
+    check: ({ type, body }) => {
       if (!body) return null;
       const obs = parseObservations(body);
       // Lexicon shared with bin/lib/capture-classifier.js — single source of
@@ -367,8 +380,9 @@ const AUDIT_RULES = [
       for (const o of obs) {
         if (o.category !== 'fact') continue;
         if (o.superseded) continue;
-        const fm = o.body.match(FUTURE);
-        const em = o.body.match(EPISTEMIC);
+        const fm = firstSpeculativeMatch(o.body, FUTURE);
+        let em = firstSpeculativeMatch(o.body, EPISTEMIC, { skipCapitalizedMonthMay: true });
+        if (type === 'concept' && CONCEPT_FACT_ROLE_LABEL_RE.test(o.body)) em = null;
         if (!fm && !em) continue;
         const target = fm ? 'prediction' : 'hypothesis';
         const trigger = (fm || em)[0].toLowerCase();
@@ -591,7 +605,7 @@ const AUDIT_RULES = [
     // current cleanup work.
     check: ({ type, body }) => {
       if (!body) return null;
-      if (type === 'concept') return null;
+      if (type === 'concept' || type === 'source') return null;
       const CONTINUATION = /^(this|these|those|that|it|its|they|such|therefore|thus|hence|so|because|since|which|where|when|while|as|then|here|also|moreover|furthermore|equivalently|in other words|in particular|for example|e\.g\.|i\.e\.|that is)\b/i;
       const crammed = [];
       for (const o of parseObservations(body)) {

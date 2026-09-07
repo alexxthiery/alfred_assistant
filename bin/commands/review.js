@@ -56,7 +56,7 @@ const REVIEW_STOPWORDS = new Set([
   'Mon','Tue','Tues','Wed','Thu','Thurs','Fri','Sat','Sun',
   'Spring','Summer','Autumn','Winter','Fall',
   // Sentence starters / common English caps
-  'The','This','That','These','Those','There','Their','They','Them','Then','Than','Thus','Therefore','However','Moreover',
+  'The','This','That','These','Those','There','Their','They','Them','Then','Than','Thus','Therefore','However','Moreover','Its',
   'Now','Today','Yesterday','Tomorrow','First','Second','Third','Last','Next','Final','Latest',
   'Note','See','Also','And','But','Or','For','From','With','Without','While','When','Where','After','Before','During','Until','Since',
   'Yes','No','Maybe','Probably','Likely','Both','Either','Neither','Each','Every','Many','Most','Some','Few','All','None','Any',
@@ -84,7 +84,7 @@ const REVIEW_STOPWORDS = new Set([
   'Current','Previous','Past','Future','Recent','Latest','Same','Other','Another',
   'Wife','Husband','Father','Mother','Son','Daughter','Brother','Sister','Parent','Child','Cousin','Uncle','Aunt','Grandfather','Grandmother',
   // Geographic generics often present in bodies (NOT proper place names)
-  'France','French','Vietnam','Vietnamese','Singapore','Singaporean','English','Chinese','Mandarin',
+  'France','French','Vietnam','Vietnamese','Singapore','Singaporean','English','Chinese','Mandarin','Universit',
   'European','American','Asian','African','Australian',
 ]);
 

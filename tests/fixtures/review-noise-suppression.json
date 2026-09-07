@@ -6,7 +6,9 @@
     ["write", "ronald-fisher", "--title", "Ronald Fisher", "--type", "entity", "--tags", "person", "--content", "- [fact] Statistician associated with experimental design. ^[test]"],
     ["write", "fisher-information", "--title", "Fisher Information", "--type", "concept", "--tags", "idea", "--origin", "original", "--content", "- [claim] Fisher information is a local information measure. ^[test]"],
     ["write", "known-component-a", "--title", "Known component A", "--type", "note", "--content", "Fisher information appears in this note.", "--no-anchor"],
-    ["write", "known-component-b", "--title", "Known component B", "--type", "note", "--content", "Fisher randomization appears in another note.", "--no-anchor"]
+    ["write", "known-component-b", "--title", "Known component B", "--type", "note", "--content", "Fisher randomization appears in another note.", "--no-anchor"],
+    ["write", "ssm-formatting-a", "--title", "SSM Formatting A", "--type", "note", "--content", "Its DISTINGUISHING design choice is recorded as a generated comparison heading.", "--no-anchor"],
+    ["write", "ssm-formatting-b", "--title", "SSM Formatting B", "--type", "note", "--content", "Another note repeats Its DISTINGUISHING design choice as a heading.", "--no-anchor"]
   ],
   "cmd": ["review", "--asof", "2026-07-31"]
 }

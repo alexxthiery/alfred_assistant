@@ -302,6 +302,36 @@ test('speculative-shape-fact: ignores superseded fact lines', () => {
   assert.equal(out, null);
 });
 
+test('speculative-shape-fact: treats capitalized May as a month, not epistemic may', () => {
+  const r = findRule('speculative-shape-fact');
+  const body = '- [fact] OpenAI activity ran from May to July with multiple public incident reports. ^[t:1]';
+  const out = r.check({ type: 'source', body }, deps());
+  assert.equal(out, null);
+});
+
+test('speculative-shape-fact: still fires on lowercase epistemic may', () => {
+  const r = findRule('speculative-shape-fact');
+  const body = '- [fact] This result may change after a different benchmark. ^[t:1]';
+  const out = r.check({ type: 'note', body }, deps());
+  assert.ok(out, 'lowercase epistemic may remains a speculation signal');
+  assert.match(out.detail, /may/);
+});
+
+test('speculative-shape-fact: skips epistemic verbs in role-labeled concept facts', () => {
+  const r = findRule('speculative-shape-fact');
+  const body = '- [fact] [mechanism] Formal verification could absorb scarce mathematical capacity when proof obligations become infrastructure. ^[t:1]';
+  const out = r.check({ type: 'concept', body }, deps());
+  assert.equal(out, null);
+});
+
+test('speculative-shape-fact: still flags future-tense role-labeled concept facts', () => {
+  const r = findRule('speculative-shape-fact');
+  const body = '- [fact] [mechanism] Formal verification will absorb scarce mathematical capacity by 2028. ^[t:1]';
+  const out = r.check({ type: 'concept', body }, deps());
+  assert.ok(out, 'role labels do not suppress future-tense prediction shape');
+  assert.match(out.message, /prediction/i);
+});
+
 // ─── ironclad rules ────────────────────────────────────────────────────────
 // Ironclad rules protect invariants that --soft must never bypass: closed-set
 // schema vocabulary and destructive writes that would erase substantive pages.
@@ -582,6 +612,12 @@ test('multi-fact-observation: skips dense concept cards', () => {
   const r = findRule('multi-fact-observation');
   const denseConcept = '- [claim] The estimator defines a twist. The first term is the likelihood ratio. The second term normalizes the proposal. The resulting weight is unbiased. This is one atomic concept card, not biographical cramming ^[t:1]';
   assert.equal(r.check({ type: 'concept', body: denseConcept }, deps()), null);
+});
+
+test('multi-fact-observation: skips source-page timeline summaries', () => {
+  const r = findRule('multi-fact-observation');
+  const sourceTimeline = '- [fact] The source covers a May incident. It names the platform. It records the remediation. It gives a later update. ^[t:1]';
+  assert.equal(r.check({ type: 'source', body: sourceTimeline }, deps()), null);
 });
 
 test('multi-fact-observation: silent on a long but self-contained single idea', () => {
