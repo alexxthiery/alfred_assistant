@@ -237,7 +237,7 @@ const RAW_VERBS = [
 
   // TODO
   { name: 'todo', section: 'TODO', lines: [
-    '  todo add "title" [--due YYYY-MM-DD] [--priority high|med|low] [--tags a,b]',
+    '  todo add "title" [--due YYYY-MM-DD] [--priority high|med|low] [--tags a,b] [--dry-run]',
     '       [--remind_at YYYY-MM-DDTHH:MM+08:00] [--notify telegram,email]',
     '  todo list [--open|--done|--due-today|--overdue|--background|--reminders]',
     '       [--tag t] [--priority high|med|low] [--status open|doing|done|abandoned] [--json] [--asof YYYY-MM-DD]',

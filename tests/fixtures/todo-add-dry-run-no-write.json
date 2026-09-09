@@ -1,0 +1,4 @@
+{
+  "_comment": "Regression: todo add --dry-run must validate and report the planned path without creating a todo page, regenerating index, logging, or auto-committing.",
+  "cmd": ["todo", "add", "Dry run todo should not exist", "--due", "2026-10-01", "--priority", "low", "--tags", "work", "--dry-run"]
+}

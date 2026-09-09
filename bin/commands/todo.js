@@ -302,6 +302,11 @@ function todoAdd(args) {
       process.exit(3);
     }
   }
+  if (args['dry-run']) {
+    console.log(wikiPath(slug));
+    console.log('(dry-run: no writes)');
+    return;
+  }
   fs.mkdirSync(WIKI_DIR, { recursive: true });
   fs.writeFileSync(wikiPath(slug), serializeFrontmatter(fm, '\n'));
   regenerateIndex();

@@ -1,0 +1,12 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "todo-dry-run-todo-should-not-exist.md",
+    "(dry-run: no writes)"
+  ],
+  "wikiAssertions": {
+    "todo-dry-run-todo-should-not-exist": {
+      "fileExists": false
+    }
+  }
+}
