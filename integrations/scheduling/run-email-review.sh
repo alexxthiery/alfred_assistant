@@ -13,7 +13,7 @@
 #                                 TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID
 #   ALFRED_AGENT_BIN              agent binary; default: claude
 #   ALFRED_EMAIL_REVIEW_DAYS      lookback window; default: 1
-#   ALFRED_EMAIL_REVIEW_MAX_QUESTIONS  default: 3
+#   ALFRED_EMAIL_REVIEW_MAX_QUESTIONS  default: 7
 set -euo pipefail
 
 DRY_RUN=0
@@ -32,7 +32,7 @@ ALFRED_VAULT="${ALFRED_VAULT:-$HOME/my-vault}"
 ENV_FILE="${ENV_FILE:-$HOME/nanoclaw/.env}"
 ALFRED_AGENT_BIN="${ALFRED_AGENT_BIN:-claude}"
 ALFRED_EMAIL_REVIEW_DAYS="${ALFRED_EMAIL_REVIEW_DAYS:-1}"
-ALFRED_EMAIL_REVIEW_MAX_QUESTIONS="${ALFRED_EMAIL_REVIEW_MAX_QUESTIONS:-3}"
+ALFRED_EMAIL_REVIEW_MAX_QUESTIONS="${ALFRED_EMAIL_REVIEW_MAX_QUESTIONS:-7}"
 
 [ -f "$ENV_FILE" ] && set -a && . "$ENV_FILE" && set +a
 

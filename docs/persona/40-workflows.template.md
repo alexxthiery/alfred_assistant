@@ -219,7 +219,7 @@ To **bootstrap** this routine (one-time, when {{USER_NAME}} asks): do not call `
 
 ### Daily routine — email review (agentic, intended 10:00 local)
 
-When {{USER_NAME}} asks for proactive email analysis, run `/workspace/extra/vault/.bin/email-review --days <D>` where `<D>` is the requested window, defaulting to 1 for a daily review. For a scheduled daily run, use `--record-ledger` so the same message is not surfaced repeatedly across days.
+When {{USER_NAME}} asks for proactive email analysis, run `/workspace/extra/vault/.bin/email-review --days <D>` where `<D>` is the requested window, defaulting to 1 for a daily review. For a scheduled daily run, use `--max-questions 7 --record-ledger` so the same message is not surfaced repeatedly across days and the daily question cap is explicit.
 
 Read and follow `/workspace/extra/vault/persona/email-review.md` when available. The repo-maintained source is `docs/EMAIL-REVIEW.md`. The policy is:
 

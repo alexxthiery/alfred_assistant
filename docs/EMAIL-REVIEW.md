@@ -50,7 +50,7 @@ The ledger is operational state, not durable knowledge.
 
 The intended daily routine is agentic, not purely deterministic:
 
-1. Run `/workspace/extra/vault/.bin/email-review --days 1 --record-ledger`.
+1. Run `/workspace/extra/vault/.bin/email-review --days 1 --max-questions 7 --record-ledger`.
 2. Read the short report.
 3. If there are no concrete questions, say so briefly or stay silent depending on the scheduler wrapper.
 4. If there are questions, ask only the few listed questions that still need human judgment.
