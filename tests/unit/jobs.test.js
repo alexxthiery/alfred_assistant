@@ -35,6 +35,26 @@ test('JOBS manifest: docker-watchdog is registered as a 2-min interval job', () 
   assert.equal(scheduleToText(wd.schedule), 'every 2 min');
 });
 
+test('JOBS manifest: email-review is registered as a 10:00 daily agentic job', () => {
+  const job = JOBS.find((j) => j.name === 'email-review');
+  assert.ok(job, 'email-review job must be in the manifest so `wiki jobs --check` tracks it');
+  assert.equal(job.label, 'com.alfred.email-review');
+  assert.equal(job.wrapper, 'run-email-review.sh');
+  assert.deepEqual(job.schedule, { kind: 'calendar', hour: 10, minute: 0 });
+  assert.equal(job.needsAgent, true);
+  assert.equal(scheduleToText(job.schedule), '10:00 daily');
+});
+
+test('JOBS manifest: weekly-review is registered as a Monday 09:00 agentic job', () => {
+  const job = JOBS.find((j) => j.name === 'weekly-review');
+  assert.ok(job, 'weekly-review job must be in the manifest so `wiki jobs --check` tracks it');
+  assert.equal(job.label, 'com.alfred.weekly-review');
+  assert.equal(job.wrapper, 'run-weekly-review.sh');
+  assert.deepEqual(job.schedule, { kind: 'calendar', hour: 9, minute: 0, weekday: 1 });
+  assert.equal(job.needsAgent, true);
+  assert.equal(scheduleToText(job.schedule), 'Mon 09:00');
+});
+
 test('scheduleToText: calendar daily, calendar weekday, interval', () => {
   assert.equal(scheduleToText({ kind: 'calendar', hour: 7, minute: 0 }), '07:00 daily');
   assert.equal(scheduleToText({ kind: 'calendar', hour: 9, minute: 5, weekday: 1 }), 'Mon 09:05');

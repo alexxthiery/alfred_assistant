@@ -7,7 +7,7 @@ Alfred touches three kinds of secret: Gmail app passwords (SMTP send + IMAP read
 | Secret | Env var | Stored in | Used by |
 |---|---|---|---|
 | Gmail SMTP-send app password | `GMAIL_APP_PASSWORD` | `~/nanoclaw/.env` | `bin/email-digest` (weekly digest, daily brief) |
-| Gmail IMAP-read app password | `GMAIL_IMAP_APP_PASSWORD` | `~/nanoclaw/.env` | `bin/gmail` (Reflex 4 email recall) |
+| Gmail IMAP-read app password | `GMAIL_IMAP_APP_PASSWORD` | `~/nanoclaw/.env` | `bin/gmail` (Reflex 4 email recall), `bin/email-review` |
 | Sender address | `EMAIL_FROM` | `~/nanoclaw/.env` | both of the above |
 | X/Twitter auth cookie | `ALFRED_BIRD_AUTH_TOKEN` | `~/nanoclaw/.env` or host shell env | `bin/twitter-read` (live X/Twitter reads via `bird`) |
 | X/Twitter CSRF cookie | `ALFRED_BIRD_CT0` | `~/nanoclaw/.env` or host shell env | `bin/twitter-read` (live X/Twitter reads via `bird`) |

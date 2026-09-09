@@ -7,7 +7,7 @@ days) and `{{TRANSCRIPT_PATH}}` with the most recent Claude Code session
 jsonl path. Find it via:
 
 ```bash
-# Find the newest session jsonl for the _AI_box project under ~/.claude/projects/
+# Find the newest session jsonl for this project under ~/.claude/projects/
 # (the project dir name encodes the absolute path with hyphens substituted for slashes).
 /bin/ls -lht ~/.claude/projects/*--AI-box*/*.jsonl | head -1
 ```

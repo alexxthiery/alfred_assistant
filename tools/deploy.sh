@@ -8,7 +8,8 @@
 #      render-persona.sh) and diff it against the canonical <target>/AGENTS.md
 #      so the user can merge new template content. The canonical AGENTS.md is
 #      never overwritten.
-#   3. Refresh <target>/.bin/ via install.sh (handles copy → symlink upgrade
+#   3. Copy runtime policy docs that the deployed persona references.
+#   4. Refresh <target>/.bin/ via install.sh (handles copy → symlink upgrade
 #      when the current .bin/ entries are stale copies, e.g. from a previous
 #      manual deploy that bypassed install.sh).
 #
@@ -159,6 +160,27 @@ fi
 rm -f "$TMP"
 echo ""
 
+# 2b. Runtime policy docs referenced by the deployed persona.
+EMAIL_REVIEW_SRC="$SRC/docs/EMAIL-REVIEW.md"
+EMAIL_REVIEW_DST="$TARGET/persona/email-review.md"
+if [ -f "$EMAIL_REVIEW_SRC" ]; then
+  if [ ! -e "$EMAIL_REVIEW_DST" ]; then
+    echo "[persona-doc] WOULD CREATE $EMAIL_REVIEW_DST"
+  elif cmp -s "$EMAIL_REVIEW_SRC" "$EMAIL_REVIEW_DST"; then
+    echo "[persona-doc] OK (email-review policy unchanged)"
+  else
+    echo "[persona-doc] WOULD UPDATE $EMAIL_REVIEW_DST"
+  fi
+  if $APPLY; then
+    mkdir -p "$TARGET/persona"
+    cp "$EMAIL_REVIEW_SRC" "$EMAIL_REVIEW_DST"
+    echo "[persona-doc] wrote $EMAIL_REVIEW_DST"
+  fi
+else
+  echo "[persona-doc] WARN: source $EMAIL_REVIEW_SRC missing, skipping"
+fi
+echo ""
+
 # 3. bin/ deployment (COPY, not symlink)
 #
 # Symlinks store absolute paths and don't survive Dropbox-mediated sync to a
@@ -170,7 +192,7 @@ echo ""
 # re-run deploy.sh. For a personal vault with one dev machine and a runtime
 # container, the manual sync step is worth the cross-platform robustness.
 mkdir -p "$TARGET/.bin"
-BIN_ITEMS=(wiki inbox email-digest daily-brief reminder-dispatch telegram-send gmail twitter-read wiki-test docker-watchdog)
+BIN_ITEMS=(wiki inbox email-digest daily-brief reminder-dispatch telegram-send gmail email-review twitter-read wiki-test docker-watchdog)
 
 # --prune-backups: remove the legacy .pre-deploy-*.bak files that earlier
 # versions of this script accreted on every refresh. The source repo is

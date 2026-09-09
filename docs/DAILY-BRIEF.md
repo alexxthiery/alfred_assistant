@@ -86,7 +86,7 @@ Same `EMAIL_FROM` + `GMAIL_APP_PASSWORD` as the [weekly digest](WEEKLY-DIGEST.md
 
 ### 2. Schedule
 
-**Recommended: OS cron / launchd (runtime-independent).** The daily brief is deterministic (no agent), so run it straight from the OS scheduler. Ready-made wrapper + launchd plist are in [`../integrations/scheduling/`](../integrations/scheduling/) (`run-daily-brief.sh` + `com.alfred.daily-brief.plist`). Survives nanoclaw upgrades; doesn't depend on any agent being up.
+**Recommended: OS cron / launchd (runtime-independent).** The daily brief is deterministic (no agent), so run it straight from the OS scheduler. The ready-made wrapper and installer live in [`../integrations/scheduling/`](../integrations/scheduling/) and [`../tools/install-assistant-jobs.sh`](../tools/install-assistant-jobs.sh). Survives nanoclaw upgrades; doesn't depend on any agent being up.
 
 **Legacy: nanoclaw `schedule_task`.** Alternatively, ask Alfred via Telegram to bootstrap it (`recurrence: "0 7 * * *"`, the "Daily routine" prompt). Works, but the task table can drop on a nanoclaw upgrade (then re-bootstrap). Prefer the OS-cron path.
 
@@ -141,7 +141,7 @@ you mark it done or otherwise clean it up. See `docs/REMINDERS.md`.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| No email or Telegram, and no `cache/daily-brief/YYYY-MM-DD.txt` | OS scheduler did not fire, or the composer failed before writing the cache | Check `launchctl print gui/$UID/com.alfred.daily-brief` and `/tmp/alfred-daily-brief.err`; reinstall/kickstart the launchd job if missing |
+| No email or Telegram, and no `cache/daily-brief/YYYY-MM-DD.txt` | OS scheduler did not fire, or the composer failed before writing the cache | Check `launchctl print gui/$UID/com.alfred.daily-brief` and `/tmp/com.alfred.daily-brief.err`; reinstall/kickstart the launchd job if missing |
 | `cache/daily-brief/YYYY-MM-DD.txt` exists but no delivery arrived | Channel send failed after composition | Check `cache/daily-brief/send.log`; failed channels retry once after 3 hours by default |
 | Email missing but Telegram arrived | Gmail SMTP/network/credential failure isolated to email | Check `send.log` and run `bin/email-digest --dry-run --subject t --to "$EMAIL_FROM"` |
 | Telegram missing but email arrived | Telegram Bot API/network/chat-id failure isolated to Telegram | Check `send.log` and run `bin/telegram-send --dry-run` |

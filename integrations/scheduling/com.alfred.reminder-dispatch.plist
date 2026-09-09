@@ -18,7 +18,7 @@
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>ALFRED_VAULT</key><string>/Users/YOU/Library/CloudStorage/Dropbox/_AI_box</string>
+    <key>ALFRED_VAULT</key><string>/Users/YOU/my-vault</string>
     <key>ENV_FILE</key><string>/Users/YOU/nanoclaw/.env</string>
   </dict>
   <key>StartInterval</key><integer>900</integer>

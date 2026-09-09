@@ -1,0 +1,235 @@
+#!/usr/bin/env python3
+"""bin/email-review — bounded Gmail triage report for Alfred.
+
+Reads recent Gmail messages through IMAP, suppresses messages already present
+in the metadata-only ledger, and emits an agent-friendly markdown or JSON
+report. It never writes to the vault and never stores raw email bodies.
+"""
+
+import argparse
+import imaplib
+import json
+import os
+import socket
+import sys
+from contextlib import contextmanager
+from datetime import datetime
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_HERE, 'lib'))
+
+import email_review as R  # noqa: E402
+import gmail as G  # noqa: E402
+
+
+EXIT_OK = 0
+EXIT_BAD_ARGS = 1
+EXIT_MISSING_ENV = 2
+EXIT_AUTH = 3
+EXIT_NETWORK = 4
+EXIT_IMAP = 5
+
+
+def _die(code, msg):
+    print(f'email-review: {msg}', file=sys.stderr)
+    sys.exit(code)
+
+
+def _require_env():
+    user = os.environ.get('EMAIL_FROM')
+    pw = os.environ.get('GMAIL_IMAP_APP_PASSWORD')
+    if not user:
+        _die(EXIT_MISSING_ENV, 'EMAIL_FROM env var not set.')
+    if not pw:
+        _die(EXIT_MISSING_ENV, 'GMAIL_IMAP_APP_PASSWORD env var not set.')
+    return user, pw
+
+
+@contextmanager
+def gmail_session():
+    user, pw = _require_env()
+    try:
+        M = imaplib.IMAP4_SSL('imap.gmail.com', 993, timeout=30)
+    except (socket.error, socket.timeout, OSError) as e:
+        _die(EXIT_NETWORK, f'Gmail unreachable: {e}. Check your network.')
+    try:
+        try:
+            M.login(user, pw)
+        except imaplib.IMAP4.error as e:
+            _die(EXIT_AUTH, f'IMAP login failed: {e}.')
+        try:
+            M.select('INBOX', readonly=True)
+        except imaplib.IMAP4.error as e:
+            _die(EXIT_IMAP, f'SELECT INBOX failed: {e}.')
+        yield M
+    finally:
+        try:
+            M.logout()
+        except Exception:
+            pass
+
+
+def _uid_search(M, query):
+    try:
+        typ, data = M.uid('SEARCH', None, 'X-GM-RAW', f'"{query}"')
+    except imaplib.IMAP4.error as e:
+        _die(EXIT_IMAP, f'SEARCH failed: {e}.')
+    if typ != 'OK':
+        _die(EXIT_IMAP, f'SEARCH returned {typ!r}: {data!r}.')
+    raw = data[0] or b''
+    return raw.split() if raw else []
+
+
+def _fetch_headers(M, uids):
+    if not uids:
+        return {}
+    uid_set = b','.join(uids)
+    fields = '(BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID)])'
+    try:
+        typ, data = M.uid('FETCH', uid_set, fields)
+    except imaplib.IMAP4.error as e:
+        _die(EXIT_IMAP, f'FETCH headers failed: {e}.')
+    if typ != 'OK':
+        _die(EXIT_IMAP, f'FETCH headers returned {typ!r}.')
+    out = {}
+    for item in data:
+        if isinstance(item, tuple) and len(item) == 2:
+            envelope, literal = item
+            env_str = envelope.decode('latin-1', errors='replace')
+            tokens = env_str.replace('(', ' ').split()
+            for idx, token in enumerate(tokens[:-1]):
+                if token == 'UID':
+                    out[tokens[idx + 1]] = literal
+                    break
+    return out
+
+
+def _fetch_one_body(M, uid, request):
+    try:
+        typ, data = M.uid('FETCH', uid, request)
+    except imaplib.IMAP4.error as e:
+        _die(EXIT_IMAP, f'FETCH {request} failed for UID {uid}: {e}.')
+    if typ != 'OK':
+        _die(EXIT_IMAP, f'FETCH {request} returned {typ!r} for UID {uid}.')
+    for item in data:
+        if isinstance(item, tuple) and len(item) == 2:
+            return item[1]
+    return None
+
+
+def _fetch_message_body(M, uid):
+    raw = _fetch_one_body(M, uid, '(BODY.PEEK[])')
+    if raw is None:
+        raw = _fetch_one_body(M, uid, '(RFC822)')
+    if raw is None:
+        return ''
+    try:
+        return G.extract_text_body(raw)
+    except G.GmailParseError:
+        return ''
+
+
+def _default_ledger_path():
+    if os.environ.get('EMAIL_REVIEW_LEDGER'):
+        return os.environ['EMAIL_REVIEW_LEDGER']
+    vault_root = os.path.dirname(_HERE)
+    return os.path.join(vault_root, 'cache', 'email-review', 'ledger.jsonl')
+
+
+def _read_ledger(path):
+    if not path or not os.path.exists(path):
+        return []
+    with open(path, 'r', encoding='utf-8') as fh:
+        return R.parse_ledger_lines(fh.readlines())
+
+
+def _append_ledger(path, records):
+    if not path or not records:
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'a', encoding='utf-8') as fh:
+        fh.write(R.to_jsonl(records))
+
+
+def _collect_messages(days, limit, body_limit, query):
+    raw_query = query or f'newer_than:{days}d'
+    with gmail_session() as M:
+        uids = list(reversed(_uid_search(M, raw_query)))[:limit]
+        header_map = _fetch_headers(M, uids)
+        messages = []
+        for idx, uid_b in enumerate(uids):
+            uid = uid_b.decode('ascii')
+            try:
+                headers = G.parse_header_block(header_map.get(uid, b''))
+            except G.GmailParseError:
+                headers = {'from': '', 'to': '', 'subject': '', 'date': '', 'message_id': ''}
+            body = _fetch_message_body(M, uid) if idx < body_limit else ''
+            messages.append({
+                'uid': uid,
+                'message_id': headers.get('message_id', ''),
+                'date': headers.get('date', ''),
+                'from': headers.get('from', ''),
+                'to': headers.get('to', ''),
+                'subject': headers.get('subject', ''),
+                'body': body,
+            })
+    return messages
+
+
+def _bounded_int(name, value, minimum, maximum):
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        _die(EXIT_BAD_ARGS, f'{name} must be an integer.')
+    if n < minimum or n > maximum:
+        _die(EXIT_BAD_ARGS, f'{name} must be between {minimum} and {maximum}.')
+    return n
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        prog='email-review',
+        description='Bounded Gmail triage report. See docs/EMAIL-REVIEW.md.',
+    )
+    p.add_argument('--days', default='1', help='look back this many days (1-90; default 1)')
+    p.add_argument('--query', default=None, help='raw Gmail search query; overrides --days window')
+    p.add_argument('--limit', default='100', help='max matching messages to inspect (1-500; default 100)')
+    p.add_argument('--body-limit', default='30', help='max newest bodies to fetch (0-100; default 30)')
+    p.add_argument('--max-questions', default='5', help='max clarification questions in report (0-20; default 5)')
+    p.add_argument('--format', choices=['markdown', 'json'], default='markdown')
+    p.add_argument('--ledger', default=None, help='metadata-only JSONL ledger path')
+    p.add_argument('--include-reviewed', action='store_true', help='do not suppress ledger-reviewed messages')
+    p.add_argument('--record-ledger', action='store_true', help='append surfaced messages as status=reported')
+    args = p.parse_args(argv)
+
+    days = _bounded_int('--days', args.days, 1, 90)
+    limit = _bounded_int('--limit', args.limit, 1, 500)
+    body_limit = _bounded_int('--body-limit', args.body_limit, 0, 100)
+    body_limit = min(body_limit, limit)
+    max_questions = _bounded_int('--max-questions', args.max_questions, 0, 20)
+
+    ledger_path = args.ledger or _default_ledger_path()
+    ledger = _read_ledger(ledger_path)
+    today = datetime.now().astimezone().date().isoformat()
+    messages = _collect_messages(days, limit, body_limit, args.query)
+    review = R.select_review_items(
+        messages,
+        ledger,
+        asof=today,
+        max_questions=max_questions,
+        include_reviewed=args.include_reviewed,
+    )
+
+    if args.record_ledger:
+        reviewed_at = datetime.now().astimezone().isoformat(timespec='seconds')
+        _append_ledger(ledger_path, R.ledger_records_for_review(review, reviewed_at))
+
+    if args.format == 'json':
+        print(json.dumps(review, indent=2, sort_keys=True, ensure_ascii=False))
+    else:
+        print(R.format_markdown_report(review, days), end='')
+    return EXIT_OK
+
+
+if __name__ == '__main__':
+    sys.exit(main())

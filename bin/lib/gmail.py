@@ -152,6 +152,7 @@ def parse_header_block(raw_bytes):
         'to': decode_mime_header(msg.get('To', '')),
         'subject': decode_mime_header(msg.get('Subject', '')),
         'date': _normalise_date(msg.get('Date', '')),
+        'message_id': decode_mime_header(msg.get('Message-ID', '')),
     }
 
 

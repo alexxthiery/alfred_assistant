@@ -5,7 +5,7 @@
 #
 # Usage:
 #   tools/vault-backup-push.sh <vault-dir>
-#   tools/vault-backup-push.sh ~/Library/CloudStorage/Dropbox/_AI_box
+#   tools/vault-backup-push.sh ~/my-vault
 #
 # Exit 0 on success/no-op, 1 on push failure.
 

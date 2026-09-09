@@ -51,6 +51,14 @@ const JOBS = [
     purpose: 'Headless agent reviews the vault and emails a three-section digest (Mondays).',
   },
   {
+    name: 'email-review',
+    label: 'com.alfred.email-review',
+    wrapper: 'run-email-review.sh',
+    schedule: { kind: 'calendar', hour: 10, minute: 0 },
+    needsAgent: true,
+    purpose: 'Headless agent reviews recent Gmail via email-review and sends only actionable questions/updates to Telegram.',
+  },
+  {
     name: 'docker-watchdog',
     label: 'com.alfred.docker-watchdog',
     wrapper: 'docker-watchdog',

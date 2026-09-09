@@ -425,7 +425,7 @@ const AUDIT_RULES = [
     // schema-syntax, not a discretionary quality nag. Without ironclad, a
     // user writing `wiki patch <slug> --observation "[issue] ..." --soft`
     // would silently land an unparseable observation line — this happened
-    // in `_AI_box` before this rule was tightened. See audit findings.
+    // in a live vault before this rule was tightened. See audit findings.
     name: 'uncategorized-bullets',
     severity: 'medium',
     strict: true,

@@ -8,7 +8,7 @@ This doc covers setup, troubleshooting, and the small set of moving parts that c
 
 | Piece | Where | Purpose |
 |---|---|---|
-| Cron task | nanoclaw `schedule_task` (Monday 09:00, your timezone) | Fires the routine |
+| Cron task | OS launchd/cron (Monday 09:00, your timezone) | Fires the routine |
 | Composition routine | `docs/PERSONA.template.md` § "Weekly routine" | Tells Alfred what to compute and how to format the email |
 | `bin/email-digest` | This repo | Bash wrapper around `curl --url 'smtps://smtp.gmail.com:465'` |
 | Gmail app password | `GMAIL_APP_PASSWORD` env var | SMTP-send-only credential |
@@ -51,9 +51,9 @@ This is what the persona references as `{{USER_EMAIL}}`. The sender (`EMAIL_FROM
 
 ### 4. Schedule
 
-**Recommended: OS cron / launchd (runtime-independent).** The weekly review needs synthesis (an agent), so the recipe runs a *headless* agent on demand — `claude -p "...weekly routine..."` (or `codex exec`) piped to `email-digest` — from the OS scheduler. Ready-made wrapper in [`../integrations/scheduling/`](../integrations/scheduling/) (`run-weekly-review.sh`). This does not depend on nanoclaw being up or its task table surviving upgrades.
+**Recommended: OS cron / launchd (runtime-independent).** The weekly review needs synthesis (an agent), so the recipe runs a *headless* agent on demand — `claude -p "...weekly routine..."` (or `codex exec`) piped to `email-digest` — from the OS scheduler. Ready-made wrapper and installer live in [`../integrations/scheduling/`](../integrations/scheduling/) and [`../tools/install-assistant-jobs.sh`](../tools/install-assistant-jobs.sh). This does not depend on nanoclaw being up or its task table surviving upgrades.
 
-**Legacy: nanoclaw `schedule_task`.** Alternatively, ask Alfred via Telegram to bootstrap it (`recurrence: "0 9 * * 1"`, the "Weekly routine" prompt). Re-bootstrap if the task table drops on a nanoclaw upgrade. Prefer the OS-cron path.
+**Legacy: nanoclaw `schedule_task`.** Historical setups may still have this. Do not create new nanoclaw scheduled tasks for weekly review; use the OS-scheduler path so `wiki jobs --check` can detect drift.
 
 ## What Alfred does when it fires
 

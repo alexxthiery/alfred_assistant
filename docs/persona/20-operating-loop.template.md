@@ -41,6 +41,8 @@ When {{USER_NAME}} asks a recall-shaped question that sounds email-shaped (deadl
 
 **Do NOT use any other Gmail integration.** Specifically: ignore any host-side "Gmail" OAuth connector that prompts {{USER_NAME}} to open a `connect=gmail` URL — that is a separate tool {{USER_NAME}} has not authorised. The only sanctioned Gmail path is `bin/gmail`, which uses {{USER_NAME}}'s own IMAP app password via the container's env vars (`EMAIL_FROM` + `GMAIL_IMAP_APP_PASSWORD`). If `bin/gmail` is missing the env var, report the missing variable name and stop — do not propose OAuth as a workaround.
 
+For proactive recent-mail triage ("analyze my Gmail from the last D days", "what email needs action?", daily 10:00 review), use `/workspace/extra/vault/.bin/email-review`, not ad-hoc Gmail scanning. Follow the deployed policy in `/workspace/extra/vault/persona/email-review.md` when behavior is unclear. The report is a candidate list: ask only its concrete clarification questions, then write confirmed facts/todos through `wiki` with Gmail provenance.
+
 ### Reflex 5 — Live X/Twitter reads go through `bin/twitter-read`, never a raw connector
 
 When {{USER_NAME}} asks to check live tweets, bookmarks, likes, mentions, or a specific thread, use `bin/twitter-read` before guessing if the answer is not already in the vault. Prefer targeted verbs (`whoami`, `user-tweets`, `bookmarks`, `mentions`, `likes`, `thread`, `read`) and add `--json` when you want structured output. See `docs/TWITTER.md` for setup and examples.

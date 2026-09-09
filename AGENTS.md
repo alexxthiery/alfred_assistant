@@ -26,6 +26,7 @@ Match your task to one of these and jump to the linked section:
 - Extracting a pure helper into `bin/lib/` → **Runbook 4** below.
 - Adding an audit rule → **Runbook 5** below.
 - Adding or re-splitting a verb group in `bin/commands/` → **Runbook 6** below.
+- Adding, changing, or installing a scheduled job → **Runbook 7** below.
 
 If your task does not fit any of these, read the file map next.
 
@@ -43,6 +44,7 @@ No file sizes here on purpose: they rot. The durable signal is *which file owns 
 | `bin/inbox`                         | Raw-content triage.                                       |
 | `bin/wiki-test`                     | The fixture runner; **assertion vocabulary lives here** (but read `tests/fixtures/README.md` first). |
 | `bin/email-digest`, `bin/daily-brief` | SMTP send / morning brief.                             |
+| `integrations/scheduling/README.md`   | Scheduled-job methodology: wrappers, launchd/cron install, job manifest, drift checks. Read before changing any scheduled job. |
 | `docs/SCHEMA.md`                    | Tag/type/verb/microsyntax questions. **The contract.**    |
 | `docs/persona/*.template.md`        | Source fragments for the runtime persona. Edit these, then reassemble/check the aggregate. |
 | `docs/PERSONA.template.md`          | Assembled compatibility aggregate for the runtime persona; must equal the fragments. |
@@ -107,6 +109,7 @@ These aren't rules that bite you with an error — they're contracts that other 
 - **Replay-spec versioning.** `captureReplaySpec` (`bin/lib/replay-capture.js`) stamps `spec_version` onto every captured Telegram-driven ingest spec. `wiki replay` dispatches through `REPLAY_SPEC_MIGRATIONS`. Symmetric with the page-schema versioning.
 - **Search has two FTS indexes.** `bin/lib/duckdb.js` builds `fts_main_observations` (over `observations.body`, content ranking) AND `fts_main_vault` (over `vault.label_text` = title + aliases, alias resolution). `wiki search` queries both and prints alias-resolved pages under a `matched by title/alias:` section. If you change the snapshot schema, keep both indexes and bump `SNAPSHOT_SCHEMA_VERSION` so caches rebuild.
 - **Persona-lint catches verb drift.** `wiki persona-lint` greps `SCHEMA.md`, `docs/PERSONA.template.md`, `docs/persona/*.template.md`, `docs/SCHEMA.md`, `docs/NANOCLAW-PATCHES.md`, `docs/WEEKLY-DIGEST.md`, `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md` for backtick-wrapped `` `wiki <verb>` `` and refuses verbs not in the dispatch map. If you rename a verb, run persona-lint or expect doc drift.
+- **Scheduled jobs use the same OS-scheduler pattern.** Before touching daily brief, email review, reminders, backups, watchdog, or weekly review, read `integrations/scheduling/README.md`. The durable pattern is: one wrapper, secrets in `ENV_FILE`, no secrets in plists, launchd/cron as executor, manifest entry in `bin/lib/jobs.js`, installer support in `tools/install-assistant-jobs.sh` when practical, and verification through `wiki jobs --check`. Do not create nanoclaw `schedule_task` duplicates for jobs that are already host-scheduled.
 
 ## Tests
 
@@ -238,6 +241,18 @@ After landing, the rule shows up automatically in `wiki audit` (which iterates A
 5. **Relative requires survive deployment** — `require('./commands/x.js')` resolves the same from `bin/wiki` and a deployed `.bin/wiki`. `tools/deploy.sh` copies `bin/commands/` because `commands` is in its `BIN_DIRS`.
 6. **Run `npm test`** (unit + fixtures) and `node bin/wiki persona-lint`. The dispatch-parity and verb-metadata tests guard that nothing fell out of dispatch/help wiring.
 
+### Runbook 7: Add or change a scheduled job
+
+Scheduled jobs are operational infrastructure, not agent memory. Use the pattern documented in `integrations/scheduling/README.md`; do not infer it from whatever plist happens to be installed on one machine.
+
+1. **Classify the job.** If it is deterministic, keep agents out of the execution path. If it needs judgment, invoke a headless agent only for that job and point it at the relevant deployed persona/policy file.
+2. **Add or update a wrapper** in `integrations/scheduling/`. The wrapper should source `ENV_FILE`, take `ALFRED_VAULT` from the environment, log to `<vault>/cache/<job>/` when appropriate, support a cheap dry-run when practical, and avoid hardcoded personal paths.
+3. **Keep secrets out of plists.** LaunchAgents should only contain paths, scheduling metadata, and environment-variable pointers such as `ALFRED_VAULT`, `ENV_FILE`, and `PATH`.
+4. **Register the job** in `bin/lib/jobs.js` so `wiki jobs` and `wiki jobs --check` know the expected label, wrapper, cadence, and whether an agent is involved. Add or update unit coverage in `tests/unit/jobs.test.js`.
+5. **Install through `tools/install-assistant-jobs.sh`** when practical. The committed `com.alfred.*.plist` files are examples; real machines should use generated plists so wrapper paths and env paths are explicit and consistent.
+6. **Deploy before checking live state** if the job depends on `.bin/` or deployed persona docs. Then run `<vault>/.bin/wiki jobs --check`, `plutil -lint` on the installed plist, and `launchctl print gui/$(id -u)/<label>` on macOS.
+7. **Document runtime behavior** in the feature doc (`docs/DAILY-BRIEF.md`, `docs/EMAIL-REVIEW.md`, etc.) and in `integrations/scheduling/README.md`. If a runtime agent must remember the routine, update the relevant `docs/persona/*.template.md` fragment and reassemble `docs/PERSONA.template.md`.
+
 ## Pointers
 
 - **Why the codebase looks the way it does (design principles)** → `docs/PHILOSOPHY.md`
@@ -245,6 +260,7 @@ After landing, the rule shows up automatically in `wiki audit` (which iterates A
 - **The vault contract** → `docs/SCHEMA.md`
 - **Retrieval confidence/eval discipline** → `docs/RETRIEVAL-HARDENING.md`
 - **The four host-side patches Alfred needs from nanoclaw** → `docs/NANOCLAW-PATCHES.md`
+- **OS scheduling methodology** → `integrations/scheduling/README.md`
 - **Cron + SMTP weekly digest** → `docs/WEEKLY-DIGEST.md`
 - **Fixture format and the hidden tests/vault coupling** → `tests/fixtures/README.md`
 - **Pre-existing audit findings (gitignored)** → `audit/00-summary.md`, then specific file by tier

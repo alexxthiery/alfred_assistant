@@ -93,12 +93,14 @@ class ParseHeaderBlock(unittest.TestCase):
             b'To: user@example.com\r\n'
             b'Subject: Lease renewal deadline\r\n'
             b'Date: Mon, 12 May 2026 09:00:00 +0800\r\n'
+            b'Message-ID: <abc@example.com>\r\n'
         )
         h = G.parse_header_block(raw)
         self.assertEqual(h['from'], 'Alice <alice@example.com>')
         self.assertEqual(h['to'], 'user@example.com')
         self.assertEqual(h['subject'], 'Lease renewal deadline')
         self.assertEqual(h['date'], '2026-05-12')
+        self.assertEqual(h['message_id'], '<abc@example.com>')
 
     def test_mime_subject_decoded(self):
         raw = (

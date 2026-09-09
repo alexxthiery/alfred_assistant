@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd job for the agentic weekly vault review (Monday 09:00 local).
+  Install:
+    Prefer tools/install-assistant-jobs.sh --weekly 09:00, which stamps
+    machine-specific paths into ~/Library/LaunchAgents.
+
+    Manual fallback:
+    1. Copy run-weekly-review.sh to a launchd-safe wrapper directory such as ~/.local/bin.
+    2. Edit ALFRED_VAULT / ENV_FILE / PATH below and the path to run-weekly-review.sh.
+    3. cp to ~/Library/LaunchAgents/com.alfred.weekly-review.plist
+    4. launchctl load ~/Library/LaunchAgents/com.alfred.weekly-review.plist
+  Secrets are NOT in this file — run-weekly-review.sh sources them from ENV_FILE.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.alfred.weekly-review</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/ABSOLUTE/PATH/TO/run-weekly-review.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ALFRED_VAULT</key><string>/Users/YOU/my-vault</string>
+    <key>ENV_FILE</key><string>/Users/YOU/nanoclaw/.env</string>
+    <key>PATH</key><string>/Users/YOU/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key><string>/tmp/com.alfred.weekly-review.out</string>
+  <key>StandardErrorPath</key><string>/tmp/com.alfred.weekly-review.err</string>
+</dict>
+</plist>

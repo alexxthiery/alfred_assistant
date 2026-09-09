@@ -4,6 +4,8 @@
 
 It is the read counterpart to [`bin/email-digest`](../bin/email-digest), which is send-only.
 
+For proactive triage over a recent window, use [`bin/email-review`](../bin/email-review) instead. `gmail` is the low-level recall primitive; `email-review` is the bounded "last D days, what deserves action or vault logging?" workflow.
+
 ## Setup
 
 ### 1. Enable IMAP in Gmail

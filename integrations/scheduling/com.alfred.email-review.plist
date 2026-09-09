@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd job for the agentic email review (10:00 local).
+  Install:
+    Prefer tools/install-assistant-jobs.sh --email-review 10:00, which stamps
+    machine-specific paths into ~/Library/LaunchAgents.
+
+    Manual fallback:
+    1. Copy run-email-review.sh to a launchd-safe wrapper directory such as ~/.local/bin.
+    2. Edit ALFRED_VAULT / ENV_FILE / PATH below and the path to run-email-review.sh.
+    3. cp to ~/Library/LaunchAgents/com.alfred.email-review.plist
+    4. launchctl load ~/Library/LaunchAgents/com.alfred.email-review.plist
+  Secrets are NOT in this file — run-email-review.sh sources them from ENV_FILE.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.alfred.email-review</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/ABSOLUTE/PATH/TO/alfred_assistant/integrations/scheduling/run-email-review.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ALFRED_VAULT</key><string>/Users/YOU/my-vault</string>
+    <key>ENV_FILE</key><string>/Users/YOU/nanoclaw/.env</string>
+    <key>PATH</key><string>/Users/YOU/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>10</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key><string>/tmp/com.alfred.email-review.out</string>
+  <key>StandardErrorPath</key><string>/tmp/com.alfred.email-review.err</string>
+</dict>
+</plist>
