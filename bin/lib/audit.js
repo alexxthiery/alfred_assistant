@@ -165,6 +165,35 @@ function ideaAttributionSubject(page) {
   return { ideaTags, obs, body, fm: page.fm || {} };
 }
 
+function sourceReferenceMetadataProblem(page) {
+  if (!page || page.type !== 'source') return null;
+  const fm = page.fm || {};
+  const hasReferenceLocator = ['url', 'doi', 'arxiv'].some((k) => typeof fm[k] === 'string' && fm[k].trim());
+  if (!hasReferenceLocator) return null;
+
+  const author = fm.author;
+  const hasAuthor = Array.isArray(author)
+    ? author.some((a) => typeof a === 'string' && a.trim())
+    : (typeof author === 'string' && author.trim());
+  const year = fm.year;
+  const hasYear = (typeof year === 'number' && year >= 100 && year <= 9999)
+    || (typeof year === 'string' && /^\d{3,4}$/.test(year.trim()));
+
+  const missing = [];
+  if (!hasAuthor) missing.push('author');
+  if (!hasYear) missing.push('year');
+  if (!missing.length) return null;
+
+  const slug = page.slug || fm.id || '<source-slug>';
+  return {
+    missing,
+    detail: `reference source missing structured metadata: missing ${missing.join(', ')}`,
+    message: `Source page ${slug} has a bibliographic locator (url/doi/arxiv) but lacks structured ${missing.join(' and ')} metadata. ` +
+      `Do not bury source identity only in prose observations; Alfred needs frontmatter to audit and retrieve provenance.`,
+    fix: `wiki patch ${slug} --author "<author>" --year <year>`,
+  };
+}
+
 function sourceAttributionProblem(thisPage, allPages) {
   const subject = ideaAttributionSubject(thisPage);
   if (!subject) return null;
@@ -418,6 +447,19 @@ const AUDIT_RULES = [
         message: 'type=view page has no ```sql fenced block. Add one; `wiki render <slug>` will execute it.',
       };
     },
+  },
+
+  {
+    // Bibliographic source pages must expose source identity in structured
+    // frontmatter, not only as prose in the body. This keeps downstream
+    // concept cards auditable: Alfred can tell who/what a source is without
+    // re-reading or re-scraping the page. Advisory, not strict — old/source-
+    // poor pages are backfill work, and unknown metadata should be surfaced
+    // rather than fabricated.
+    name: 'source-reference-metadata',
+    severity: 'medium',
+    strict: false,
+    check: (page) => sourceReferenceMetadataProblem(page),
   },
 
   {
@@ -1062,6 +1104,33 @@ function auditVault({ pages, schema, knownVerbs }) {
       fix: problem.fix,
     });
     r.score += severityScore('high');
+  }
+
+  for (const r of perPage) {
+    const p = pageBySlug.get(r.slug);
+    const subject = ideaAttributionSubject(p);
+    if (!subject) continue;
+    const targets = new Set();
+    const origin = typeof subject.fm.origin === 'string' ? subject.fm.origin.trim() : '';
+    if (origin && !ORIGIN_CONTROL_WORDS.has(origin)) targets.add(origin);
+    for (const rel of parseRelations(subject.body)) {
+      if (rel.verb === 'cites') targets.add(rel.target);
+    }
+    const weak = [];
+    for (const target of targets) {
+      const source = pageBySlug.get(target);
+      if (!source || source.type !== 'source') continue;
+      const problem = sourceReferenceMetadataProblem(source);
+      if (problem) weak.push({ target, problem });
+    }
+    if (!weak.length) continue;
+    r.issues.push({
+      rule: 'idea-cites-weak-source',
+      severity: 'medium',
+      detail: `idea cites weakly specified source(s): ${weak.slice(0, 3).map((w) => `[[${w.target}]] (${w.problem.detail})`).join('; ')}`,
+      fix: weak[0].problem.fix,
+    });
+    r.score += severityScore('medium');
   }
 
   // hot-text-mention: capitalized 2+ word phrases in prose, appearing across

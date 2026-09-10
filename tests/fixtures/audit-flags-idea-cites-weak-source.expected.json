@@ -1,0 +1,9 @@
+{
+  "exitCode": 2,
+  "stdoutContains": [
+    "idea-cites-weak-source",
+    "idea-cites-weak-source-example",
+    "[[weak-source-example]]",
+    "missing author"
+  ]
+}

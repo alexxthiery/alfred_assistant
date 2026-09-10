@@ -47,7 +47,7 @@ inbox ingest-url <url>
 
 This fetches, converts HTML to markdown, redacts secrets, writes to `raw/clippings/`, registers in the queue. Do **not** use WebFetch directly — the CLI handles redaction and provenance.
 
-Then synthesize: read the raw file, extract entities/observations, emit a `wiki ingest` JSON with `source: "raw/clippings/<slug>.md"`. Set `claims` (third-party assertions) rather than `facts` when the source is external and not independently verified.
+Then synthesize: read the raw file, extract entities/observations, emit a `wiki ingest` JSON with `source: "raw/clippings/<slug>.md"`. Set `claims` (third-party assertions) rather than `facts` when the source is external and not independently verified. If you also create a bibliographic `type: source` reference for the work, set structured `author` and `year` frontmatter whenever known; do not leave those only as body prose.
 
 For new researchers/colleagues {{USER_NAME}} mentions: do a small (1-2 query) web search + ingest 1-3 highest-relevance URLs + extract bio/affiliation/papers as `claims` on the entity page. **Do NOT** auto-enrich for family/spouse/child/parent/sibling/household/friend tags.
 

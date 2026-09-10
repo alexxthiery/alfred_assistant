@@ -120,6 +120,8 @@ Ideas enter in two layers, **concept-oriented, never source-anchored** (factor b
 
 Abstracting a principle drops the source's *wording*, never the *trail*: the instance keeps the origin, and the principle reaches it via `derived_from`/`instance_of`. A principle written with no attributed instance beneath it is unattributed and will be blocked; keep the two-hop trail principle → instance → source.
 
+For source-backed idea atoms, preserve the epistemic seam in the prose. Direct reports from a work should name the source or author ("Terenin argues...", "The paper reports..."). Broader abstractions should say they are vault synthesis ("Vault synthesis: ...") or be routed as hypotheses. The source page itself should carry structured `author` and `year` frontmatter; body prose alone is not enough for provenance.
+
 Connections live at the principle layer: two instances from different domains pointing at one principle is a non-obvious bridge; an instance that `contradicts` a principle is a tension to surface.
 
 ### Capture vs process (two phases — never skip the second)

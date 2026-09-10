@@ -145,6 +145,41 @@ test('view-needs-query: silent on non-view pages even without sql', () => {
   assert.equal(out, null);
 });
 
+test('source-reference-metadata: flags URL source pages without structured author metadata', () => {
+  const r = findRule('source-reference-metadata');
+  const out = r.check({
+    type: 'source',
+    body: '- [fact] Author: Example Researcher ^[telegram:2026-09-10]',
+    fm: {
+      id: 'example-source',
+      title: 'Example blog post',
+      url: 'https://example.test/post',
+      year: 2026,
+      kind: 'blog',
+    },
+  }, deps());
+  assert.ok(out, 'body-level author prose is not enough; source identity must be structured metadata');
+  assert.match(out.detail, /missing author/);
+  assert.match(out.fix, /--author/);
+});
+
+test('source-reference-metadata: accepts URL source pages with structured author and year', () => {
+  const r = findRule('source-reference-metadata');
+  const out = r.check({
+    type: 'source',
+    body: '- [claim] supporting note ^[web:example]',
+    fm: {
+      id: 'example-source',
+      title: 'Example blog post',
+      url: 'https://example.test/post',
+      author: 'Example Researcher',
+      year: 2026,
+      kind: 'blog',
+    },
+  }, deps());
+  assert.equal(out, null);
+});
+
 test('exact-duplicate-observation: fires when two non-superseded obs have the same canonical body and category', () => {
   const r = findRule('exact-duplicate-observation');
   const body = '- [fact] test subject likes prototypes ^[t:1]\n- [fact] test subject likes prototypes ^[t:2]';
@@ -1265,6 +1300,51 @@ test('auditVault: surfaces idea-source-attribution for existing bad concept cite
   assert.ok(hit, 'vault audit must expose existing pages created under the old weak cites rule');
   assert.equal(hit.severity, 'high');
   assert.ok(r.score >= 3, 'high-severity source-attribution issue must contribute to the page score');
+});
+
+test('auditVault: idea cards inherit weak-source metadata warnings from cited sources', () => {
+  const pages = [
+    mkIdeaPage('prestige-selection',
+      '- [claim] a broad synthesis from the source ^[terenin-2026]\n- cites [[terenin-2026]]',
+      { tags: ['idea', 'principle'] }),
+    mkAllPage('terenin-2026',
+      '- [fact] Author: Example Researcher ^[telegram:2026-09-10]',
+      {
+        type: 'source',
+        tags: ['media', 'research'],
+        title: 'Example blog post',
+        url: 'https://example.test/post',
+        year: 2026,
+      }),
+  ];
+  const out = auditVault({ pages, ...deps() });
+  const idea = out.perPage.find((p) => p.slug === 'prestige-selection');
+  const hit = idea.issues.find((i) => i.rule === 'idea-cites-weak-source');
+  assert.ok(hit, 'the concept card should show that its cited source is weakly specified');
+  assert.equal(hit.severity, 'medium');
+  assert.match(hit.detail, /\[\[terenin-2026\]\]/);
+  assert.ok(idea.score >= 2, 'medium-severity weak-source issue must affect the audit score');
+});
+
+test('auditVault: idea cards citing well-specified source pages stay clean for weak-source rule', () => {
+  const pages = [
+    mkIdeaPage('prestige-selection',
+      '- [claim] a broad synthesis from the source ^[terenin-2026]\n- cites [[terenin-2026]]',
+      { tags: ['idea', 'principle'] }),
+    mkAllPage('terenin-2026',
+      '- [claim] supporting note ^[web:example]',
+      {
+        type: 'source',
+        tags: ['media', 'research'],
+        title: 'Example blog post',
+        url: 'https://example.test/post',
+        author: 'Example Researcher',
+        year: 2026,
+      }),
+  ];
+  const out = auditVault({ pages, ...deps() });
+  const idea = out.perPage.find((p) => p.slug === 'prestige-selection');
+  assert.equal(idea.issues.find((i) => i.rule === 'idea-cites-weak-source'), undefined);
 });
 
 // ─── HR-OOB-C: duplicate-fact (advisory via auditVault) ───────────────────

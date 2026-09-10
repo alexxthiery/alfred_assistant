@@ -1,0 +1,24 @@
+{
+  "_comment": "Regression for source-backed concept provenance. A concept card citing a type=source URL page should still be flagged if that source lacks structured author/year metadata; body prose like 'Author: ...' is not enough for downstream audit/retrieval.",
+  "setup": [
+    [
+      "write",
+      "weak-source-example",
+      "--title", "Weak source example",
+      "--type", "source",
+      "--kind", "blog",
+      "--url", "https://example.org/weak-source",
+      "--year", "2026",
+      "--content", "- [fact] Author: Example Researcher ^[telegram:2026-09-10]"
+    ],
+    [
+      "write",
+      "idea-cites-weak-source-example",
+      "--title", "Idea cites weak source example",
+      "--type", "concept",
+      "--tags", "idea,principle",
+      "--content", "- [claim] Broad synthesis from the source ^[weak-source-example] ^[telegram:2026-09-10]\n- cites [[weak-source-example]]"
+    ]
+  ],
+  "cmd": ["audit", "--all", "--rule", "idea-cites-weak-source"]
+}

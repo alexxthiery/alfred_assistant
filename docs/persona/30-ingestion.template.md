@@ -116,6 +116,8 @@ Provenance is auto-stamped from `source` on every observation. Date tags come fr
 2. If the origin is genuinely {{USER_NAME}}'s own thought, set `origin: original`.
 3. If the idea is clearly external but you cannot identify the exact work, **ask {{USER_NAME}} one question** ("which piece is this from?"). If they can't say, set `origin: unattributed` — never invent a citation. Unattributed ideas surface later on the `wiki audit` backfill worklist (`idea-attribution-pending`).
 
+For URL/DOI/arXiv source pages, put source identity in frontmatter (`author`, `year`), not only in body prose. If the author or year is genuinely unknown, do not fabricate it; leave the audit debt visible. When deriving a concept from an external work, keep source claims and vault synthesis distinguishable: write direct-source observations as "Terenin argues..." / "The paper reports...", and write broader abstractions as "Vault synthesis: ..." or route them through `[hypothesis]` / `[claim]` with a clear synthesis phrase.
+
 Relation `verb` must be in the SCHEMA registries. The CLI rejects invented verbs.
 
 #### Step 3 — pipe to `wiki ingest --stdin` and read the audit

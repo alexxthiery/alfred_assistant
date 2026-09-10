@@ -67,7 +67,7 @@ The `type:` frontmatter field must be one of these. The CLI refuses unknown type
 | `entity` | one person, org, product, place, tool | `tags` must include one of: `person`, `org`, `tool`, `paper`, `media` | ≥1 relation OR ≥2 observations |
 | `concept` | one idea, framework, theory, pattern | — | ≥1 relation OR ≥2 observations |
 | `decision` | one explicit choice by Alice | `decided_on: YYYY-MM-DD`; optional `supersedes: [slug]` | — |
-| `source` | one work: an ingested document OR a bibliographic reference (book, paper, blog) | `kind`; for an ingested local file also `raw_path`, `sha256`, `ingested_at`; for a pure reference use `url`/`doi`/`arxiv` + optional `author`, `year` | — |
+| `source` | one work: an ingested document OR a bibliographic reference (book, paper, blog) | `kind`; for an ingested local file also `raw_path`, `sha256`, `ingested_at`; for a pure reference use `url`/`doi`/`arxiv` + structured `author`, `year` when known | — |
 | `synthesis` | a cross-cutting analysis stitching multiple pages | `derived_from: [slug, slug, ...]` (≥2 entries) | — |
 | `todo` | one task or reminder | `status: open\|doing\|done\|abandoned`; optional `due`, `priority: high\|med\|low`, `remind_at`, `notify` | — |
 | `note` | catch-all (use sparingly; lint nags) | — | — |
@@ -249,6 +249,8 @@ Model the origin two ways, both pointing at a `type: source` node:
 The `unattributed-idea` audit rule (strict, high) **blocks writes** of `type: concept` pages tagged `idea`, `opinion`, or `principle` that have observations but none of: an `origin`, a `derived_from` (the instance/principle trail), a `cites [[source-slug]]` relation whose target is `type: source`, or an inline provenance marker that names the work (`^[arxiv:...]`, `^[doi:...]`, `^[web:...]`, `^[author-year]`). A pure-capture marker (`^[raw/...]`, `^[telegram:...]`, `^[lab:...]`) does not count — it records where the fact was captured, not which work the idea came from. `^[inbox/...]` is not valid durable provenance at all; move or triage the file to `raw/<kind>/...` first. A `cites` edge to another concept is allowed as a semantic relation, but it does **not** satisfy intellectual attribution. The two control words are escape valves so capture is never forced to invent an attribution — mark `unattributed` and ask, never fabricate. `origin: unattributed` pages are then surfaced by the non-blocking `idea-attribution-pending` rule as a `wiki audit` backfill worklist.
 
 A bibliographic source page is a `type: source` node created without a local file: `wiki write smith-2024 --type source --title "Title (Smith 2024)" --kind paper --url ... --doi ... --author "Smith" --year 2024`.
+
+For URL/DOI/arXiv reference pages, `author` and `year` are structured provenance metadata, not prose decoration. Do not bury "Author: ..." only in the body; set the frontmatter fields so Alfred can audit and retrieve source identity without re-reading the page. `source-reference-metadata` flags reference source pages missing structured `author` or `year`, and `idea-cites-weak-source` propagates that warning to idea/principle cards that cite such a weak source. These are advisory backfill rules, not strict blockers: never fabricate metadata. If the source identity really is unknown, leave the audit debt visible and ask rather than inventing it.
 
 ## Hard rules
 

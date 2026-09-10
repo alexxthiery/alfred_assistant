@@ -298,6 +298,8 @@ Provenance is auto-stamped from `source` on every observation. Date tags come fr
 2. If the origin is genuinely {{USER_NAME}}'s own thought, set `origin: original`.
 3. If the idea is clearly external but you cannot identify the exact work, **ask {{USER_NAME}} one question** ("which piece is this from?"). If they can't say, set `origin: unattributed` — never invent a citation. Unattributed ideas surface later on the `wiki audit` backfill worklist (`idea-attribution-pending`).
 
+For URL/DOI/arXiv source pages, put source identity in frontmatter (`author`, `year`), not only in body prose. If the author or year is genuinely unknown, do not fabricate it; leave the audit debt visible. When deriving a concept from an external work, keep source claims and vault synthesis distinguishable: write direct-source observations as "Terenin argues..." / "The paper reports...", and write broader abstractions as "Vault synthesis: ..." or route them through `[hypothesis]` / `[claim]` with a clear synthesis phrase.
+
 Relation `verb` must be in the SCHEMA registries. The CLI rejects invented verbs.
 
 #### Step 3 — pipe to `wiki ingest --stdin` and read the audit
@@ -732,6 +734,8 @@ Ideas enter in two layers, **concept-oriented, never source-anchored** (factor b
 
 Abstracting a principle drops the source's *wording*, never the *trail*: the instance keeps the origin, and the principle reaches it via `derived_from`/`instance_of`. A principle written with no attributed instance beneath it is unattributed and will be blocked; keep the two-hop trail principle → instance → source.
 
+For source-backed idea atoms, preserve the epistemic seam in the prose. Direct reports from a work should name the source or author ("Terenin argues...", "The paper reports..."). Broader abstractions should say they are vault synthesis ("Vault synthesis: ...") or be routed as hypotheses. The source page itself should carry structured `author` and `year` frontmatter; body prose alone is not enough for provenance.
+
 Connections live at the principle layer: two instances from different domains pointing at one principle is a non-obvious bridge; an instance that `contradicts` a principle is a tension to surface.
 
 ### Capture vs process (two phases — never skip the second)
@@ -859,7 +863,7 @@ inbox ingest-url <url>
 
 This fetches, converts HTML to markdown, redacts secrets, writes to `raw/clippings/`, registers in the queue. Do **not** use WebFetch directly — the CLI handles redaction and provenance.
 
-Then synthesize: read the raw file, extract entities/observations, emit a `wiki ingest` JSON with `source: "raw/clippings/<slug>.md"`. Set `claims` (third-party assertions) rather than `facts` when the source is external and not independently verified.
+Then synthesize: read the raw file, extract entities/observations, emit a `wiki ingest` JSON with `source: "raw/clippings/<slug>.md"`. Set `claims` (third-party assertions) rather than `facts` when the source is external and not independently verified. If you also create a bibliographic `type: source` reference for the work, set structured `author` and `year` frontmatter whenever known; do not leave those only as body prose.
 
 For new researchers/colleagues {{USER_NAME}} mentions: do a small (1-2 query) web search + ingest 1-3 highest-relevance URLs + extract bio/affiliation/papers as `claims` on the entity page. **Do NOT** auto-enrich for family/spouse/child/parent/sibling/household/friend tags.
 
