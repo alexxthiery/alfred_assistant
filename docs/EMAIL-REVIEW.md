@@ -48,7 +48,8 @@ The ledger is operational state, not durable knowledge.
 
 ## Daily 10:00 Review
 
-The intended daily routine is agentic, not purely deterministic:
+The intended daily routine is agentic, not purely deterministic. In an
+interactive session Alfred can run the CLI directly:
 
 1. Run `/workspace/extra/vault/.bin/email-review --days 1 --max-questions 7 --record-ledger`.
 2. Read the short report.
@@ -58,6 +59,11 @@ The intended daily routine is agentic, not purely deterministic:
 6. Append stronger ledger statuses when useful: `todo-created`, `vaulted`, `not-actionable`, `deferred`.
 
 Do not schedule this as a fully deterministic host-only job like `daily-brief`: the analysis needs agent judgment. The supported scheduler path is `integrations/scheduling/run-email-review.sh`, normally installed as `com.alfred.email-review` at 10:00 local after the user asks for it.
+
+For scheduled runs, the wrapper runs `.bin/email-review` itself and then passes
+the metadata-only report to the headless agent. The agent should not run Gmail
+commands again in that path; this avoids coupling daily email review to a
+non-interactive shell-command permission gate.
 
 ## Question Discipline
 

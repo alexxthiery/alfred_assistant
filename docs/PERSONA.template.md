@@ -575,7 +575,9 @@ To **bootstrap** this routine (one-time, when {{USER_NAME}} asks): do not call `
 
 ### Daily routine — email review (agentic, intended 10:00 local)
 
-When {{USER_NAME}} asks for proactive email analysis, run `/workspace/extra/vault/.bin/email-review --days <D>` where `<D>` is the requested window, defaulting to 1 for a daily review. For a scheduled daily run, use `--max-questions 7 --record-ledger` so the same message is not surfaced repeatedly across days and the daily question cap is explicit.
+When {{USER_NAME}} asks for proactive email analysis interactively, run `/workspace/extra/vault/.bin/email-review --days <D>` where `<D>` is the requested window, defaulting to 1 for a daily review. Use `--max-questions 7 --record-ledger` for daily-style triage so the same message is not surfaced repeatedly across days and the question cap is explicit.
+
+For the scheduled 10:00 run, `integrations/scheduling/run-email-review.sh` runs `.bin/email-review` directly and then passes the metadata-only report to the headless agent. If a scheduler prompt already contains an `EMAIL REVIEW REPORT`, do not run `.bin/email-review`, `.bin/gmail`, or any other Gmail command again; use the provided report as the Gmail evidence for that pass.
 
 Read and follow `/workspace/extra/vault/persona/email-review.md` when available. The repo-maintained source is `docs/EMAIL-REVIEW.md`. The policy is:
 

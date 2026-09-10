@@ -56,7 +56,7 @@ const JOBS = [
     wrapper: 'run-email-review.sh',
     schedule: { kind: 'calendar', hour: 10, minute: 0 },
     needsAgent: true,
-    purpose: 'Headless agent reviews recent Gmail via email-review and sends only actionable questions/updates to Telegram.',
+    purpose: 'Wrapper scans recent Gmail via email-review, then headless agent reviews the report and sends only actionable questions/updates to Telegram.',
   },
   {
     name: 'docker-watchdog',

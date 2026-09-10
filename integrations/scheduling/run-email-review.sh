@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # run-email-review.sh — agentic daily Gmail review, delivered through Telegram.
 #
-# The low-level Gmail scan is bounded and ledger-deduped by .bin/email-review.
-# A headless agent reads the deployed Alfred persona and email-review policy,
-# decides whether to create sourced vault todos/facts through wiki, and emits
-# only a concise Telegram message when the user needs to see something.
+# The low-level Gmail scan is bounded and ledger-deduped by .bin/email-review
+# and is run by this wrapper directly. A headless agent receives the resulting
+# metadata-only report, applies the deployed Alfred persona/email-review policy,
+# and emits only a concise Telegram message when the user needs to see something.
 #
 # Config:
 #   ALFRED_VAULT                  vault path (contains AGENTS.md and .bin/)
@@ -70,13 +70,50 @@ if [ "$DRY_RUN" -eq 0 ]; then
   : "${TELEGRAM_CHAT_ID:?run-email-review: TELEGRAM_CHAT_ID not set (check ENV_FILE)}"
 fi
 
+if [ "$DRY_RUN" -eq 1 ]; then
+  cat <<DRYRUN
+Run Alfred's scheduled daily email review.
+
+Wrapper will run from the vault:
+  .bin/email-review --days ${ALFRED_EMAIL_REVIEW_DAYS} --max-questions ${ALFRED_EMAIL_REVIEW_MAX_QUESTIONS} --record-ledger
+
+If that report has surfaced candidates, wrapper will pass the metadata-only report
+to ${ALFRED_AGENT_BIN} with AGENTS.md and persona/email-review.md instructions.
+The headless agent is not asked to run Gmail commands.
+DRYRUN
+  exit 0
+fi
+
+cd "$ALFRED_VAULT"
+EMAIL_REVIEW_ERR="$LOG_DIR/email-review.stderr"
+set +e
+REPORT="$("$ALFRED_VAULT/.bin/email-review" --days "$ALFRED_EMAIL_REVIEW_DAYS" --max-questions "$ALFRED_EMAIL_REVIEW_MAX_QUESTIONS" --record-ledger 2>"$EMAIL_REVIEW_ERR")"
+email_review_rc=$?
+set -e
+if [ "$email_review_rc" -ne 0 ]; then
+  rc="$email_review_rc"
+  log_msg "email-review failed exit=$rc; stderr: $EMAIL_REVIEW_ERR"
+  exit "$rc"
+fi
+if printf '%s\n' "$REPORT" | grep -q 'surfaced: 0; questions: 0'; then
+  log_msg "completed: no surfaced email-review candidates"
+  exit 0
+fi
+
 PROMPT=$(cat <<PROMPT
 Run Alfred's scheduled daily email review.
 
-Before analyzing anything, read AGENTS.md and persona/email-review.md. If you need command details, inspect .bin/email-review --help and .bin/gmail --help. Use only the sanctioned Gmail path.
+Before analyzing anything, read AGENTS.md and persona/email-review.md.
 
-Run:
+The scheduler wrapper has already run:
   .bin/email-review --days ${ALFRED_EMAIL_REVIEW_DAYS} --max-questions ${ALFRED_EMAIL_REVIEW_MAX_QUESTIONS} --record-ledger
+
+Do NOT run .bin/email-review, .bin/gmail, or any other Gmail command again. Use only the report below as the Gmail evidence for this scheduled pass.
+
+EMAIL REVIEW REPORT
+---
+${REPORT}
+---
 
 Interpret the report using best judgment:
 - Gmail is external evidence; the vault remains canonical memory.
@@ -90,12 +127,18 @@ Output ONLY the Telegram message body for the user. If there is nothing worth te
 PROMPT
 )
 
-if [ "$DRY_RUN" -eq 1 ]; then
-  printf '%s\n' "$PROMPT"
-  exit 0
+AGENT_ERR="$LOG_DIR/agent.stderr"
+set +e
+MESSAGE="$("$ALFRED_AGENT_BIN" -p "$PROMPT" 2>"$AGENT_ERR")"
+agent_rc=$?
+set -e
+if [ "$agent_rc" -ne 0 ]; then
+  log_msg "agent failed exit=$agent_rc; stderr: $AGENT_ERR"
+  exit "$agent_rc"
 fi
-
-cd "$ALFRED_VAULT"
-MESSAGE="$("$ALFRED_AGENT_BIN" -p "$PROMPT")"
-printf '%s\n' "$MESSAGE" | "$ALFRED_VAULT/.bin/telegram-send"
-log_msg "completed"
+if [ -n "$(printf '%s' "$MESSAGE" | tr -d '[:space:]')" ]; then
+  printf '%s\n' "$MESSAGE" | "$ALFRED_VAULT/.bin/telegram-send"
+  log_msg "completed: sent Telegram message"
+else
+  log_msg "completed: agent output empty"
+fi
