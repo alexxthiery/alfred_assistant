@@ -1,7 +1,7 @@
 // search-fallback.js — deterministic Node-only retrieval for wiki search.
 //
 // This is the fail-safe path for environments without DuckDB. It does not
-// replace BM25; it keeps Alfred's retrieval reflex usable when the analytical
+// replace BM25; it keeps the assistant's retrieval reflex usable when the analytical
 // index is unavailable.
 
 'use strict';

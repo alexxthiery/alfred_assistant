@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const {
@@ -35,7 +37,7 @@ test('persona fragment manifest is deterministic and complete', () => {
 
 test('assembled persona keeps required identity placeholders', () => {
   const assembled = loadPersonaTemplate(REPO_ROOT);
-  for (const token of ['{{USER_NAME}}', '{{USER_SLUG}}', '{{USER_EMAIL}}', '{{USER_TZ_CITY}}']) {
+  for (const token of ['{{USER_NAME}}', '{{USER_SLUG}}', '{{USER_EMAIL}}', '{{USER_TZ_CITY}}', '{{ASSISTANT_NAME}}']) {
     assert.ok(assembled.includes(token), `missing ${token}`);
   }
 });
@@ -55,9 +57,34 @@ test('stripLeadingInstructionComment matches the legacy line-based renderer', ()
 });
 
 test('renderPersonaTemplate replaces placeholders without shell escaping hazards', () => {
-  const rendered = renderPersonaTemplate('<!--\nmetadata\n-->\nHello {{USER_NAME}} <{{USER_EMAIL}}>.\n', {
+  const rendered = renderPersonaTemplate('<!--\nmetadata\n-->\n{{ASSISTANT_NAME}} helps {{USER_NAME}} <{{USER_EMAIL}}>.\n', {
+    ASSISTANT_NAME: 'Minerva',
     USER_NAME: 'A&B|C',
     USER_EMAIL: 'user+test@example.com',
   });
-  assert.equal(rendered, 'Hello A&B|C <user+test@example.com>.\n');
+  assert.equal(rendered, 'Minerva helps A&B|C <user+test@example.com>.\n');
+});
+
+test('render-persona.sh uses assistant.name from the target vault config', () => {
+  const vault = fs.mkdtempSync(path.join(os.tmpdir(), 'persona-render-'));
+  fs.writeFileSync(path.join(vault, '.alfred.yml'), [
+    'user:',
+    '  slug: sample-user',
+    '  name: Sample User',
+    'assistant:',
+    '  name: Minerva',
+    'weekly_review:',
+    '  timezone: Asia/Singapore',
+    '',
+  ].join('\n'));
+
+  const rendered = execFileSync(path.join(REPO_ROOT, 'tools', 'render-persona.sh'), [
+    '--vault',
+    vault,
+    '--stdout',
+  ], { encoding: 'utf8' });
+
+  assert.match(rendered, /^# Minerva — Sample User's personal agent$/m);
+  assert.match(rendered, /^You are Minerva\. You manage Sample User's personal knowledge vault\.$/m);
+  assert.doesNotMatch(rendered, /^You are Alfred\./m);
 });

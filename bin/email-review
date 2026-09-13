@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bin/email-review — bounded Gmail triage report for Alfred.
+"""bin/email-review — bounded Gmail triage report for the assistant.
 
 Reads recent Gmail messages through IMAP, suppresses messages already present
 in the metadata-only ledger, and emits an agent-friendly markdown or JSON

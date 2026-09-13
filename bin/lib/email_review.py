@@ -154,9 +154,9 @@ def triage_message(message):
         category = 'action_needed'
         suggested = 'consider creating or updating a background todo'
         if dateish:
-            question = f'This looks actionable with date {dateish}. Should Alfred create/update a background todo?'
+            question = f'This looks actionable with date {dateish}. Should I create/update a background todo?'
         else:
-            question = 'This looks actionable. Should Alfred create/update a background todo, or is it already handled?'
+            question = 'This looks actionable. Should I create/update a background todo, or is it already handled?'
     elif context_score >= 3 or score >= 3:
         category = 'context_candidate'
         suggested = 'consider logging a sourced vault fact/event if this is useful later'

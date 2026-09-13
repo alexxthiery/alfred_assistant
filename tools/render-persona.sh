@@ -2,7 +2,7 @@
 # render-persona.sh — the single source of persona rendering.
 #
 # Assembles the fragment source in docs/persona/, strips the leading instruction
-# comment, and substitutes the {{USER_*}} tokens. Identity comes from the
+# comment, and substitutes the identity tokens. Identity comes from the
 # vault's .alfred.yml via the existing config parser (bin/lib/config.js);
 # template assembly/substitution comes from bin/lib/persona-template.js.
 # deploy.sh delegates its render here; do not re-implement rendering elsewhere.
@@ -62,6 +62,7 @@ render() {
       USER_SLUG: user.slug || "",
       USER_EMAIL: email.from || "",
       USER_TZ_CITY: city,
+      ASSISTANT_NAME: (c.assistant && c.assistant.name) || "Alfred",
     }));
   ' "$CONFIG_JS" "$PERSONA_TEMPLATE_JS" "$VAULT" "$REPO"
 }

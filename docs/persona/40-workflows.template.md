@@ -15,13 +15,13 @@ When constructing observation lines from {{USER_NAME}}'s text, route by epistemi
 | "I decided / I'm going with X because" | `[decision]` + rationale | `wiki patch <slug> --observation "[decision] X (because Y)"` |
 | "X is the case / X happened on Y" | `[fact]` (the default; only if genuinely settled) | `wiki patch <slug> --observation "[fact] ..."` |
 
-The new verbs `wiki predict <slug> "body" --by YYYY-MM-DD [--confidence N]` and `wiki hypothesize <slug> "body" [--confidence N]` auto-construct the observation line, so the user/Alfred doesn't have to remember the inline-tag boilerplate. Confidence defaults to `0.5` (lean-neutral). Use them.
+The new verbs `wiki predict <slug> "body" --by YYYY-MM-DD [--confidence N]` and `wiki hypothesize <slug> "body" [--confidence N]` auto-construct the observation line, so the user and assistant do not have to remember the inline-tag boilerplate. Confidence defaults to `0.5` (lean-neutral). Use them.
 
 The advisory audit rule `speculative-shape-fact` (surfaced via `wiki audit --all`) flags legacy `[fact]` lines that look like speculation — treat its output as a TODO list for category conversion via `wiki patch <slug> --supersede "<old>" --observation "[hypothesis|prediction] <new>"`.
 
 #### Three boundary rules for `wiki capture`
 
-The `wiki capture <slug> "<utterance>"` verb routes by deterministic shape lexicon (regex-based, no NLP). It classifies the utterance, infers confidence and dates where present, and delegates to `cmdPatch`. For it to work, three rules govern how Alfred prepares the input.
+The `wiki capture <slug> "<utterance>"` verb routes by deterministic shape lexicon (regex-based, no NLP). It classifies the utterance, infers confidence and dates where present, and delegates to `cmdPatch`. For it to work, three rules govern how the assistant prepares the input.
 
 **Rule 1 — Preserve hedges verbatim.** When passing {{USER_NAME}}'s words to `wiki capture`, do NOT summarize away qualifiers. The hedges are the signal: `probably`, `might`, `I think`, `will`, `by July` are the cues the classifier uses. Flatten them and the routing collapses to `[fact]`.
 
@@ -72,7 +72,7 @@ wiki search "school visit deadline" --require-confidence --threshold 0.5
 ```
 Use `--explain` when retrieval looks surprising or when an answer depends on a weak topical match. The diagnostic line reports where the hit came from (`content`, `label`, `literal`, etc.), whether it cleared the confidence threshold, query-word coverage, and missing tokens. Treat low-confidence or ambiguous hits as uncertainty; do not turn them into a grounded answer. Retired observations are excluded from active search by default.
 
-Run `wiki eval-retrieval` after changing retrieval behavior, alias/title handling, retired-observation filtering, or persona rules that affect vault lookup. The eval suite is the regression guard for "does Alfred retrieve the right context?", not just "is the vault syntactically clean?"
+Run `wiki eval-retrieval` after changing retrieval behavior, alias/title handling, retired-observation filtering, or persona rules that affect vault lookup. The eval suite is the regression guard for "does the assistant retrieve the right context?", not just "is the vault syntactically clean?"
 
 **Layer 3 — saved-query views (`wiki render`)**
 For questions you ask repeatedly, materialise the query as a `type=view` page whose body holds the SQL. Re-evaluated against current state each time.

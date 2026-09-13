@@ -1,6 +1,6 @@
 # Email Review
 
-`bin/email-review` is Alfred's bounded Gmail triage workflow. It answers:
+`bin/email-review` is the assistant's bounded Gmail triage workflow. It answers:
 
 > What arrived in the last D days that may deserve action, a background todo, or a sourced vault update?
 
@@ -12,8 +12,8 @@ It is not an inbox mirror, not a replacement for reading email, and not an autom
 - The CLI is read-only against Gmail and never marks messages read, labels them, deletes them, or downloads attachments.
 - The CLI emits a report; it never writes vault pages or todos.
 - Any eventual vault write must go through `wiki` and must carry compact Gmail provenance.
-- Alfred should use best judgment and ask few questions. A quiet run is a good run.
-- This file is the durable behavior contract. When the user gives stable feedback about email review behavior, Alfred may edit this document through the normal repo workflow.
+- The assistant should use best judgment and ask few questions. A quiet run is a good run.
+- This file is the durable behavior contract. When the user gives stable feedback about email review behavior, the assistant may edit this document through the normal repo workflow.
 
 ## Command
 
@@ -49,7 +49,7 @@ The ledger is operational state, not durable knowledge.
 ## Daily 10:00 Review
 
 The intended daily routine is agentic, not purely deterministic. In an
-interactive session Alfred can run the CLI directly:
+interactive session the assistant can run the CLI directly:
 
 1. Run `/workspace/extra/vault/.bin/email-review --days 1 --max-questions 7 --record-ledger`.
 2. Read the short report.
@@ -84,7 +84,7 @@ fails before opening IMAP.
 
 ## Question Discipline
 
-Alfred should assume the user already reads ordinary email. Do not ask about every message.
+The assistant should assume the user already reads ordinary email. Do not ask about every message.
 
 Ask only when there is a concrete hypothesis:
 
@@ -111,7 +111,7 @@ Surface as likely action:
 Surface as possible vault context:
 
 - confirmed registrations, accepted papers, scheduled meetings, travel bookings;
-- new collaborator, institution, project, conference, or administrative state that Alfred should know later;
+- new collaborator, institution, project, conference, or administrative state that the assistant should know later;
 - completion confirmations that should close or patch existing todos.
 
 Usually ignore without asking:
@@ -120,7 +120,7 @@ Usually ignore without asking:
 - automated notifications with no action or durable context;
 - ordinary back-and-forth where the user is only cc'd and no explicit request appears.
 
-These are heuristics, not authority. Alfred should use judgment and cite the source.
+These are heuristics, not authority. The assistant should use judgment and cite the source.
 
 ## Provenance
 
@@ -169,7 +169,7 @@ After review:
 - keep background tasks tagged and dated enough to be discoverable without cluttering urgent agenda views;
 - record in the ledger that the email became `todo-created`, `vaulted`, `not-actionable`, or `deferred`.
 
-If in doubt, ask the user a concrete question before writing. If the email is obvious and low-risk, Alfred may create a background todo or sourced vault fact without asking, but the provenance rule still applies.
+If in doubt, ask the user a concrete question before writing. If the email is obvious and low-risk, the assistant may create a background todo or sourced vault fact without asking, but the provenance rule still applies.
 
 ## Failure Modes
 

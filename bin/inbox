@@ -148,7 +148,7 @@ function appendToPending(slug, kind) {
   fs.mkdirSync(RAW_DIR, { recursive: true });
   const line = `- ${kind}/${slug}\n`;
   if (!fs.existsSync(PENDING_PATH)) {
-    fs.writeFileSync(PENDING_PATH, `# Pending sources\n\nOne entry per pending raw source. Alfred removes the line after processing.\n\n${line}`);
+    fs.writeFileSync(PENDING_PATH, `# Pending sources\n\nOne entry per pending raw source. The assistant removes the line after processing.\n\n${line}`);
   } else {
     fs.appendFileSync(PENDING_PATH, line);
   }
@@ -257,7 +257,7 @@ function readPending() {
 }
 
 function writePending(entries) {
-  const header = `# Pending sources\n\nOne entry per pending raw source. Alfred removes the line after processing.\n\n`;
+  const header = `# Pending sources\n\nOne entry per pending raw source. The assistant removes the line after processing.\n\n`;
   const body = entries.map((e) => `- ${e}`).join('\n') + (entries.length ? '\n' : '');
   fs.writeFileSync(PENDING_PATH, header + body);
 }
@@ -457,7 +457,7 @@ if (!verb || !cmds[verb]) {
   console.error('');
   console.error('  triage [--dry-run]              scan inbox/, redact secrets, write raw/, move originals');
   console.error('  ingest-url <url> [--dry-run] [--slug <s>]  fetch URL, redact, write raw/clippings/, queue');
-  console.error('  queue                           list pending raw sources Alfred has not processed yet');
+  console.error('  queue                           list pending raw sources the assistant has not processed yet');
   console.error('  ack <kind/slug>                 remove a slug from the pending queue');
   console.error('  list                    list all raw sources with status');
   console.error('');

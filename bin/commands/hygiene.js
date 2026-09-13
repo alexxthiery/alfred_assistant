@@ -535,7 +535,7 @@ function cmdPreflight(args) {
         'Install `bird`, set ALFRED_BIRD_BIN, or set paths.bird_bin in .alfred.yml to enable .bin/twitter-read.');
     } else if (authToken !== ct0) {
       push('twitter-read', 'WARN',
-        `${backend.bin} (${backend.source}); partial Alfred cookie env`,
+        `${backend.bin} (${backend.source}); partial assistant cookie env`,
         `Set both ${ALFRED_BIRD_AUTH_TOKEN_ENV} and ${ALFRED_BIRD_CT0_ENV}, or unset both and let bird use browser cookies / ~/.config/bird/config.json5.`);
     } else if (process.env[ALFRED_BIRD_BIN_ENV]) {
       push('twitter-read', 'PASS', `${backend.bin} (${backend.source})`);

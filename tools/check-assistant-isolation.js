@@ -20,6 +20,7 @@ const REQUIRED_ENV = [
   'ALFRED_EXPECTED_LABEL',
   'TELEGRAM_BOT_TOKEN',
   'TELEGRAM_CHAT_ID',
+  'TZ',
 ];
 const SECRET_KEYS = new Set([
   'TELEGRAM_BOT_TOKEN',
@@ -33,14 +34,16 @@ function usage() {
   return [
     'Usage:',
     '  tools/check-assistant-isolation.js --vault <path> --env <path> --label <slug>',
-    '      [--expect-user-slug <slug>] [--other-vault <path>] [--telegram-dry-run]',
+    '      [--expect-user-slug <slug>] [--expect-assistant-name <name>]',
+    '      [--other-vault <path>] [--telegram-dry-run]',
     '',
     'Checks:',
     '  - vault exists and has .alfred.yml, AGENTS.md, .bin/wiki, .bin/telegram-send',
     '  - env file lives under <vault>/.alfred/private/ and is bound to this vault/label',
-    '  - env file has TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID without printing secrets',
+    '  - env file has TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, and TZ without printing secrets',
     '  - deployed wiki jobs manifest uses com.<label>.* labels',
     '  - optional: user.slug matches --expect-user-slug',
+    '  - optional: assistant.name matches --expect-assistant-name',
     '  - optional: each --other-vault is inaccessible from this runtime',
     '  - optional: telegram-send --dry-run succeeds using this env file',
   ].join('\n');
@@ -60,6 +63,7 @@ function parseArgv(argv) {
       case '--env': out.envFile = value(); break;
       case '--label': out.label = value(); break;
       case '--expect-user-slug': out.expectUserSlug = value(); break;
+      case '--expect-assistant-name': out.expectAssistantName = value(); break;
       case '--other-vault': out.otherVaults.push(value()); break;
       case '--telegram-dry-run': out.telegramDryRun = true; break;
       case '-h':
@@ -203,7 +207,10 @@ function check(args) {
   if (args.expectUserSlug && cfg.user.slug !== args.expectUserSlug) {
     throw new Error(`.alfred.yml user.slug is '${cfg.user.slug}', expected '${args.expectUserSlug}'`);
   }
-  ok(`vault identity loaded: user.slug=${cfg.user.slug}`);
+  if (args.expectAssistantName && cfg.assistant.name !== args.expectAssistantName) {
+    throw new Error(`.alfred.yml assistant.name is '${cfg.assistant.name}', expected '${args.expectAssistantName}'`);
+  }
+  ok(`vault identity loaded: user.slug=${cfg.user.slug}, assistant.name=${cfg.assistant.name}`);
 
   const env = parseEnvFile(envFile);
   for (const key of REQUIRED_ENV) {
@@ -217,7 +224,10 @@ function check(args) {
     throw new Error(`env file ALFRED_EXPECTED_LABEL is '${env.ALFRED_EXPECTED_LABEL}', expected '${args.label}'`);
   }
   ok(`env file is bound to vault + label: ${args.label}`);
-  ok(`env file has required Telegram keys: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID`);
+  if (!/^[A-Za-z_]+\/[A-Za-z0-9_+\-]+(?:\/[A-Za-z0-9_+\-]+)?$/.test(env.TZ)) {
+    throw new Error(`env file TZ does not look like an IANA timezone: ${env.TZ}`);
+  }
+  ok(`env file has required Telegram keys and TZ`);
 
   const manifest = runJson(wiki, ['jobs', '--label', args.label, '--json'], { cwd: vault, redactEnv: env });
   const badLabels = manifest

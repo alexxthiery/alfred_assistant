@@ -102,9 +102,9 @@ function cmdHypothesize(args) {
 // `wiki capture` — utterance-driven entry point. Classifies user speech by
 // deterministic shape lexicon (regex banks in bin/lib/capture-classifier.js)
 // and routes to the right observation category. Reduces LLM judgment load:
-// Alfred passes faithful user speech (hedges intact); the classifier picks
+// The assistant passes faithful user speech (hedges intact); the classifier picks
 // the category. Refuses on ambiguity or prediction-without-date; --as
-// <category> overrides when Alfred genuinely knows better.
+// <category> overrides when the assistant genuinely knows better.
 function cmdCapture(args) {
   const slug = args._[0];
   let text = null;

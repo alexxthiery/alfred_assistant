@@ -34,7 +34,7 @@ function makeVault(opts = {}) {
     `  slug: ${opts.userSlug || 'child'}`,
     `  name: ${opts.userName || 'Child'}`,
     'assistant:',
-    '  name: Alfred',
+    `  name: ${opts.assistantName || 'Alfred'}`,
     'paths:',
     '  vault_root: ""',
     '',
@@ -45,6 +45,7 @@ function makeVault(opts = {}) {
     `ALFRED_EXPECTED_LABEL=${opts.expectedLabel || 'child'}`,
     opts.omitToken ? '' : `TELEGRAM_BOT_TOKEN=${opts.token || '123456:SECRET_TOKEN'}`,
     `TELEGRAM_CHAT_ID=${opts.chatId || '987654321'}`,
+    opts.omitTz ? '' : `TZ=${opts.tz || 'Asia/Singapore'}`,
     '',
   ].filter((x) => x !== '').join('\n'));
 
@@ -96,6 +97,31 @@ test('passes for one vault/env/label namespace and does not print Telegram token
   assert.doesNotMatch(r.stdout + r.stderr, /SECRET_TOKEN/);
 });
 
+test('can verify the configured assistant display name', () => {
+  const { vault, envFile } = makeVault({ assistantName: 'Minerva' });
+  const r = runCheck([
+    '--vault', vault,
+    '--env', envFile,
+    '--label', 'child',
+    '--expect-user-slug', 'child',
+    '--expect-assistant-name', 'Minerva',
+  ]);
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  assert.match(r.stdout, /assistant\.name=Minerva/);
+});
+
+test('fails when the configured assistant display name drifts', () => {
+  const { vault, envFile } = makeVault({ assistantName: 'Alfred' });
+  const r = runCheck([
+    '--vault', vault,
+    '--env', envFile,
+    '--label', 'child',
+    '--expect-assistant-name', 'Minerva',
+  ]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /assistant\.name is 'Alfred', expected 'Minerva'/);
+});
+
 test('fails when deployed wiki reports a different label namespace', () => {
   const { vault, envFile } = makeVault();
   const r = runCheck(['--vault', vault, '--env', envFile, '--label', 'child'], { FAKE_WRONG_LABEL: '1' });
@@ -108,6 +134,20 @@ test('fails when Telegram token is absent from the assistant env file', () => {
   const r = runCheck(['--vault', vault, '--env', envFile, '--label', 'child']);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /env file missing TELEGRAM_BOT_TOKEN/);
+});
+
+test('fails when timezone is absent from the assistant env file', () => {
+  const { vault, envFile } = makeVault({ omitTz: true });
+  const r = runCheck(['--vault', vault, '--env', envFile, '--label', 'child']);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /env file missing TZ/);
+});
+
+test('fails when timezone is not IANA-shaped', () => {
+  const { vault, envFile } = makeVault({ tz: 'Singapore' });
+  const r = runCheck(['--vault', vault, '--env', envFile, '--label', 'child']);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /TZ does not look like an IANA timezone/);
 });
 
 test('fails when env file is bound to a different vault', () => {
@@ -135,6 +175,7 @@ test('fails when env file is outside the owning vault private directory', () => 
     'ALFRED_EXPECTED_LABEL=child',
     'TELEGRAM_BOT_TOKEN=123456:SECRET_TOKEN',
     'TELEGRAM_CHAT_ID=987654321',
+    'TZ=Asia/Singapore',
     '',
   ].join('\n'));
   const r = runCheck(['--vault', vault, '--env', outsideEnv, '--label', 'child']);

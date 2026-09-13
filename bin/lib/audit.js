@@ -189,7 +189,7 @@ function sourceReferenceMetadataProblem(page) {
     missing,
     detail: `reference source missing structured metadata: missing ${missing.join(', ')}`,
     message: `Source page ${slug} has a bibliographic locator (url/doi/arxiv) but lacks structured ${missing.join(' and ')} metadata. ` +
-      `Do not bury source identity only in prose observations; Alfred needs frontmatter to audit and retrieve provenance.`,
+      `Do not bury source identity only in prose observations; the assistant needs frontmatter to audit and retrieve provenance.`,
     fix: `wiki patch ${slug} --author "<author>" --year <year>`,
   };
 }
@@ -385,7 +385,7 @@ const AUDIT_RULES = [
   {
     // `[fact]` lines that read as speculation or future-tense almost certainly
     // belong in `[hypothesis]` or `[prediction]`. Surfacing them helps the
-    // user (and Alfred during ingest) maintain epistemic discipline: the
+    // user (and assistant during ingest) maintain epistemic discipline: the
     // schema distinguishes assertion from speculation, but only if writers
     // route lines to the right category. Advisory-only — false positives
     // ("Will Smith is an actor") are acceptable at low severity.
@@ -452,7 +452,7 @@ const AUDIT_RULES = [
   {
     // Bibliographic source pages must expose source identity in structured
     // frontmatter, not only as prose in the body. This keeps downstream
-    // concept cards auditable: Alfred can tell who/what a source is without
+    // concept cards auditable: the assistant can tell who/what a source is without
     // re-reading or re-scraping the page. Advisory, not strict — old/source-
     // poor pages are backfill work, and unknown metadata should be surfaced
     // rather than fabricated.

@@ -1,6 +1,6 @@
 # SCHEMA — the vault contract
 
-The agreed-upon shape of the vault. Both the assistant (Alfred by default) and the CLIs (`wiki`, `inbox`) treat this file as authoritative. Alfred re-reads it on every orientation; the wiki CLI enforces it at write time; lint surfaces drift.
+The agreed-upon shape of the vault. Both the assistant and the CLIs (`wiki`, `inbox`) treat this file as authoritative. The assistant re-reads it on every orientation; the wiki CLI enforces it at write time; lint surfaces drift.
 
 This file co-evolves with use. Edit it freely — every edit becomes a rule the rest of the system enforces. The CLI parses specific sections; do not move them.
 
@@ -50,7 +50,7 @@ Override discipline: if you genuinely need an overview page (e.g. "my profession
 ## Three layers
 
 - **`raw/`** — immutable source archive. Files arrive via `inbox triage`. Never edit after they land; re-ingest if needed.
-- **`wiki/`** — Alfred-maintained synthesized graph. One concept per page, flat directory, slug-based wikilinks. All writes go through `.bin/wiki`.
+- **`wiki/`** — assistant-maintained synthesized graph. One concept per page, flat directory, slug-based wikilinks. All writes go through `.bin/wiki`.
 - **This file (`SCHEMA.md`)** — the contract.
 
 Sibling folders not governed by this schema:
@@ -100,7 +100,7 @@ Conventions:
 
 ## Inline microsyntax (CLI-parseable; lint-checked)
 
-Wiki page bodies use these shapes. Alfred writes them; the CLI extracts them for `wiki relations`, `wiki observations`, and graph rendering.
+Wiki page bodies use these shapes. The assistant writes them; the CLI extracts them for `wiki relations`, `wiki observations`, and graph rendering.
 
 ### Observations
 
@@ -139,7 +139,7 @@ Every categorized observation line carries an invisible HTML-comment marker mint
 - **Position**: appended at end-of-line. For `~~[cat] ...~~` superseded lines, the marker lands after the closing `~~` so the strikethrough wrap stays intact.
 - **Minted by**: `cmdWrite` / `cmdPatch` automatically. `wiki sync-ids` is the one-time migration verb that retro-fits markers on legacy pages and is idempotent on re-run.
 - **Surfaced in DuckDB**: `observations.id` (nullable until the page is migrated). The FTS index uses an internal `observations.obs_uid` row counter, not `id`, because the 6-char id is probabilistically unique rather than strict.
-- **Used by**: write-time dedup (`exact-duplicate-observation` rule), and as a stable handle for surgical edits, transclusion (`[[slug#obs:XXXXXX]]`), and Alfred-agent references to specific observations on a page.
+- **Used by**: write-time dedup (`exact-duplicate-observation` rule), and as a stable handle for surgical edits, transclusion (`[[slug#obs:XXXXXX]]`), and assistant references to specific observations on a page.
 
 ### Temporal tags (CLI-parseable)
 
@@ -250,7 +250,7 @@ The `unattributed-idea` audit rule (strict, high) **blocks writes** of `type: co
 
 A bibliographic source page is a `type: source` node created without a local file: `wiki write smith-2024 --type source --title "Title (Smith 2024)" --kind paper --url ... --doi ... --author "Smith" --year 2024`.
 
-For URL/DOI/arXiv reference pages, `author` and `year` are structured provenance metadata, not prose decoration. Do not bury "Author: ..." only in the body; set the frontmatter fields so Alfred can audit and retrieve source identity without re-reading the page. `source-reference-metadata` flags reference source pages missing structured `author` or `year`, and `idea-cites-weak-source` propagates that warning to idea/principle cards that cite such a weak source. These are advisory backfill rules, not strict blockers: never fabricate metadata. If the source identity really is unknown, leave the audit debt visible and ask rather than inventing it.
+For URL/DOI/arXiv reference pages, `author` and `year` are structured provenance metadata, not prose decoration. Do not bury "Author: ..." only in the body; set the frontmatter fields so the assistant can audit and retrieve source identity without re-reading the page. `source-reference-metadata` flags reference source pages missing structured `author` or `year`, and `idea-cites-weak-source` propagates that warning to idea/principle cards that cite such a weak source. These are advisory backfill rules, not strict blockers: never fabricate metadata. If the source identity really is unknown, leave the audit debt visible and ask rather than inventing it.
 
 ## Hard rules
 
@@ -275,7 +275,7 @@ For URL/DOI/arXiv reference pages, `author` and `year` are structured provenance
 
 ## Tier escalation
 
-A slug referenced in `[[...]]` wikilinks 3+ times but missing its own page becomes a tier-escalation candidate. `wiki lint --only tiers` lists these; Alfred promotes stubs to full pages once they cross the threshold.
+A slug referenced in `[[...]]` wikilinks 3+ times but missing its own page becomes a tier-escalation candidate. `wiki lint --only tiers` lists these; the assistant promotes stubs to full pages once they cross the threshold.
 
 ## Filenames and slugs
 
@@ -321,7 +321,7 @@ Fetches HTML, converts to markdown, applies secret-redaction, writes to `raw/cli
 
 ## Structured external-link fields for person entities
 
-Person pages (`type: entity` with `tags: person`) may carry these optional frontmatter fields. Alfred populates them during enrichment; they surface in `wiki context` and are used to find re-ingestion targets later.
+Person pages (`type: entity` with `tags: person`) may carry these optional frontmatter fields. The assistant populates them during enrichment; they surface in `wiki context` and are used to find re-ingestion targets later.
 
 ```yaml
 homepage:  https://alice.example/        # personal/professional website
@@ -334,11 +334,11 @@ arxiv:     search-term-or-author-id          # arXiv search query
 email:     someone@example.org               # use sparingly; private contact
 ```
 
-These are stored as plain strings in frontmatter. Alfred should never invent values — only set them from confirmed sources (Alice's statement, a scholar profile we ingested, etc.).
+These are stored as plain strings in frontmatter. The assistant should never invent values — only set them from confirmed sources (Alice's statement, a scholar profile we ingested, etc.).
 
 ## Auto-enrichment policy
 
-By default, when Alfred creates a new person entity with **research/work tags** (`colleague`, `paper`, OR an explicit `researcher` flag in Alice's description), he should:
+By default, when the assistant creates a new person entity with **research/work tags** (`colleague`, `paper`, OR an explicit `researcher` flag in Alice's description), it should:
 
 1. Run a small (1-2 query) web search for the person's professional profile (Scholar, homepage)
 2. Ingest 1-3 highest-relevance URLs via `inbox ingest-url`
@@ -348,7 +348,7 @@ By default, when Alfred creates a new person entity with **research/work tags** 
 
 **Do NOT auto-enrich** for these tags: `family`, `child`, `parent`, `spouse`, `sibling`, `household`, `friend`. These are private relationships; auto-crawling is invasive and likely yields wrong matches.
 
-**Disambiguation gate**: if the web search returns multiple plausible matches (multiple people with the same name), Alfred must tell Alice and ask which one before ingesting.
+**Disambiguation gate**: if the web search returns multiple plausible matches (multiple people with the same name), the assistant must tell Alice and ask which one before ingesting.
 
 **Depth limit**: max 3 URLs per person, single-hop only. Do NOT recursively crawl coauthors' pages.
 
@@ -466,7 +466,7 @@ The match is case-insensitive on word boundaries.
 
 ## Email digest (weekly routine)
 
-`.bin/email-digest` sends a body (read from stdin) to a recipient via Gmail SMTP. Used by Alfred's weekly routine (see persona § Weekly routine).
+`.bin/email-digest` sends a body (read from stdin) to a recipient via Gmail SMTP. Used by the assistant's weekly routine (see persona § Weekly routine).
 
 Required env vars in the agent's container environment:
 
@@ -517,7 +517,7 @@ Use this pattern for any new tabular series. Create the TSV header first, then `
 
 ## JSON ingestion spec
 
-The canonical entry point for new vault content is `wiki ingest --stdin` (or `--file <path>`), which takes a structured JSON spec and compiles it into pages. Alfred is expected to write JSON, not markdown directly.
+The canonical entry point for new vault content is `wiki ingest --stdin` (or `--file <path>`), which takes a structured JSON spec and compiles it into pages. The assistant is expected to write JSON, not markdown directly.
 
 A formal JSON Schema for this spec lives at `.bin/wiki-ingest.schema.json` — useful for IDE autocomplete and ahead-of-time linting. The CLI's imperative validator inside `wiki ingest` is authoritative; the schema file is documentation that must be updated in lockstep with the validator.
 

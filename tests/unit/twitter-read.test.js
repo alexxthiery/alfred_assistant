@@ -64,7 +64,7 @@ test('resolveBirdBackend: returns null when no backend is configured', () => {
   assert.equal(got, null);
 });
 
-test('authFlagsFromEnv: appends Alfred-specific cookie flags when both vars are set', () => {
+test('authFlagsFromEnv: appends assistant-specific cookie flags when both vars are set', () => {
   const got = authFlagsFromEnv({
     [ALFRED_BIRD_AUTH_TOKEN_ENV]: 'tok123',
     [ALFRED_BIRD_CT0_ENV]: 'ct0123',
@@ -75,7 +75,7 @@ test('authFlagsFromEnv: appends Alfred-specific cookie flags when both vars are 
   });
 });
 
-test('authFlagsFromEnv: rejects partial Alfred cookie env', () => {
+test('authFlagsFromEnv: rejects partial assistant cookie env', () => {
   assert.throws(
     () => authFlagsFromEnv({ [ALFRED_BIRD_AUTH_TOKEN_ENV]: 'tok-only' }),
     (err) => err instanceof TwitterReadError && err.exitCode === 3,

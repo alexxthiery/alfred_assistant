@@ -57,6 +57,8 @@ For a new assistant:
 
 1. Message **@BotFather**, send `/newbot`, give it a name then a username ending
    in `bot`. It returns a token.
+   Bot usernames are global, not just local to your account; if BotFather says a
+   name is unavailable or invalid, keep trying variants that end in `bot`.
 2. Open your new bot and tap **Start** (a bot cannot message a user who has not
    started it).
 3. Add `TELEGRAM_BOT_TOKEN=<token>` to that assistant's private env file (use `read -s`, see
@@ -70,6 +72,11 @@ set -a; . ~/<slug>-vault/.alfred/private/env; set +a
 echo "test" | bin/telegram-send --dry-run    # validates token via getMe, sends nothing
 echo "hello from telegram-send" | bin/telegram-send   # real send; check your chat
 ```
+
+For a multi-assistant host, run these commands from the target assistant's vault
+or use that vault's deployed `.bin/telegram-send`. Do not reuse another
+assistant's shell environment: the bot token and chat id define the delivery
+boundary.
 
 Exit codes: `0` sent (or empty-stdin no-op), `1` bad args, `2` missing env var,
 `3` Bot API unreachable / rejected.

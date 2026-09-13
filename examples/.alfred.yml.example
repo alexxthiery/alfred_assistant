@@ -1,4 +1,4 @@
-# .alfred.yml — per-vault configuration for Alfred Assistant.
+# .alfred.yml — per-vault assistant configuration.
 # Copy this file to the root of your vault as `.alfred.yml` and edit.
 # Secrets DO NOT belong here — they go in the gitignored per-vault env file:
 #   .alfred/private/env
@@ -14,7 +14,7 @@ user:
 # --- Optional, with sensible defaults shown ---
 
 assistant:
-  # Brand name used in CLI help text, email signatures, persona references.
+  # Brand name used in CLI help text, email signatures, and persona references.
   # The published default is "Alfred" — change it if you want a different brand.
   name: Alfred
 

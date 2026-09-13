@@ -29,7 +29,7 @@ function cmdSql(args) {
     console.log('Column semantics worth knowing:');
     console.log('  - vault.when_         renamed from `when` frontmatter (SQL reserves `when`).');
     console.log('  - vault.confidence    page-level "how sure am I this page is right" (0..1).');
-    console.log('  - vault.sensitive     true → Alfred must exclude from any LLM context (CLI does not enforce).');
+    console.log('  - vault.sensitive     true → assistant must exclude from any LLM context (CLI does not enforce).');
     console.log('  - vault.n_*           denormalized counts; derivable from observations table, kept for cheap WHERE.');
     console.log('  - observations.id          6-char base36 handle minted at write time (<!--obs:XXXXXX--> marker).');
     console.log('  - observations.obs_uid     monotonic row counter; the FTS index unique key (not user-facing).');

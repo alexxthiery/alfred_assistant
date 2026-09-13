@@ -13,7 +13,7 @@
 # reminders due) sends nothing.
 #
 # Required env vars:
-#   TELEGRAM_BOT_TOKEN   — Bot API token (reused from nanoclaw's Alfred bot)
+#   TELEGRAM_BOT_TOKEN   — Bot API token (reused from the assistant's Telegram bot)
 #   TELEGRAM_CHAT_ID     — destination chat id (your Telegram user id for a 1:1 DM)
 #
 # Get the chat id by messaging @userinfobot. See docs/TELEGRAM.md. Sending via

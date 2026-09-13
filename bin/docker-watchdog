@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // docker-watchdog — keep nanoclaw's container backend alive.
 //
-// nanoclaw spawns every agent container (Alfred, etc.) through the OneCLI gateway
+// nanoclaw spawns every agent container through the OneCLI gateway
 // at http://127.0.0.1:10254, which runs as a docker-compose stack. If Docker's
 // engine crashes (observed 2026-06-27: backend "monitor exited: status 2"), the
 // engine dies while Docker Desktop's UI keeps running — a half-zombie state that
 // does NOT self-heal — and the gateway becomes unreachable until a manual
-// restart, so Alfred goes silent.
+// restart, so the assistant goes silent.
 //
 // This worker (run by launchd every 2 min — see
 // integrations/scheduling/com.alfred.docker-watchdog.plist) probes the gateway

@@ -139,7 +139,7 @@ function main() {
   const body = formatBrief({ date, overdue, dueToday, events, birthdays, background });
   process.stdout.write(body);
 
-  // Cache log: keeps a copy of every brief on disk so "did Alfred actually
+  // Cache log: keeps a copy of every brief on disk so "did the assistant actually
   // send a brief on day X" is answerable with `ls`. Cheap; opt-out via --no-log.
   if (!args['no-log']) {
     try {

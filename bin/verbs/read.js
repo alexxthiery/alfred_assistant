@@ -60,7 +60,7 @@ function cmdList(args) {
 //   default      BM25 over observations.body via DuckDB FTS, with synonym
 //                expansion from <vault-root>/SYNONYMS.md. Returns ranked
 //                slug · score · body excerpt. The retrieval primitive for
-//                Alfred-agent workflows.
+//                assistant workflows.
 //   --literal    substring match across page bodies (the pre-FTS behaviour).
 //                Use when the query contains DuckDB-tokeniser-hostile chars or
 //                when you want to find raw markdown like "<!--obs:abc123-->".
@@ -711,7 +711,7 @@ function cmdRelated(args) {
 // cmdUnlinkedMentions — find pages whose body mentions <slug>'s title or any
 // of its aliases (word-boundary, case-sensitive per autolink convention) but
 // without a [[wikilink]] to <slug>. Read-only discovery sibling to
-// `wiki autolink --dry-run`: surfaces wikilink-promotion candidates so Alfred
+// `wiki autolink --dry-run`: surfaces wikilink-promotion candidates so the assistant
 // (or the user) can decide where to invest in graph density. No writes.
 function cmdUnlinkedMentions(args) {
   const slug = args._[0];

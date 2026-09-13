@@ -2,7 +2,7 @@
 // ordinary type:todo pages; a remind_at makes one a timed reminder (the morning
 // brief surfaces it on its due date, the dispatcher fires the push). All task
 // creation, update, classification, and lifecycle changes go through this file
-// so Alfred never needs to hand-edit todo markdown.
+// so the assistant never needs to hand-edit todo markdown.
 
 'use strict';
 

@@ -76,7 +76,7 @@ function authFlagsFromEnv(env = process.env) {
       `${ALFRED_BIRD_AUTH_TOKEN_ENV} and ${ALFRED_BIRD_CT0_ENV} must be set together`,
       {
         exitCode: 3,
-        hint: 'Set both Alfred-specific cookie env vars, or unset both and let bird use browser cookies / ~/.config/bird/config.json5.',
+        hint: 'Set both assistant-specific cookie env vars, or unset both and let bird use browser cookies / ~/.config/bird/config.json5.',
       }
     );
   }
@@ -122,7 +122,7 @@ function buildTwitterReadInvocation(argv, opts = {}) {
 
 function formatTwitterReadHelp() {
   return [
-    'twitter-read — Alfred\'s read-only X/Twitter adapter over `bird`.',
+    'twitter-read — assistant read-only X/Twitter adapter over `bird`.',
     '',
     'Usage:',
     '  twitter-read <verb> [args...]',

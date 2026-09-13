@@ -43,7 +43,7 @@ const REPLAY_SPEC_MIGRATIONS = {
 
 function replayMsgIdRequired() {
   // Host policy, not a schema invariant: local maintenance specs may omit
-  // msg_id, but Telegram-driven Alfred runs can set this to make every write
+  // msg_id, but Telegram-driven assistant runs can set this to make every write
   // replay-capturable before touching the vault.
   const v = process.env.WIKI_REQUIRE_REPLAY_MSG_ID;
   return !!(v && v !== '0' && v !== 'false');

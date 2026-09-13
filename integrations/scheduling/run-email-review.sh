@@ -3,7 +3,7 @@
 #
 # The low-level Gmail scan is bounded and ledger-deduped by .bin/email-review
 # and is run by this wrapper directly. A headless agent receives the resulting
-# metadata-only report, applies the deployed Alfred persona/email-review policy,
+# metadata-only report, applies the deployed assistant persona/email-review policy,
 # and emits only a concise Telegram message when the user needs to see something.
 #
 # Config:
@@ -78,7 +78,7 @@ fi
 
 if [ "$DRY_RUN" -eq 1 ]; then
   cat <<DRYRUN
-Run Alfred's scheduled daily email review.
+Run the assistant's scheduled daily email review.
 
 Wrapper will run from the vault:
   .bin/email-review --days ${ALFRED_EMAIL_REVIEW_DAYS} --max-questions ${ALFRED_EMAIL_REVIEW_MAX_QUESTIONS} --record-ledger
@@ -107,7 +107,7 @@ if printf '%s\n' "$REPORT" | grep -q 'surfaced: 0; questions: 0'; then
 fi
 
 PROMPT=$(cat <<PROMPT
-Run Alfred's scheduled daily email review.
+Run the assistant's scheduled daily email review.
 
 Before analyzing anything, read AGENTS.md and persona/email-review.md.
 

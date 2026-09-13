@@ -98,7 +98,7 @@ Build a single JSON object covering everything from this turn. Shape:
 }
 ```
 
-**Always set `msg_id`** on Telegram-triggered specs — use the inbound message id you can see in your conversation context. The CLI captures the spec + result to `raw/telegram-replay/<YYYY-MM>/<msg-id>-{spec,result}.json`. This lets `wiki replay <msg-id>` re-run the exact case through a future pipeline and surface regressions. Without `msg_id` no capture happens (which is fine for host-side maintenance ingests, but Alfred should never skip it on Telegram).
+**Always set `msg_id`** on Telegram-triggered specs — use the inbound message id you can see in your conversation context. The CLI captures the spec + result to `raw/telegram-replay/<YYYY-MM>/<msg-id>-{spec,result}.json`. This lets `wiki replay <msg-id>` re-run the exact case through a future pipeline and surface regressions. Without `msg_id` no capture happens (which is fine for host-side maintenance ingests, but you should never skip it on Telegram).
 
 Required fields per kind:
 - **stub**: `slug, title, type, tags`

@@ -1,7 +1,7 @@
 // jobs.js — the scheduled-job manifest + pure parsing/comparison logic for
 // `wiki jobs` and `wiki jobs --check`.
 //
-// The manifest (JOBS) is the canonical list of jobs Alfred expects the OS
+// The manifest (JOBS) is the canonical list of jobs the assistant expects the OS
 // scheduler to run. The CLI never installs or edits schedules — launchd/cron
 // stay the executor; this module only describes the expected set and compares
 // it against what is actually installed, so drift surfaces.
@@ -112,7 +112,7 @@ function schedulesEqual(a, b) {
 }
 
 // Parse a (simple, known-format) launchd plist into { label, command, schedule }.
-// Returns null if it is not a parseable Alfred plist. Regex-based on purpose:
+// Returns null if it is not a parseable assistant plist. Regex-based on purpose:
 // these plists are template/tool-generated with a flat, predictable shape, and
 // a zero-dep XML parser would be overkill.
 function parsePlist(xml) {
@@ -140,7 +140,7 @@ function parsePlist(xml) {
 }
 
 // Parse a crontab dump into [{ schedule, command, raw }]. Skips comments/blanks
-// and @-shortcuts (not used by Alfred's jobs).
+// and @-shortcuts (not used by assistant jobs).
 function parseCrontab(text) {
   if (typeof text !== 'string') return [];
   const out = [];
@@ -155,7 +155,7 @@ function parseCrontab(text) {
   return out;
 }
 
-// Best-effort cron-field -> schedule object. Handles the two shapes Alfred uses:
+// Best-effort cron-field -> schedule object. Handles the two shapes this project uses:
 // a fixed daily/weekly time (`0 7 * * *`, `0 9 * * 1`) and a step interval
 // (`*/15 * * * *`). Anything else is { kind:'unknown', raw }.
 function cronToSchedule(min, hour, dom, mon, dow) {

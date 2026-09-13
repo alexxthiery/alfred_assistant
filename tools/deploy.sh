@@ -17,6 +17,7 @@
 #   tools/deploy.sh --target /path/to/vault \
 #                   --user-name "Your Name" --user-slug your-slug \
 #                   --user-email you@example.com --user-tz-city "Your City" \
+#                   [--assistant-name "Alfred"] \
 #                   [--apply]
 #
 # Idempotent. Re-running with the same config is a no-op.
@@ -26,7 +27,7 @@ set -euo pipefail
 APPLY=false
 PRUNE_BACKUPS=false
 TARGET=""
-USER_NAME=""; USER_SLUG=""; USER_EMAIL=""; USER_TZ_CITY=""
+USER_NAME=""; USER_SLUG=""; USER_EMAIL=""; USER_TZ_CITY=""; ASSISTANT_NAME="Alfred"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -37,6 +38,7 @@ while [ $# -gt 0 ]; do
     --user-slug)     USER_SLUG="$2"; shift 2 ;;
     --user-email)    USER_EMAIL="$2"; shift 2 ;;
     --user-tz-city)  USER_TZ_CITY="$2"; shift 2 ;;
+    --assistant-name) ASSISTANT_NAME="$2"; shift 2 ;;
     -h|--help)
       sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "deploy.sh: unknown arg: $1" >&2; exit 2 ;;
@@ -58,6 +60,7 @@ echo "  source:   $SRC"
 echo "  target:   $TARGET"
 echo "  apply:    $APPLY"
 echo "  user:     $USER_NAME ($USER_SLUG)"
+echo "  assistant:$ASSISTANT_NAME"
 echo "  tz_city:  $USER_TZ_CITY"
 echo ""
 
@@ -66,10 +69,12 @@ if [ ! -f "$TARGET/.alfred.yml" ]; then
   echo "[config] WOULD CREATE $TARGET/.alfred.yml"
   echo "  user.slug: $USER_SLUG"
   echo "  user.name: $USER_NAME"
+  echo "  assistant.name: $ASSISTANT_NAME"
   echo "  email.from: $USER_EMAIL"
   if $APPLY; then
     sed -e "s|^  slug: user|  slug: $USER_SLUG|" \
         -e "s|^  name: Anonymous|  name: $USER_NAME|" \
+        -e "s|^  name: Alfred|  name: $ASSISTANT_NAME|" \
         -e "s|^  from: \"\"|  from: \"$USER_EMAIL\"|" \
         "$SRC/examples/.alfred.yml.example" > "$TARGET/.alfred.yml"
     echo "[config] wrote $TARGET/.alfred.yml — review/edit before next deploy"
