@@ -90,14 +90,19 @@ if [ ! -f "$TARGET/.gitignore" ]; then
     cat > "$TARGET/.gitignore" <<'GITIGNORE'
 # Runtime + derived artifacts — not vault content. Tracking them dirties the
 # tree on every CLI/cron run (auto-commit is scoped to wiki/ + raw/).
-.cache/                  # DuckDB analytical view (rebuilt lazily)
-cache/                   # daily-brief / reminder-dispatch run logs
-.alfred/private/         # per-vault credentials and local-only runtime secrets
+# DuckDB analytical view (rebuilt lazily)
+.cache/
+# daily-brief / reminder-dispatch run logs
+cache/
+# per-vault credentials and local-only runtime secrets
+.alfred/private/
 .DS_Store
-alfred/tamper.log        # appended by the tamper watcher
+# appended by the tamper watcher
+alfred/tamper.log
 alfred/log/
 alfred/scratchpad.md
-AGENTS.local.md          # persona render artifact (canonical is AGENTS.md)
+# persona render artifact (canonical is AGENTS.md)
+AGENTS.local.md
 __pycache__/
 *.pyc
 GITIGNORE
