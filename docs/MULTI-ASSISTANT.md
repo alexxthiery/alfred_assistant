@@ -1,107 +1,181 @@
 # Running multiple assistants on one machine
 
-One Mac + one nanoclaw can host several independent assistants (e.g. a family:
-each person their own). They share the runtime and — today — one Telegram bot,
-but each has its **own vault, memory, persona, name, reminders, and brief**.
-This is the supported multi-tenant model; adding one is config-only.
+One Mac/server can host several independent vault-backed assistants. The safe
+model is **one assistant instance per person**:
 
-## What's shared vs separate
-
-| Shared (one per machine) | Separate (one per assistant) |
-|---|---|
-| The Mac + nanoclaw daemon | Vault folder (own memory, todos, notes) |
-| **The Telegram bot** (`TELEGRAM_BOT_TOKEN`) | nanoclaw agent group + container + persona + name |
-| The deployed CLI source (one repo) | `.alfred.yml` identity; `AGENTS.md` persona |
-| | Telegram **chat** (routed by chat id) |
-| | Host cron jobs (brief / reminders / backup) |
-| | Per-assistant env file `~/nanoclaw/.env.<slug>` |
-
-Routing: nanoclaw maps an inbound Telegram **chat id** → an agent group, so each
-person talks to the same bot from their own account and reaches their own
-assistant. The only thing not separable today is the bot's @handle (see
-[Per-person bots](#per-person-bots-future)).
-
-## Prerequisite: host wrappers
-
-The launchd jobs call generic wrappers. Copy them once to `~/.local/bin/` (they
-take the vault + env file from the plist, so one copy serves all assistants):
-
-```sh
-cp integrations/scheduling/run-daily-brief.sh \
-   integrations/scheduling/run-reminder-dispatch.sh \
-   tools/vault-backup-push.sh  ~/.local/bin/
-chmod +x ~/.local/bin/run-*.sh ~/.local/bin/vault-backup-push.sh
+```text
+Child's Telegram account  -> child bot token  -> child runtime  -> child-vault
+Owner's Telegram account  -> owner bot token  -> owner runtime  -> owner-vault
 ```
 
-## Add an assistant (`<slug>` = e.g. `leo`)
+The assistants may share the same source repo and host wrappers, but they must
+not share live Telegram routing unless an explicit, tested router maps each chat
+to exactly one vault. The default recommendation is a dedicated Telegram bot per
+vault.
 
-1. **Vault** — deploy the CLI + identity into a new vault:
+## Separation Contract
+
+| Shared on the machine | Separate per assistant |
+|---|---|
+| The Mac/server and OS scheduler | Vault folder and git repo |
+| The `alfred_assistant` source repo | `.alfred.yml` identity |
+| The copied wrapper scripts in `~/.local/bin` | Deployed `<vault>/.bin/` |
+| Optional OneCLI/Docker infrastructure | Canonical `<vault>/AGENTS.md` persona |
+| | Telegram bot token (`TELEGRAM_BOT_TOKEN`) |
+| | Telegram destination chat id (`TELEGRAM_CHAT_ID`) |
+| | Env-file vault binding (`ALFRED_EXPECTED_VAULT`, `ALFRED_EXPECTED_LABEL`) |
+| | Runtime group/container mounted to this vault |
+| | Private env file, `<vault>/.alfred/private/env` |
+| | Launchd labels, e.g. `com.child.daily-brief` |
+| | Cache, ledgers, logs under `<vault>/cache` and `<vault>/.cache` |
+
+The invariant to protect is simple: a Telegram message from one human account
+must have only one path to one vault.
+
+## Add an assistant
+
+Use `<slug>` for the assistant namespace, e.g. `child`.
+
+1. **Create/deploy the vault**
+
    ```sh
+   mkdir -p ~/<slug>-vault
    tools/deploy.sh --target ~/<slug>-vault \
      --user-name "<Name>" --user-slug <slug> --user-tz-city "<City>" --apply
    ```
-   This seeds `.alfred.yml`, a clean `.gitignore`, and `.bin/`. Write the
-   assistant's `AGENTS.md` persona (its own name + voice — start from an existing
-   one). Then `git init`, add a private remote, and commit.
 
-2. **Mount allowlist** — add the vault to `~/.config/nanoclaw/mount-allowlist.json`:
-   ```json
-   { "path": "~/<slug>-vault", "allowReadWrite": true, "description": "<Name>'s vault" }
-   ```
+   Then create or merge the assistant's canonical `AGENTS.md`, initialize a
+   private git repo/remote, and commit. The deploy step writes `AGENTS.local.md`
+   only as a comparison artifact; it does not overwrite `AGENTS.md`.
 
-3. **nanoclaw agent group + Telegram** (supported flow):
+2. **Create a dedicated Telegram bot**
+
+   In Telegram, the person's account should start a bot created for this
+   assistant via BotFather. Store the token only in that assistant's env file.
+   Do not paste the token into chat or commit it.
+
    ```sh
-   cd ~/nanoclaw
-   pnpm exec tsx setup/pair-telegram.ts --intent new-agent:<slug>-chat
-   ```
-   The person sends the printed code **from their own Telegram account** — this
-   captures their chat id and creates the agent group + binding. Then name it:
-   ```sh
-   ncl groups config update --id <new-agent-group-id> --assistant-name "<AssistantName>"
-   ```
-
-4. **Vault mount** (the one step with no CLI) — point the group at its vault:
-   ```sh
-   pnpm exec tsx scripts/q.ts data/v2.db \
-     "UPDATE container_configs SET additional_mounts =
-       '[{\"hostPath\":\"~/<slug>-vault\",\"containerPath\":\"vault\",\"readonly\":false}]'
-      WHERE agent_group_id = '<new-agent-group-id>'"
-   ncl groups restart --id <new-agent-group-id>
+   mkdir -p ~/<slug>-vault/.alfred/private
+   chmod 700 ~/<slug>-vault/.alfred ~/<slug>-vault/.alfred/private
+   # Write secrets with `read -s` as described in docs/SECURITY.md.
+   # Required binding:
+   #   ALFRED_EXPECTED_VAULT=$HOME/<slug>-vault
+   #   ALFRED_EXPECTED_LABEL=<slug>
+   # Required Telegram routing:
+   #   TELEGRAM_BOT_TOKEN=<dedicated bot token>
+   #   TELEGRAM_CHAT_ID=<that person's Telegram user/chat id>
    ```
 
-5. **Env file** — `~/nanoclaw/.env.<slug>` with whichever channels apply:
-   ```sh
-   TELEGRAM_BOT_TOKEN=<the shared bot token>
-   TELEGRAM_CHAT_ID=<this person's chat id, from step 3>
-   # Optional email brief (omit for Telegram-only, e.g. a kid):
-   # EMAIL_FROM=them@example.com
-   # GMAIL_APP_PASSWORD=<16-char app password>
+3. **Create a separate runtime group/container**
+
+   The inbound Telegram runtime must mount exactly this vault as its writable
+   vault, and its startup/persona instruction must point at that vault's
+   `AGENTS.md`.
+
+   For nanoclaw, the group instruction should be:
+
+   ```text
+   Your full instructions live in the vault at `/workspace/extra/vault/AGENTS.md`.
+   Read that file at the start of every conversation.
    ```
 
-6. **Host jobs** — one command stamps + loads their launchd jobs:
+   The runtime's environment should come from `~/<slug>-vault/.alfred/private/env`,
+   not from another assistant's env file. The runtime/container should not mount
+   the parent directory that contains sibling vaults.
+
+4. **Install host jobs with a label namespace**
+
+   Copy/update wrappers once:
+
+   ```sh
+   cp integrations/scheduling/run-daily-brief.sh \
+      integrations/scheduling/run-reminder-dispatch.sh \
+      integrations/scheduling/run-email-review.sh \
+      integrations/scheduling/run-weekly-review.sh \
+      integrations/scheduling/assistant-binding.sh \
+      tools/vault-backup-push.sh ~/.local/bin/
+   chmod +x ~/.local/bin/run-*.sh ~/.local/bin/assistant-binding.sh ~/.local/bin/vault-backup-push.sh
+   ```
+
+   Install jobs for this assistant:
+
    ```sh
    tools/install-assistant-jobs.sh \
-     --vault ~/<slug>-vault --env ~/nanoclaw/.env.<slug> --label <slug> \
+     --vault ~/<slug>-vault \
+     --env ~/<slug>-vault/.alfred/private/env \
+     --label <slug> \
      --reminders --brief 07:00 --backup 22:00
    ```
-   The brief auto-detects channels: with only `TELEGRAM_*` set it sends a
-   **Telegram-only** brief; with `EMAIL_FROM` too, both. `--dry-run` previews the
-   plists; `--uninstall` removes them.
 
-Done — the person messages the bot from their account and reaches their own
-assistant + vault; reminders and brief go to their chat.
+   Add `--email-review 10:00` or `--weekly 09:00` only when that assistant has
+   the required mail credentials and the feature is wanted.
 
-## Per-person bots (future)
+5. **Verify the namespace**
 
-This nanoclaw runs a **single** `TELEGRAM_BOT_TOKEN` (`src/channels/telegram.ts`),
-so all assistants currently share one bot @handle (routing is by chat id). A
-dedicated @handle per person needs nanoclaw to support **multiple bot tokens** —
-best done by upstreaming multi-bot support to nanoclaw, not a local fork (which
-becomes upgrade debt). When added, existing vaults/agent-groups/jobs carry over
-unchanged; only the bot binding changes. Until then, the shared-bot model above
-gives a fully separate assistant in every other respect.
+   ```sh
+   tools/check-assistant-isolation.js \
+     --vault ~/<slug>-vault \
+     --env ~/<slug>-vault/.alfred/private/env \
+     --label <slug> \
+     --expect-user-slug <slug>
 
-## See also
-- `integrations/scheduling/README.md` — the host-job model + plist details.
-- `docs/TELEGRAM.md` / `docs/REMINDERS.md` / `docs/DAILY-BRIEF.md` — per-feature setup.
+   ~/<slug>-vault/.bin/wiki jobs --check --label <slug>
+   set -a; . ~/<slug>-vault/.alfred/private/env; set +a
+   echo "test from <slug>" | ~/<slug>-vault/.bin/telegram-send --dry-run
+   ```
+
+   The isolation check verifies the vault surface, env file, deployed wiki, and
+   `com.<slug>.*` job labels without printing secrets. It also verifies that the
+   env file is bound to the same vault and assistant label that the scheduler
+   will use. Add
+   `--telegram-dry-run` when you also want it to validate Bot API reachability.
+   The separate Telegram dry run validates the bot token without sending a
+   message.
+
+   From inside the assistant runtime/container, also run the isolation check
+   with each sibling vault path as `--other-vault`. This must fail if a sibling
+   vault is readable or writable:
+
+   ```sh
+   tools/check-assistant-isolation.js \
+     --vault /workspace/extra/vault \
+     --env /workspace/extra/vault/.alfred/private/env \
+     --label <slug> \
+     --other-vault /path/to/other-vault
+   ```
+
+## Smoke Test Before Use
+
+Before handing the assistant to the person:
+
+1. Send a harmless Telegram message from that person's Telegram account.
+2. Confirm the runtime reads `<vault>/AGENTS.md`.
+3. Ask it to create a tiny test todo.
+4. Confirm the file appears only under that person's vault.
+5. Confirm the other vault's `git status --short` is unchanged.
+6. Delete or mark done the test todo through `wiki`, then commit/push that vault.
+
+This is the end-to-end guard against the only serious failure mode: wrong bot or
+wrong runtime writing to the wrong vault.
+
+For a production child/family setup, “wrong runtime reading the wrong vault” is
+guarded by the same principle: the runtime must not be able to see sibling
+vaults at all. If `--other-vault` is accessible from inside the runtime, the
+setup is not isolated enough.
+
+## Shared-Bot Routing
+
+A shared Telegram bot with chat-id routing is possible only if the runtime has a
+tested router that binds each chat id to exactly one vault and refuses ambiguous
+or missing bindings. Treat that as an advanced deployment, not the default.
+
+For a child/family setup, prefer the simpler and safer dedicated-bot model above:
+the bot token itself becomes part of the vault boundary.
+
+## See Also
+
+- `docs/TELEGRAM.md` — bot token and chat id setup.
+- `docs/SECURITY.md` — writing secrets safely.
+- `integrations/scheduling/README.md` — OS-scheduled jobs and `--label`.
+- `integrations/nanoclaw/README.md` — Telegram runtime wiring.
 - `docs/NANOCLAW-PATCHES.md` — the nanoclaw-side patches this assumes.

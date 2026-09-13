@@ -92,6 +92,7 @@ if [ ! -f "$TARGET/.gitignore" ]; then
 # tree on every CLI/cron run (auto-commit is scoped to wiki/ + raw/).
 .cache/                  # DuckDB analytical view (rebuilt lazily)
 cache/                   # daily-brief / reminder-dispatch run logs
+.alfred/private/         # per-vault credentials and local-only runtime secrets
 .DS_Store
 alfred/tamper.log        # appended by the tamper watcher
 alfred/log/
@@ -104,6 +105,16 @@ GITIGNORE
   fi
 else
   echo "[config] OK (.gitignore present)"
+fi
+echo ""
+
+# 1c. Private per-vault directory for credentials. The deploy script creates
+# the directory with owner-only permissions but never writes secrets into it.
+echo "[private] WOULD ENSURE $TARGET/.alfred/private (mode 700)"
+if $APPLY; then
+  mkdir -p "$TARGET/.alfred/private"
+  chmod 700 "$TARGET/.alfred" "$TARGET/.alfred/private" 2>/dev/null || true
+  echo "[private] OK ($TARGET/.alfred/private)"
 fi
 echo ""
 

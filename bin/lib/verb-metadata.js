@@ -445,8 +445,8 @@ const RAW_VERBS = [
   ] },
 
   { name: 'jobs', section: 'SCHEDULING', lines: [
-    '  jobs [--check] [--json]                   list scheduled jobs (daily-brief, reminders, backup, weekly);',
-    '  (--check validates installed launchd/cron vs the manifest; OS stays the executor, never edited here)',
+    '  jobs [--check] [--json] [--label slug]    list scheduled jobs (daily-brief, reminders, backup, weekly);',
+    '  (--check validates installed launchd/cron vs the assistant-label manifest; OS stays the executor, never edited here)',
   ] },
 
   // GLOBAL FLAGS (not real verbs; rendered last)

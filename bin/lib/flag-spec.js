@@ -126,7 +126,7 @@ const VALUE_REQUIRED_FLAGS = new Set([
   // dates / numbers / selectors
   'on', 'by', 'since', 'until', 'days', 'limit', 'max-hops', 'threshold',
   'only', 'date', 'birth', 'window', 'month-day', 'to', 'asof',
-  'allow-duplicate-slug', 'rule',
+  'allow-duplicate-slug', 'rule', 'label',
   'case',
   // export
   'ext',

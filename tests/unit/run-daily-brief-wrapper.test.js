@@ -43,17 +43,36 @@ echo "BODY"
 }
 
 function runWrapper(vault, extraEnv = {}) {
+  const envFile = path.join(vault, '.alfred', 'private', 'env');
+  fs.mkdirSync(path.dirname(envFile), { recursive: true });
+  const fileEnv = {
+    ALFRED_EXPECTED_VAULT: vault,
+    ALFRED_EXPECTED_LABEL: 'child',
+    EMAIL_FROM: 'user@example.com',
+    GMAIL_APP_PASSWORD: 'abcdefghijklmnop',
+    TELEGRAM_BOT_TOKEN: 'telegram-token',
+    TELEGRAM_CHAT_ID: '12345',
+  };
+  for (const key of Object.keys(fileEnv)) {
+    if (Object.prototype.hasOwnProperty.call(extraEnv, key)) fileEnv[key] = extraEnv[key];
+  }
+  fs.writeFileSync(envFile, [
+    `ALFRED_EXPECTED_VAULT=${fileEnv.ALFRED_EXPECTED_VAULT}`,
+    `ALFRED_EXPECTED_LABEL=${fileEnv.ALFRED_EXPECTED_LABEL}`,
+    `EMAIL_FROM=${fileEnv.EMAIL_FROM}`,
+    `GMAIL_APP_PASSWORD=${fileEnv.GMAIL_APP_PASSWORD}`,
+    `TELEGRAM_BOT_TOKEN=${fileEnv.TELEGRAM_BOT_TOKEN}`,
+    `TELEGRAM_CHAT_ID=${fileEnv.TELEGRAM_CHAT_ID}`,
+    '',
+  ].join('\n'));
   return spawnSync('bash', [WRAPPER], {
     encoding: 'utf8',
     env: {
       PATH: process.env.PATH,
       HOME: process.env.HOME,
       ALFRED_VAULT: vault,
-      ENV_FILE: path.join(vault, 'missing.env'),
-      EMAIL_FROM: 'user@example.com',
-      GMAIL_APP_PASSWORD: 'abcdefghijklmnop',
-      TELEGRAM_BOT_TOKEN: 'telegram-token',
-      TELEGRAM_CHAT_ID: '12345',
+      ALFRED_ASSISTANT_LABEL: 'child',
+      ENV_FILE: envFile,
       TZ: 'Asia/Singapore',
       ...extraEnv,
     },
@@ -89,6 +108,59 @@ echo "sent to Telegram chat"
   assert.match(log, /email send failed exit=6/);
   assert.match(log, /telegram send ok/);
   assert.match(log, /retry disabled; failed channel\(s\): email/);
+});
+
+test('daily brief wrapper refuses to source an env file outside the vault private dir', (t) => {
+  const externalEnv = path.join(os.tmpdir(), `alfred-external-env-${process.pid}-${Date.now()}`);
+  t.after(() => fs.rmSync(externalEnv, { force: true }));
+  fs.writeFileSync(externalEnv, [
+    'ALFRED_EXPECTED_VAULT=/tmp/wrong',
+    'ALFRED_EXPECTED_LABEL=child',
+    'TELEGRAM_BOT_TOKEN=telegram-token',
+    'TELEGRAM_CHAT_ID=12345',
+    '',
+  ].join('\n'));
+  const { vault } = makeVault(t, {
+    'daily-brief': dailyBriefScript(),
+    'email-digest': `#!/usr/bin/env bash
+exit 9
+`,
+    'telegram-send': `#!/usr/bin/env bash
+exit 9
+`,
+  });
+
+  const result = runWrapper(vault, {
+    ENV_FILE: externalEnv,
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /ENV_FILE must live under/);
+});
+
+test('daily brief wrapper fails before channels when env binding points elsewhere', (t) => {
+  const marker = path.join(os.tmpdir(), `alfred-binding-marker-${process.pid}-${Date.now()}`);
+  t.after(() => fs.rmSync(marker, { force: true }));
+  const { tmp, vault } = makeVault(t, {
+    'daily-brief': dailyBriefScript(),
+    'email-digest': `#!/usr/bin/env bash
+echo touched > "$TEST_MARKER"
+`,
+    'telegram-send': `#!/usr/bin/env bash
+echo touched > "$TEST_MARKER"
+`,
+  });
+  const other = path.join(tmp, 'other-vault');
+  fs.mkdirSync(other);
+
+  const result = runWrapper(vault, {
+    ALFRED_EXPECTED_VAULT: other,
+    TEST_MARKER: marker,
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /vault binding mismatch/);
+  assert.equal(fs.existsSync(marker), false);
 });
 
 test('daily brief wrapper retries only the failed channel once', (t) => {

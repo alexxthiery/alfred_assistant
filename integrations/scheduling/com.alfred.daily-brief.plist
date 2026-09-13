@@ -6,10 +6,11 @@
     machine-specific paths into ~/Library/LaunchAgents.
 
     Manual fallback:
-    1. Edit ALFRED_VAULT / ENV_FILE / PATH below and the path to run-daily-brief.sh.
+    1. Edit ALFRED_VAULT / ALFRED_ASSISTANT_LABEL / ENV_FILE / PATH below and the path to run-daily-brief.sh.
     2. cp to ~/Library/LaunchAgents/com.alfred.daily-brief.plist
     3. launchctl load ~/Library/LaunchAgents/com.alfred.daily-brief.plist
   Secrets are NOT in this file — run-daily-brief.sh sources them from ENV_FILE.
+  ENV_FILE must also contain ALFRED_EXPECTED_VAULT and ALFRED_EXPECTED_LABEL.
 -->
 <plist version="1.0">
 <dict>
@@ -21,7 +22,8 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>ALFRED_VAULT</key><string>/Users/YOU/my-vault</string>
-    <key>ENV_FILE</key><string>/Users/YOU/nanoclaw/.env</string>
+    <key>ALFRED_ASSISTANT_LABEL</key><string>alfred</string>
+    <key>ENV_FILE</key><string>/Users/YOU/my-vault/.alfred/private/env</string>
     <key>PATH</key><string>/Users/YOU/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>
   <key>StartCalendarInterval</key>

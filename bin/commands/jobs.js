@@ -13,7 +13,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { JOBS, scheduleToText, parsePlist, parseCrontab, evaluateJob } = require('../lib/jobs.js');
+const { jobsForLabel, scheduleToText, parsePlist, parseCrontab, evaluateJob } = require('../lib/jobs.js');
 
 // Read installed launchd plist for a label, if present (user then system dir).
 function readLaunchdPlist(label) {
@@ -60,16 +60,24 @@ const STATUS_ORDER = { drift: 0, missing: 1, custom: 2, ok: 3 };
 
 function cmdJobs(args) {
   const json = !!args.json;
+  let jobs;
+  const labelSlug = args.label || 'alfred';
+  try {
+    jobs = jobsForLabel(labelSlug);
+  } catch (e) {
+    console.error(`jobs: ${e.message}`);
+    process.exit(1);
+  }
 
   if (!args.check) {
     // List the manifest.
     if (json) {
-      process.stdout.write(`${JSON.stringify(JOBS, null, 2)}\n`);
+      process.stdout.write(`${JSON.stringify(jobs, null, 2)}\n`);
       return;
     }
-    console.log('Scheduled jobs (manifest). The OS (launchd/cron) is the executor;');
-    console.log('run `wiki jobs --check` to validate what is actually installed.\n');
-    for (const j of JOBS) {
+    console.log(`Scheduled jobs (manifest for label '${labelSlug}'). The OS (launchd/cron) is the executor;`);
+    console.log('run `wiki jobs --check [--label <slug>]` to validate what is actually installed.\n');
+    for (const j of jobs) {
       const agent = j.needsAgent ? ' [needs agent]' : '';
       console.log(`  ${j.name.padEnd(18)} ${scheduleToText(j.schedule).padEnd(16)} ${j.wrapper}${agent}`);
       console.log(`  ${' '.repeat(18)} ${j.purpose}`);
@@ -79,7 +87,7 @@ function cmdJobs(args) {
 
   // --check: compare manifest against installed launchd/cron entries.
   const cronEntries = readCrontab();
-  const results = JOBS.map((job) => {
+  const results = jobs.map((job) => {
     const installed = findInstalled(job, cronEntries);
     const { status, detail } = evaluateJob(job, installed);
     return { name: job.name, label: job.label, status, detail };
@@ -88,7 +96,7 @@ function cmdJobs(args) {
   if (json) {
     process.stdout.write(`${JSON.stringify(results, null, 2)}\n`);
   } else {
-    console.log('wiki jobs --check — scheduled-job health\n');
+    console.log(`wiki jobs --check --label ${labelSlug} — scheduled-job health\n`);
     for (const r of [...results].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status])) {
       console.log(`  ${r.status.padEnd(7)} ${r.name.padEnd(18)} ${r.detail}`);
     }

@@ -6,43 +6,62 @@ Alfred touches three kinds of secret: Gmail app passwords (SMTP send + IMAP read
 
 | Secret | Env var | Stored in | Used by |
 |---|---|---|---|
-| Gmail SMTP-send app password | `GMAIL_APP_PASSWORD` | `~/nanoclaw/.env` | `bin/email-digest` (weekly digest, daily brief) |
-| Gmail IMAP-read app password | `GMAIL_IMAP_APP_PASSWORD` | `~/nanoclaw/.env` | `bin/gmail` (Reflex 4 email recall), `bin/email-review` |
-| Sender address | `EMAIL_FROM` | `~/nanoclaw/.env` | both of the above |
-| X/Twitter auth cookie | `ALFRED_BIRD_AUTH_TOKEN` | `~/nanoclaw/.env` or host shell env | `bin/twitter-read` (live X/Twitter reads via `bird`) |
-| X/Twitter CSRF cookie | `ALFRED_BIRD_CT0` | `~/nanoclaw/.env` or host shell env | `bin/twitter-read` (live X/Twitter reads via `bird`) |
-| Telegram bot token | `TELEGRAM_BOT_TOKEN` | `~/nanoclaw/.env` | `bin/telegram-send` (reminder dispatch); also nanoclaw's own Telegram I/O |
-| Telegram destination chat id | `TELEGRAM_CHAT_ID` | `~/nanoclaw/.env` | `bin/telegram-send` (reminder dispatch) — not a secret, but kept beside the token |
+| Gmail SMTP-send app password | `GMAIL_APP_PASSWORD` | `<vault>/.alfred/private/env` | `bin/email-digest` (weekly digest, daily brief) |
+| Gmail IMAP-read app password | `GMAIL_IMAP_APP_PASSWORD` | `<vault>/.alfred/private/env` | `bin/gmail` (Reflex 4 email recall), `bin/email-review` |
+| Sender address | `EMAIL_FROM` | `<vault>/.alfred/private/env` | both of the above |
+| X/Twitter auth cookie | `ALFRED_BIRD_AUTH_TOKEN` | `<vault>/.alfred/private/env` or host shell env | `bin/twitter-read` (live X/Twitter reads via `bird`) |
+| X/Twitter CSRF cookie | `ALFRED_BIRD_CT0` | `<vault>/.alfred/private/env` or host shell env | `bin/twitter-read` (live X/Twitter reads via `bird`) |
+| Telegram bot token | `TELEGRAM_BOT_TOKEN` | `<vault>/.alfred/private/env` | `bin/telegram-send` (reminder dispatch); also the assistant's Telegram runtime |
+| Telegram destination chat id | `TELEGRAM_CHAT_ID` | `<vault>/.alfred/private/env` | `bin/telegram-send` (reminder dispatch) — not a secret, but kept beside the token |
+| Env-file vault binding | `ALFRED_EXPECTED_VAULT` | `<vault>/.alfred/private/env` | scheduled wrappers, `bin/wiki`, `bin/gmail`, `bin/email-review` |
+| Env-file label binding | `ALFRED_EXPECTED_LABEL` | `<vault>/.alfred/private/env` | scheduled wrappers and isolation smoke checks |
 | Anthropic/OneCLI proxy token | injected by the OneCLI gateway | OneCLI keychain | the container's HTTPS proxy |
 
-**The flow.** `~/nanoclaw/src/providers/claude.ts` reads a hardcoded allowlist of keys from `~/nanoclaw/.env` via `readEnvFile()` (which deliberately does NOT load them into `process.env`) and injects them into the agent container with docker `-e` flags. To add a new secret env var, you must extend that allowlist (see `docs/NANOCLAW-PATCHES.md` Patch 3) and rebuild nanoclaw. Putting a key in `.env` alone does nothing until it is allowlisted.
+**The flow.** The assistant runtime reads a hardcoded allowlist of keys from that assistant's env file via `readEnvFile()` (which deliberately does NOT load them into `process.env`) and injects them into the agent container with docker `-e` flags. To add a new secret env var, you must extend that allowlist (see `docs/NANOCLAW-PATCHES.md` Patch 3) and rebuild/restart the runtime. Putting a key in `.env` alone does nothing until it is allowlisted.
 
-`.env` itself is gitignored and never committed. No secret should ever be written into a tracked file.
+`<vault>/.alfred/private/` is gitignored and never committed. No secret should ever be written into a tracked file.
 
-**Host-side jobs are exempt from the allowlist.** The reminder dispatcher (`integrations/scheduling/run-reminder-dispatch.sh`) runs from the OS scheduler, not inside the container, and sources `~/nanoclaw/.env` directly. So `TELEGRAM_CHAT_ID` (and the already-present `TELEGRAM_BOT_TOKEN`) work for `bin/telegram-send` without any `claude.ts` allowlist change — Patch 3 is only needed for secrets the in-container agent must read.
+Each assistant env file must also declare the non-secret binding values:
+
+```sh
+ALFRED_EXPECTED_VAULT=/absolute/path/to/that/assistant-vault
+ALFRED_EXPECTED_LABEL=<assistant-label>
+```
+
+Scheduled wrappers compare those values against the `ALFRED_VAULT` and
+`ALFRED_ASSISTANT_LABEL` stamped into the scheduler entry. `bin/wiki`,
+`bin/gmail`, and `bin/email-review` also refuse to run against a different
+vault when `ALFRED_EXPECTED_VAULT` is present. This is the guard that prevents a
+credential file from being accidentally reused with the wrong vault.
+
+The env file must live under the owning vault's `.alfred/private/` directory and
+must not be a symlink. This is deliberate: credentials are part of one vault's
+local runtime cell, not shared host state.
+
+**Host-side jobs are exempt from the allowlist.** Scheduled wrappers (`integrations/scheduling/run-*.sh`) run from the OS scheduler, not inside the container, and source the `ENV_FILE` named in the plist. They require `ALFRED_EXPECTED_VAULT` and `ALFRED_EXPECTED_LABEL` before touching email, Telegram, or vault writes. So `TELEGRAM_CHAT_ID` and `TELEGRAM_BOT_TOKEN` work for `bin/telegram-send` without any container allowlist change. Patch 3 is only needed for secrets the in-container agent must read.
 
 ## The rules
 
 These are absolute. Each maps to a real leak that happened.
 
-1. **Never paste a secret into the agent chat.** Anything you type to Alfred (Telegram, web, CLI) is persisted to conversation logs on disk and may be sent to the model provider. A revoked password is still readable in those logs. If you need Alfred to use a secret, put it in `~/.env` yourself; do not hand it to him in a message.
+1. **Never paste a secret into the agent chat.** Anything you type to Alfred (Telegram, web, CLI) is persisted to conversation logs on disk and may be sent to the model provider. A revoked password is still readable in those logs. If you need Alfred to use a secret, put it in the assistant's env file yourself; do not hand it to him in a message.
 
 2. **Never run `ps aux` (or any process dump) into the chat or a transcript.** The docker container is launched with `-e GMAIL_APP_PASSWORD=...` on its command line. `ps aux` prints that command line verbatim, secret included. Pasting that output leaks every `-e` value. If you must inspect process state, filter and mask first: `ps aux | grep ... | sed 's/=[^ ]*/=***/g'`.
 
-3. **Never `grep` for a secret's literal value.** `grep "abcd1234..." ~` embeds the value in the command, which lands in shell history and, if pasted, in the chat. To check whether a key is set, match the variable NAME and mask the value: `grep "^GMAIL_IMAP" ~/nanoclaw/.env | sed 's/=.*/=***/'`.
+3. **Never `grep` for a secret's literal value.** `grep "abcd1234..." ~` embeds the value in the command, which lands in shell history and, if pasted, in the chat. To check whether a key is set, match the variable NAME and mask the value: `grep "^GMAIL_IMAP" <vault>/.alfred/private/env | sed 's/=.*/=***/'`.
 
 4. **Type secrets only through `read -s`.** When writing a secret into a file, read it silently into a shell variable, write via the variable, then unset:
    ```sh
    read -s NEW_SECRET            # paste, Enter — no echo, no history
    echo "length: ${#NEW_SECRET}" # sanity-check (16 for Gmail app passwords)
-   sed -i.bak "s|^KEY=.*|KEY=$NEW_SECRET|" ~/nanoclaw/.env
+   sed -i.bak "s|^KEY=.*|KEY=$NEW_SECRET|" <vault>/.alfred/private/env
    unset NEW_SECRET
    ```
    The value never appears on screen, in history, or on a command line.
 
 5. **Verify masked.** After writing, confirm presence without revealing the value:
    ```sh
-   grep -E "^GMAIL_(APP|IMAP)_APP_PASSWORD" ~/nanoclaw/.env \
+   grep -E "^GMAIL_(APP|IMAP)_APP_PASSWORD" <vault>/.alfred/private/env \
      | awk -F= '{print $1"="(length($2)>0?"***":"(empty)")}'
    ```
 
@@ -82,7 +101,7 @@ For the record, so this document is not read as a list of holes:
 - Secrets are kept out of `process.env` (the `readEnvFile` dict pattern).
 - `bin/email-digest` and `bin/gmail` never print or log the password.
 - The allowlist in `claude.ts` means only the intended keys cross into the container, not the whole `.env`.
-- `.gitignore` covers `.env`, `*.local.*`, `audit/`, and the PII scanner's pattern list.
+- `.gitignore` covers `.alfred/private/`, `.env`, `*.local.*`, `audit/`, and the PII scanner's pattern list.
 
 The weak point is not the code. It is the human setup ritual, which is what this document hardens.
 

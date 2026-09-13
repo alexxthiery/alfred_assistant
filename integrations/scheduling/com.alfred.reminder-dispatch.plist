@@ -2,10 +2,11 @@
 <!--
   launchd job for the reminder dispatcher (every 15 minutes).
   Install:
-    1. Edit ALFRED_VAULT / ENV_FILE below and the path to run-reminder-dispatch.sh.
+    1. Edit ALFRED_VAULT / ALFRED_ASSISTANT_LABEL / ENV_FILE below and the path to run-reminder-dispatch.sh.
     2. cp to ~/Library/LaunchAgents/com.alfred.reminder-dispatch.plist
     3. launchctl load ~/Library/LaunchAgents/com.alfred.reminder-dispatch.plist
   Secrets are NOT in this file — run-reminder-dispatch.sh sources them from ENV_FILE.
+  ENV_FILE must also contain ALFRED_EXPECTED_VAULT and ALFRED_EXPECTED_LABEL.
   StartInterval is the firing cadence: a reminder fires within ~15 min of its
   remind_at. Reminders are never lost — a missed window fires on the next run.
 -->
@@ -19,7 +20,8 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>ALFRED_VAULT</key><string>/Users/YOU/my-vault</string>
-    <key>ENV_FILE</key><string>/Users/YOU/nanoclaw/.env</string>
+    <key>ALFRED_ASSISTANT_LABEL</key><string>alfred</string>
+    <key>ENV_FILE</key><string>/Users/YOU/my-vault/.alfred/private/env</string>
   </dict>
   <key>StartInterval</key><integer>900</integer>
   <key>StandardOutPath</key><string>/tmp/alfred-reminder-dispatch.out</string>

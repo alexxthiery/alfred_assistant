@@ -13,14 +13,15 @@
 
 'use strict';
 
-// Canonical job set. `wrapper` is the basename the installed entry's command
-// must reference (catches stale paths after a repo move). `schedule` is the
-// DEFAULT cadence; a user running a custom time is reported as 'custom', not an
-// error. `label` is the launchd Label (also the conventional cron-comment tag).
-const JOBS = [
+const LABEL_SLUG_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
+
+// Canonical job set, without the assistant-specific launchd namespace.
+// `wrapper` is the basename the installed entry's command must reference
+// (catches stale paths after a repo move). `schedule` is the DEFAULT cadence; a
+// user running a custom time is reported as 'custom', not an error.
+const JOB_SPECS = [
   {
     name: 'daily-brief',
-    label: 'com.alfred.daily-brief',
     wrapper: 'run-daily-brief.sh',
     schedule: { kind: 'calendar', hour: 7, minute: 0 },
     needsAgent: false,
@@ -28,7 +29,6 @@ const JOBS = [
   },
   {
     name: 'reminder-dispatch',
-    label: 'com.alfred.reminder-dispatch',
     wrapper: 'run-reminder-dispatch.sh',
     schedule: { kind: 'interval', seconds: 900 },
     needsAgent: false,
@@ -36,7 +36,6 @@ const JOBS = [
   },
   {
     name: 'vault-backup-push',
-    label: 'com.alfred.vault-backup-push',
     wrapper: 'vault-backup-push.sh',
     schedule: { kind: 'calendar', hour: 22, minute: 0 },
     needsAgent: false,
@@ -44,7 +43,6 @@ const JOBS = [
   },
   {
     name: 'weekly-review',
-    label: 'com.alfred.weekly-review',
     wrapper: 'run-weekly-review.sh',
     schedule: { kind: 'calendar', hour: 9, minute: 0, weekday: 1 },
     needsAgent: true,
@@ -52,7 +50,6 @@ const JOBS = [
   },
   {
     name: 'email-review',
-    label: 'com.alfred.email-review',
     wrapper: 'run-email-review.sh',
     schedule: { kind: 'calendar', hour: 10, minute: 0 },
     needsAgent: true,
@@ -60,13 +57,26 @@ const JOBS = [
   },
   {
     name: 'docker-watchdog',
-    label: 'com.alfred.docker-watchdog',
     wrapper: 'docker-watchdog',
     schedule: { kind: 'interval', seconds: 120 },
     needsAgent: false,
     purpose: 'Restarts Docker / the OneCLI gateway when the engine wedges, so the agent runtime can spawn containers. macOS only.',
   },
 ];
+
+function assertLabelSlug(labelSlug) {
+  if (!LABEL_SLUG_RE.test(labelSlug || '')) {
+    throw new Error(`invalid assistant label '${labelSlug}' (use lowercase letters, digits, hyphens)`);
+  }
+}
+
+function jobsForLabel(labelSlug = 'alfred') {
+  assertLabelSlug(labelSlug);
+  return JOB_SPECS.map((job) => ({ ...job, label: `com.${labelSlug}.${job.name}` }));
+}
+
+// Backward-compatible default manifest for the primary assistant.
+const JOBS = jobsForLabel('alfred');
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -188,6 +198,8 @@ function evaluateJob(job, installed) {
 
 module.exports = {
   JOBS,
+  JOB_SPECS,
+  jobsForLabel,
   scheduleToText,
   schedulesEqual,
   parsePlist,

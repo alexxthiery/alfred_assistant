@@ -215,7 +215,7 @@ Required env vars (set in the agent group's environment): `EMAIL_FROM=<configure
 
 **Do not paste the raw output of `wiki review` / `wiki audit` into the email.** That's a wall of text. Synthesize. The email is meant to be read on a phone in 30 seconds.
 
-To **bootstrap** this routine (one-time, when {{USER_NAME}} asks): do not call `schedule_task`. Use the OS-scheduler runbook in `integrations/scheduling/README.md`, normally `tools/install-assistant-jobs.sh --weekly 09:00`, then verify with `wiki jobs --check`.
+To **bootstrap** this routine (one-time, when {{USER_NAME}} asks): do not call `schedule_task`. Use the OS-scheduler runbook in `integrations/scheduling/README.md`, normally `tools/install-assistant-jobs.sh --weekly 09:00 --label <assistant-label>`, then verify with `wiki jobs --check --label <assistant-label>`.
 
 ### Daily routine — email review (agentic, intended 10:00 local)
 

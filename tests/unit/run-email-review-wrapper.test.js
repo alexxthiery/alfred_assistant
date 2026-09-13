@@ -42,18 +42,37 @@ function makeAgent(t, body) {
 }
 
 function runWrapper(vault, agent, extraEnv = {}) {
+  const envFile = path.join(vault, '.alfred', 'private', 'env');
+  fs.mkdirSync(path.dirname(envFile), { recursive: true });
+  const fileEnv = {
+    ALFRED_EXPECTED_VAULT: vault,
+    ALFRED_EXPECTED_LABEL: 'child',
+    EMAIL_FROM: 'user@example.com',
+    GMAIL_IMAP_APP_PASSWORD: 'imap-password',
+    TELEGRAM_BOT_TOKEN: 'telegram-token',
+    TELEGRAM_CHAT_ID: '12345',
+  };
+  for (const key of Object.keys(fileEnv)) {
+    if (Object.prototype.hasOwnProperty.call(extraEnv, key)) fileEnv[key] = extraEnv[key];
+  }
+  fs.writeFileSync(envFile, [
+    `ALFRED_EXPECTED_VAULT=${fileEnv.ALFRED_EXPECTED_VAULT}`,
+    `ALFRED_EXPECTED_LABEL=${fileEnv.ALFRED_EXPECTED_LABEL}`,
+    `EMAIL_FROM=${fileEnv.EMAIL_FROM}`,
+    `GMAIL_IMAP_APP_PASSWORD=${fileEnv.GMAIL_IMAP_APP_PASSWORD}`,
+    `TELEGRAM_BOT_TOKEN=${fileEnv.TELEGRAM_BOT_TOKEN}`,
+    `TELEGRAM_CHAT_ID=${fileEnv.TELEGRAM_CHAT_ID}`,
+    '',
+  ].join('\n'));
   return spawnSync('bash', [WRAPPER], {
     encoding: 'utf8',
     env: {
       PATH: process.env.PATH,
       HOME: process.env.HOME,
       ALFRED_VAULT: vault,
-      ENV_FILE: path.join(vault, 'missing.env'),
+      ALFRED_ASSISTANT_LABEL: 'child',
+      ENV_FILE: envFile,
       ALFRED_AGENT_BIN: agent,
-      EMAIL_FROM: 'user@example.com',
-      GMAIL_IMAP_APP_PASSWORD: 'imap-password',
-      TELEGRAM_BOT_TOKEN: 'telegram-token',
-      TELEGRAM_CHAT_ID: '12345',
       ...extraEnv,
     },
   });
@@ -114,6 +133,34 @@ printf '%s\\n' "Please confirm whether I should create the Thing todo."
     fs.readFileSync(telegramFile, 'utf8'),
     'Please confirm whether I should create the Thing todo.\n',
   );
+});
+
+test('email review wrapper fails before Gmail scan when env binding points elsewhere', (t) => {
+  const emailArgs = path.join(os.tmpdir(), `alfred-email-binding-${process.pid}-${Date.now()}`);
+  t.after(() => fs.rmSync(emailArgs, { force: true }));
+
+  const { tmp, vault } = makeVault(t, {
+    'email-review': `#!/usr/bin/env bash
+printf '%s\\n' "$@" > "$TEST_EMAIL_ARGS"
+`,
+    'telegram-send': `#!/usr/bin/env bash
+cat >/dev/null
+`,
+  });
+  const other = path.join(tmp, 'other-vault');
+  fs.mkdirSync(other);
+  const agent = makeAgent(t, `#!/usr/bin/env bash
+exit 9
+`);
+
+  const result = runWrapper(vault, agent, {
+    ALFRED_EXPECTED_VAULT: other,
+    TEST_EMAIL_ARGS: emailArgs,
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /vault binding mismatch/);
+  assert.equal(fs.existsSync(emailArgs), false, 'Gmail scanner should not run after binding failure');
 });
 
 test('email review wrapper stays silent when the report has no surfaced candidates', (t) => {

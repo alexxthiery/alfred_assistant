@@ -3,3 +3,7 @@
 # version history, not indexed by `wiki search`. Durable knowledge belongs
 # in the graph (wiki/) via `wiki write`, not here. See docs/CONVENTIONS.md.
 output/
+
+# Per-vault credentials and local runtime secrets. This directory is the
+# supported place for the assistant env file, e.g. .alfred/private/env.
+.alfred/private/

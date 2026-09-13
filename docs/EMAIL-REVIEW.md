@@ -58,12 +58,29 @@ interactive session Alfred can run the CLI directly:
 5. After the user answers, write confirmed todos/facts/events/entities through `wiki`.
 6. Append stronger ledger statuses when useful: `todo-created`, `vaulted`, `not-actionable`, `deferred`.
 
-Do not schedule this as a fully deterministic host-only job like `daily-brief`: the analysis needs agent judgment. The supported scheduler path is `integrations/scheduling/run-email-review.sh`, normally installed as `com.alfred.email-review` at 10:00 local after the user asks for it.
+Do not schedule this as a fully deterministic host-only job like `daily-brief`: the analysis needs agent judgment. The supported scheduler path is `integrations/scheduling/run-email-review.sh`, normally installed as `com.<assistant-label>.email-review` at 10:00 local after the user asks for it.
 
 For scheduled runs, the wrapper runs `.bin/email-review` itself and then passes
 the metadata-only report to the headless agent. The agent should not run Gmail
 commands again in that path; this avoids coupling daily email review to a
 non-interactive shell-command permission gate.
+
+The scheduled wrapper requires the assistant env file to be vault-bound before
+it reads Gmail:
+
+```sh
+ALFRED_EXPECTED_VAULT=/absolute/path/to/that/assistant-vault
+ALFRED_EXPECTED_LABEL=<assistant-label>
+EMAIL_FROM=...
+GMAIL_IMAP_APP_PASSWORD=...
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_CHAT_ID=...
+```
+
+The env file must live under the owning vault's `.alfred/private/` directory and
+must not be a symlink. `ALFRED_EXPECTED_VAULT` is also checked by
+`.bin/email-review` itself, so a manual run with the wrong credential env file
+fails before opening IMAP.
 
 ## Question Discipline
 

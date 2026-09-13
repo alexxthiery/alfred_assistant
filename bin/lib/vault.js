@@ -16,8 +16,10 @@ const path = require('node:path');
 
 const { parseFrontmatter } = require('./frontmatter.js');
 const { detectVaultRoot } = require('./vault-root.js');
+const { assertVaultBinding } = require('./vault-binding.js');
 
 const VAULT_ROOT  = detectVaultRoot();
+assertVaultBinding({ detectedVault: VAULT_ROOT });
 const WIKI_DIR    = path.join(VAULT_ROOT, 'wiki');
 const SCHEMA_PATH = path.join(VAULT_ROOT, 'SCHEMA.md');
 const INDEX_PATH  = path.join(WIKI_DIR, 'index.md');

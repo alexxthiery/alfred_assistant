@@ -8,7 +8,9 @@
 #
 # Config:
 #   ALFRED_VAULT                  vault path (contains AGENTS.md and .bin/)
+#   ALFRED_ASSISTANT_LABEL        assistant label stamped by the scheduler installer
 #   ENV_FILE                      file exporting EMAIL_FROM +
+#                                 ALFRED_EXPECTED_VAULT + ALFRED_EXPECTED_LABEL +
 #                                 GMAIL_IMAP_APP_PASSWORD +
 #                                 TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID
 #   ALFRED_AGENT_BIN              agent binary; default: claude
@@ -28,13 +30,17 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 ALFRED_VAULT="${ALFRED_VAULT:-$HOME/my-vault}"
-ENV_FILE="${ENV_FILE:-$HOME/nanoclaw/.env}"
+ENV_FILE="${ENV_FILE:-$ALFRED_VAULT/.alfred/private/env}"
 ALFRED_AGENT_BIN="${ALFRED_AGENT_BIN:-claude}"
 ALFRED_EMAIL_REVIEW_DAYS="${ALFRED_EMAIL_REVIEW_DAYS:-1}"
 ALFRED_EMAIL_REVIEW_MAX_QUESTIONS="${ALFRED_EMAIL_REVIEW_MAX_QUESTIONS:-7}"
 
-[ -f "$ENV_FILE" ] && set -a && . "$ENV_FILE" && set +a
+. "$SCRIPT_DIR/assistant-binding.sh"
+alfred_require_private_env_path "run-email-review"
+set -a && . "$ENV_FILE" && set +a
+alfred_require_assistant_binding "run-email-review"
 
 LOG_DIR="$ALFRED_VAULT/cache/email-review"
 LOG_FILE="$LOG_DIR/run.log"

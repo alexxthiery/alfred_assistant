@@ -90,7 +90,7 @@ function main() {
   // The brief's date must be "today" in the USER's timezone, not UTC. Firing at
   // 07:00 SGT is 23:00 UTC the previous day, so `new Date().toISOString()` gave
   // yesterday's date — the brief then listed yesterday's due todos/events.
-  // Resolve TZ: --tz flag > $TZ env (set in ~/nanoclaw/.env) > runtime default.
+  // Resolve TZ: --tz flag > $TZ env (set in the assistant env file) > runtime default.
   const tz = args.tz || process.env.TZ || undefined;
   const date = args.date || localDate(new Date(), tz);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {

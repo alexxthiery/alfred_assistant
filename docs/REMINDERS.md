@@ -69,10 +69,10 @@ email channel still surfaced it on its due date. Acceptable for v1.
 
 1. Reminder fields + `reminder-dispatch` are part of the deployed CLI (vault
    `.bin/`). No extra setup for the email half.
-2. For Telegram: set `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` in
-   `~/nanoclaw/.env` — see `docs/TELEGRAM.md`.
+2. For Telegram: set `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` in this
+   assistant's private env file, `<vault>/.alfred/private/env` — see `docs/TELEGRAM.md`.
 3. Install the `*/15` job — see `integrations/scheduling/` (`run-reminder-dispatch.sh`
-   + `com.alfred.reminder-dispatch.plist`).
+   + the installer-generated `com.<label>.reminder-dispatch.plist`).
 
 ## See also
 

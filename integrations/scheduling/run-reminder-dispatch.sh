@@ -13,13 +13,19 @@
 #
 # Config (edit or set in the environment / launchd plist):
 #   ALFRED_VAULT  vault path (contains .bin/)
-#   ENV_FILE      a file exporting TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (sourced)
+#   ALFRED_ASSISTANT_LABEL  assistant label stamped by the scheduler installer
+#   ENV_FILE      a file exporting TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID +
+#                 ALFRED_EXPECTED_VAULT + ALFRED_EXPECTED_LABEL (sourced)
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 ALFRED_VAULT="${ALFRED_VAULT:-$HOME/my-vault}"
-ENV_FILE="${ENV_FILE:-$HOME/nanoclaw/.env}"
+ENV_FILE="${ENV_FILE:-$ALFRED_VAULT/.alfred/private/env}"
 
 # Secrets are sourced from a file, never hardcoded here.
-[ -f "$ENV_FILE" ] && set -a && . "$ENV_FILE" && set +a
+. "$SCRIPT_DIR/assistant-binding.sh"
+alfred_require_private_env_path "run-reminder-dispatch"
+set -a && . "$ENV_FILE" && set +a
+alfred_require_assistant_binding "run-reminder-dispatch"
 : "${TELEGRAM_BOT_TOKEN:?run-reminder-dispatch: TELEGRAM_BOT_TOKEN not set (check ENV_FILE)}"
 : "${TELEGRAM_CHAT_ID:?run-reminder-dispatch: TELEGRAM_CHAT_ID not set (check ENV_FILE)}"
 

@@ -3,8 +3,9 @@
 #
 # The host wrappers (run-daily-brief.sh, run-weekly-review.sh,
 # run-reminder-dispatch.sh, vault-backup-push.sh, run-email-review.sh) are
-# already generic: each plist supplies ALFRED_VAULT +
-# ENV_FILE in its EnvironmentVariables, which override the wrappers' defaults. So
+# already generic: each plist supplies ALFRED_VAULT, ENV_FILE, and
+# ALFRED_ASSISTANT_LABEL in its EnvironmentVariables, which override the
+# wrappers' defaults. So
 # onboarding a new assistant is purely a matter of stamping per-assistant plists
 # pointing at the shared wrappers — that's what this does. Reused for every
 # family member (and for the primary assistant itself).
@@ -15,7 +16,9 @@
 #       [--dry-run] [--uninstall]
 #
 #   --vault       the assistant's vault (contains .bin/)
-#   --env         env file the wrappers source (EMAIL_FROM / GMAIL_APP_PASSWORD /
+#   --env         env file under <vault>/.alfred/private/ that the wrappers source
+#                 (ALFRED_EXPECTED_VAULT /
+#                 ALFRED_EXPECTED_LABEL / EMAIL_FROM / GMAIL_APP_PASSWORD /
 #                 GMAIL_IMAP_APP_PASSWORD / TELEGRAM_BOT_TOKEN /
 #                 TELEGRAM_CHAT_ID — set whichever apply)
 #   --label       short slug; plists are com.<label>.{daily-brief,email-review,weekly-review,reminder-dispatch,vault-backup-push}
@@ -69,8 +72,17 @@ fi
 [ -n "$VAULT" ]   || { echo "install-assistant-jobs: --vault is required" >&2; exit 1; }
 [ -n "$ENVFILE" ] || { echo "install-assistant-jobs: --env is required" >&2; exit 1; }
 [ -n "$BRIEF$EMAIL_REVIEW$WEEKLY$BACKUP" ] || [ "$REMINDERS" -eq 1 ] || { echo "install-assistant-jobs: pick at least one of --brief / --email-review / --weekly / --reminders / --backup" >&2; exit 1; }
-VAULT_ABS=$(cd "$VAULT" 2>/dev/null && pwd) || { echo "install-assistant-jobs: vault not found: $VAULT" >&2; exit 1; }
-WRAPPERS_ABS=$(cd "$WRAPPERS" 2>/dev/null && pwd) || { echo "install-assistant-jobs: wrappers dir not found: $WRAPPERS" >&2; exit 1; }
+VAULT_ABS=$(cd "$VAULT" 2>/dev/null && pwd -P) || { echo "install-assistant-jobs: vault not found: $VAULT" >&2; exit 1; }
+WRAPPERS_ABS=$(cd "$WRAPPERS" 2>/dev/null && pwd -P) || { echo "install-assistant-jobs: wrappers dir not found: $WRAPPERS" >&2; exit 1; }
+[ -f "$WRAPPERS_ABS/assistant-binding.sh" ] || { echo "install-assistant-jobs: missing $WRAPPERS_ABS/assistant-binding.sh (copy it with the run-*.sh wrappers)" >&2; exit 1; }
+[ -f "$ENVFILE" ] || { echo "install-assistant-jobs: env file not found: $ENVFILE" >&2; exit 1; }
+[ ! -L "$ENVFILE" ] || { echo "install-assistant-jobs: env file must not be a symlink: $ENVFILE" >&2; exit 1; }
+ENV_DIR_ABS=$(cd "$(dirname "$ENVFILE")" 2>/dev/null && pwd -P) || { echo "install-assistant-jobs: env dir not found: $ENVFILE" >&2; exit 1; }
+ENVFILE_ABS="$ENV_DIR_ABS/$(basename "$ENVFILE")"
+case "$ENVFILE_ABS" in
+  "$VAULT_ABS/.alfred/private"/*) ;;
+  *) echo "install-assistant-jobs: env file must live under $VAULT_ABS/.alfred/private; got $ENVFILE_ABS" >&2; exit 1 ;;
+esac
 PATH_LINE="$WRAPPERS_ABS:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 # Emit one plist to stdout. $1=label-suffix $2=schedule-xml $3=program-args-xml
@@ -87,7 +99,8 @@ $3
   <key>EnvironmentVariables</key>
   <dict>
     <key>ALFRED_VAULT</key><string>$VAULT_ABS</string>
-    <key>ENV_FILE</key><string>$ENVFILE</string>
+    <key>ALFRED_ASSISTANT_LABEL</key><string>$LABEL</string>
+    <key>ENV_FILE</key><string>$ENVFILE_ABS</string>
     <key>PATH</key><string>$PATH_LINE</string>
   </dict>
 $2

@@ -1,6 +1,6 @@
 # Weekly digest
 
-A cron-scheduled task that runs every Monday morning, has Alfred review the vault's state, and emails you a three-section summary via Gmail SMTP. The whole pipeline is opt-in and entirely self-hosted — Alfred only gets SMTP-send permission, never read access to your mail.
+A cron-scheduled task that runs every Monday morning, has Alfred review the vault's state, and emails you a three-section summary via Gmail SMTP. The whole pipeline is opt-in and entirely self-hosted. This job uses only the SMTP-send credential; IMAP-read credentials, if configured for email review, are separate.
 
 This doc covers setup, troubleshooting, and the small set of moving parts that compose the digest.
 
@@ -11,7 +11,7 @@ This doc covers setup, troubleshooting, and the small set of moving parts that c
 | Cron task | OS launchd/cron (Monday 09:00, your timezone) | Fires the routine |
 | Composition routine | `docs/PERSONA.template.md` § "Weekly routine" | Tells Alfred what to compute and how to format the email |
 | `bin/email-digest` | This repo | Bash wrapper around `curl --url 'smtps://smtp.gmail.com:465'` |
-| Gmail app password | `GMAIL_APP_PASSWORD` env var | SMTP-send-only credential |
+| Gmail app password | `GMAIL_APP_PASSWORD` env var | SMTP-send credential used by this job |
 | Recipient | `{{USER_EMAIL}}` (from `.alfred.yml`) | Where the digest is sent |
 
 ## Setup
@@ -25,7 +25,7 @@ App passwords let third-party tools send mail through your Gmail account without
 3. Generate a new app password named "alfred-digest" (or similar).
 4. Copy the 16-character string. **You won't see it again.**
 
-App passwords are scoped to SMTP-send only. They cannot read your mail and cannot be used to log in to the web UI.
+Use a distinct named app password for SMTP send, e.g. `alfred-digest`. Gmail app passwords are not protocol-scoped by Google, so keep SMTP-send and IMAP-read credentials in separate env vars and revoke them independently if needed. App passwords cannot be used to log in to the web UI.
 
 ### 2. Environment variables
 
@@ -53,7 +53,7 @@ This is what the persona references as `{{USER_EMAIL}}`. The sender (`EMAIL_FROM
 
 **Recommended: OS cron / launchd (runtime-independent).** The weekly review needs synthesis (an agent), so the recipe runs a *headless* agent on demand — `claude -p "...weekly routine..."` (or `codex exec`) piped to `email-digest` — from the OS scheduler. Ready-made wrapper and installer live in [`../integrations/scheduling/`](../integrations/scheduling/) and [`../tools/install-assistant-jobs.sh`](../tools/install-assistant-jobs.sh). This does not depend on nanoclaw being up or its task table surviving upgrades.
 
-**Legacy: nanoclaw `schedule_task`.** Historical setups may still have this. Do not create new nanoclaw scheduled tasks for weekly review; use the OS-scheduler path so `wiki jobs --check` can detect drift.
+**Legacy: nanoclaw `schedule_task`.** Historical setups may still have this. Do not create new nanoclaw scheduled tasks for weekly review; use the OS-scheduler path so `wiki jobs --check --label <assistant-label>` can detect drift.
 
 ## What Alfred does when it fires
 

@@ -8,6 +8,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   JOBS,
+  jobsForLabel,
   scheduleToText,
   schedulesEqual,
   parsePlist,
@@ -23,6 +24,21 @@ test('JOBS manifest: every job has the fields the verb and validator rely on', (
     assert.match(j.label, /^com\.alfred\./);
     assert.ok(['calendar', 'interval'].includes(j.schedule.kind));
   }
+});
+
+test('jobsForLabel: namespaces launchd labels per assistant without changing job contracts', () => {
+  const child = jobsForLabel('child');
+  assert.equal(child.length, JOBS.length);
+  assert.equal(child.find((j) => j.name === 'daily-brief').label, 'com.child.daily-brief');
+  assert.equal(child.find((j) => j.name === 'email-review').label, 'com.child.email-review');
+  assert.equal(child.find((j) => j.name === 'daily-brief').wrapper, JOBS.find((j) => j.name === 'daily-brief').wrapper);
+  assert.deepEqual(child.find((j) => j.name === 'email-review').schedule, JOBS.find((j) => j.name === 'email-review').schedule);
+});
+
+test('jobsForLabel: rejects labels that are unsafe as launchd namespaces', () => {
+  assert.throws(() => jobsForLabel('Child'), /invalid assistant label/);
+  assert.throws(() => jobsForLabel('../child'), /invalid assistant label/);
+  assert.throws(() => jobsForLabel(''), /invalid assistant label/);
 });
 
 test('JOBS manifest: docker-watchdog is registered as a 2-min interval job', () => {

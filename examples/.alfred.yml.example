@@ -1,6 +1,7 @@
 # .alfred.yml — per-vault configuration for Alfred Assistant.
 # Copy this file to the root of your vault as `.alfred.yml` and edit.
-# Secrets DO NOT belong here — they go in environment variables.
+# Secrets DO NOT belong here — they go in the gitignored per-vault env file:
+#   .alfred/private/env
 
 # --- Required ---
 user:
@@ -23,10 +24,12 @@ email:
   from: ""
   # Recipient for the weekly digest. Defaults to `from` if unset.
   to: ""
-  # The Gmail app password is NEVER stored here. The CLI reads it from
-  # $GMAIL_APP_PASSWORD. Generate one at:
+  # Gmail app passwords are NEVER stored here. The CLI reads SMTP-send from
+  # $GMAIL_APP_PASSWORD and IMAP-read from $GMAIL_IMAP_APP_PASSWORD. Generate
+  # them at:
   #   https://myaccount.google.com/apppasswords  (requires 2FA on the account)
-  # App passwords are SMTP-send only — they cannot read mail.
+  # Prefer separate named app passwords per purpose so one can be revoked
+  # without breaking the other.
 
 weekly_review:
   # Whether the weekly review cron is enabled. The schedule is registered

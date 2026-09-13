@@ -43,8 +43,24 @@ def _die(code, msg):
     sys.exit(code)
 
 
+def _vault_root_from_here():
+    return os.path.dirname(_HERE) if os.path.basename(_HERE) == '.bin' else _HERE
+
+
+def _require_vault_binding():
+    expected = os.environ.get('ALFRED_EXPECTED_VAULT')
+    if not expected:
+        return
+    active = os.path.realpath(_vault_root_from_here())
+    expected_real = os.path.realpath(expected)
+    if active != expected_real:
+        _die(EXIT_MISSING_ENV,
+             f'ALFRED_EXPECTED_VAULT mismatch: active vault {active}; expected {expected_real}.')
+
+
 def _require_env():
     """Read auth env vars; exit cleanly if missing."""
+    _require_vault_binding()
     user = os.environ.get('EMAIL_FROM')
     pw = os.environ.get('GMAIL_IMAP_APP_PASSWORD')
     if not user:
