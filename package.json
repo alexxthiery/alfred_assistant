@@ -10,6 +10,8 @@
     "test": "node --test 'tests/unit/*.test.js' && bin/wiki-test && npm run test:gmail",
     "test:unit": "node --test 'tests/unit/*.test.js'",
     "test:fixtures": "bin/wiki-test",
-    "test:gmail": "python3 tests/unit/gmail.test.py && python3 tests/unit/email_review.test.py"
+    "test:gmail": "python3 tests/unit/gmail.test.py && python3 tests/unit/email_review.test.py",
+    "nanoclaw:gate": "tools/nanoclaw-upgrade-gate.js",
+    "nanoclaw:smoke": "tools/nanoclaw-disposable-smoke.js"
   }
 }

@@ -1,6 +1,16 @@
 # nanoclaw adapter
 
-Run Alfred as an always-on Telegram bot via a [nanoclaw](../../docs/NANOCLAW-PATCHES.md) container. This is the heaviest setup (a container host + a Telegram bot); the Claude Code / Codex adapters are far lighter on-ramps for the same vault.
+Run Alfred as an always-on Telegram bot via a NanoClaw container. This is the
+heaviest setup (a container host + a Telegram bot); the Claude Code / Codex
+adapters are far lighter on-ramps for the same vault.
+
+The long-term strategy is to stay close to upstream NanoClaw and keep Alfred as
+a thin vault/persona layer. Read the integration contract before patching
+NanoClaw:
+
+- [`../../docs/NANOCLAW-INTEGRATION.md`](../../docs/NANOCLAW-INTEGRATION.md)
+- [`../../docs/NANOCLAW-UPGRADE-RUNBOOK.md`](../../docs/NANOCLAW-UPGRADE-RUNBOOK.md)
+- [`../../docs/NANOCLAW-PATCHES.md`](../../docs/NANOCLAW-PATCHES.md)
 
 ## How it works
 
@@ -8,7 +18,11 @@ nanoclaw mounts the vault into the agent container and, per the group's `CLAUDE.
 
 ## Setup
 
-The host-side patches (write-guard hook, PATH, env passthrough, provider registration, vault-read gate) are documented in [`../../docs/NANOCLAW-PATCHES.md`](../../docs/NANOCLAW-PATCHES.md). Apply them to your nanoclaw fork.
+The legacy host-side patches (write-guard hook, PATH, env passthrough, provider
+registration, vault-read gate) are documented in
+[`../../docs/NANOCLAW-PATCHES.md`](../../docs/NANOCLAW-PATCHES.md). For new
+NanoClaw releases, do not apply them mechanically: first classify each one
+against upstream features and the upgrade runbook.
 
 **Persona wiring:** point the group's `CLAUDE.local.md` at the vault's `AGENTS.md`:
 

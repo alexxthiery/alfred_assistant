@@ -17,7 +17,7 @@ Alfred touches three kinds of secret: Gmail app passwords (SMTP send + IMAP read
 | Env-file label binding | `ALFRED_EXPECTED_LABEL` | `<vault>/.alfred/private/env` | scheduled wrappers and isolation smoke checks |
 | Anthropic/OneCLI proxy token | injected by the OneCLI gateway | OneCLI keychain | the container's HTTPS proxy |
 
-**The flow.** The assistant runtime reads a hardcoded allowlist of keys from that assistant's env file via `readEnvFile()` (which deliberately does NOT load them into `process.env`) and injects them into the agent container with docker `-e` flags. To add a new secret env var, you must extend that allowlist (see `docs/NANOCLAW-PATCHES.md` Patch 3) and rebuild/restart the runtime. Putting a key in `.env` alone does nothing until it is allowlisted.
+**The flow.** The assistant runtime reads a hardcoded allowlist of keys from that assistant's env file via `readEnvFile()` (which deliberately does NOT load them into `process.env`) and injects them into the agent container with docker `-e` flags. In the legacy NanoClaw integration this allowlist is Patch 3 in `docs/NANOCLAW-PATCHES.md`; the target design is described in `docs/NANOCLAW-INTEGRATION.md`, where Alfred-specific secrets should cross into the container only when an in-container feature genuinely needs them. Putting a key in `.env` alone does nothing until it is allowlisted.
 
 `<vault>/.alfred/private/` is gitignored and never committed. No secret should ever be written into a tracked file.
 Full conversation mirrors created by `wiki conversation-log` also live under
@@ -110,5 +110,6 @@ The weak point is not the code. It is the human setup ritual, which is what this
 
 ## See also
 
-- `docs/NANOCLAW-PATCHES.md` — Patch 3 (env passthrough allowlist).
+- `docs/NANOCLAW-INTEGRATION.md` — runtime/vault/secret boundary.
+- `docs/NANOCLAW-PATCHES.md` — legacy Patch 3 (env passthrough allowlist).
 - `docs/WEEKLY-DIGEST.md`, `docs/GMAIL.md`, `docs/TWITTER.md` — per-feature credential setup.

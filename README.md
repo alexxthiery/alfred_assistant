@@ -99,6 +99,9 @@ alfred_assistant/
     verbs/
       read.js             # read-only verbs split out of bin/wiki (list, search, recent, preview, print, sources, related, unlinked-mentions, agenda, day, context, challenge, render)
     commands/             # verb handlers (cmdXxx), one file per group; all verbs live here (see AGENTS.md verb-module index)
+  tools/
+    nanoclaw-upgrade-gate.js      # non-destructive fast/full gate for NanoClaw upgrade staging
+    nanoclaw-disposable-smoke.js # disposable two-vault smoke before NanoClaw canaries
   schemas/
     wiki-ingest.schema.json   # JSON Schema for the ingest spec
   docs/
@@ -106,7 +109,9 @@ alfred_assistant/
     CONVENTIONS.md        # error-format genres, exit codes, error-prefix vocabulary
     persona/              # maintained source fragments for Alfred's runtime instructions
     PERSONA.template.md   # assembled compatibility aggregate, with {{USER_NAME}} placeholders
-    NANOCLAW-PATCHES.md   # the host-side patches you apply to your nanoclaw fork
+    NANOCLAW-INTEGRATION.md # the Alfred/NanoClaw boundary and invariants
+    NANOCLAW-UPGRADE-RUNBOOK.md # staging-first NanoClaw upgrade process
+    NANOCLAW-PATCHES.md   # legacy carried patch inventory for the NanoClaw fork
     WEEKLY-DIGEST.md      # how the weekly cron + SMTP wrapper fit together
     DAILY-BRIEF.md        # the deterministic 07:00 morning brief
     GMAIL.md              # the Gmail IMAP read CLI (setup, verbs, troubleshooting)
@@ -157,7 +162,10 @@ wiki preflight            # one-shot env + dependency check; should report OK
 wiki list                 # should print "no pages yet" or similar
 ```
 
-To run Alfred himself (the conversational agent), follow `docs/NANOCLAW-PATCHES.md` — you'll fork nanoclaw, apply the documented host-side patches, mount your vault, and bootstrap a Telegram bot.
+To run Alfred himself (the conversational agent), start with
+`docs/NANOCLAW-INTEGRATION.md` and `docs/NANOCLAW-UPGRADE-RUNBOOK.md`.
+`docs/NANOCLAW-PATCHES.md` records the legacy carried patches; do not treat it
+as a permanent fork plan.
 
 ## Configuration
 
