@@ -133,7 +133,7 @@ alfred_assistant/
   CLAUDE.md               # one-line @AGENTS.md import so Claude Code loads the same orientation
   CHANGELOG.md            # human-readable history per audit / refactor batch
   CONTRIBUTING.md         # how to propose changes (single-user project; mostly historical)
-  install.sh              # symlinks bin/ into a target vault's .bin/
+  install.sh              # installs/copies bin/ into a target vault's .bin/
 ```
 
 ## Quickstart

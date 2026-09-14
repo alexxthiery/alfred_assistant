@@ -25,6 +25,12 @@ test('deploy.sh gitignore template ignores vault-private credentials', () => {
 
   const ignored = git('check-ignore', '.alfred/private/env').trim();
   assert.equal(ignored, '.alfred/private/env');
+
+  const conversationLog = git('check-ignore', '.alfred/private/conversations/nanoclaw/session.md').trim();
+  assert.equal(conversationLog, '.alfred/private/conversations/nanoclaw/session.md');
+
+  const deployedBin = git('check-ignore', '.bin/wiki').trim();
+  assert.equal(deployedBin, '.bin/wiki');
 });
 
 test('deploy.sh gitignore template has no inline comments on active patterns', () => {
@@ -52,6 +58,9 @@ test('deploy.sh appends vault-private ignore rule to existing legacy gitignore',
 
     const ignored = git('check-ignore', '.alfred/private/env').trim();
     assert.equal(ignored, '.alfred/private/env');
+
+    const deployedBin = git('check-ignore', '.bin/wiki').trim();
+    assert.equal(deployedBin, '.bin/wiki');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

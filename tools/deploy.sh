@@ -123,6 +123,8 @@ alfred/log/
 alfred/scratchpad.md
 # persona render artifact (canonical is AGENTS.md)
 AGENTS.local.md
+# deployed CLI/runtime copy (source of truth is alfred_assistant)
+.bin/
 __pycache__/
 *.pyc
 GITIGNORE
@@ -131,6 +133,17 @@ GITIGNORE
 else
   echo "[config] OK (.gitignore present)"
   ensure_gitignore_entry "$TARGET/.gitignore" ".alfred/private/"
+  ensure_gitignore_entry "$TARGET/.gitignore" ".bin/"
+fi
+echo ""
+
+if git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  TRACKED_BIN=$(git -C "$TARGET" ls-files .bin 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$TRACKED_BIN" -gt 0 ]; then
+    echo "[config] WARN: $TRACKED_BIN tracked .bin file(s) in $TARGET"
+    echo "  .bin/ is deployed runtime code; prefer gitignored, untracked copies."
+    echo "  To migrate deliberately: git -C $TARGET rm -r --cached .bin && git -C $TARGET commit -m 'Stop tracking deployed .bin artifacts'"
+  fi
 fi
 echo ""
 

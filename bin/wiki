@@ -36,6 +36,7 @@ const { cmdPredict, cmdHypothesize, cmdCapture } = require('./commands/epistemic
 const { cmdTodo } = require('./commands/todo.js');
 const { cmdMeasure } = require('./commands/measure.js');
 const { cmdExport } = require('./commands/export.js');
+const { cmdConversationLog } = require('./commands/conversation-log.js');
 const { cmdReplay } = require('./commands/replay.js');
 const { cmdDiff, cmdRevert } = require('./commands/git.js');
 const { cmdBless, cmdAudit, cmdFixLinks, cmdGroom, cmdSize, cmdSyncIds, cmdReindex, cmdPreflight, cmdMigrate, cmdMigrateInboxSources } = require('./commands/hygiene.js');
@@ -229,6 +230,7 @@ const cmds = {
   measure: cmdMeasure,
   // output (free-form deliverables — gitignored, not graph content)
   export: cmdExport,
+  'conversation-log': cmdConversationLog,
   // review (discovery + health digest)
   review: cmdReview,
   // replay (B2 — re-run captured Telegram-driven specs)

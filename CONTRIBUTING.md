@@ -96,6 +96,8 @@ These are part of the project's normal state but never committed:
 - `tools/pii-list.local.txt` — your local PII patterns
 - `alfred/_persona.local.md` — the rendered persona template
 - `wiki/`, `raw/`, `inbox/` — your actual vault content
+- `<vault>/.bin/` — deployed runtime copy of this repo's CLIs
+- `<vault>/.alfred/private/` — per-vault secrets and local-only debug logs
 - `.env` — Gmail app password, Telegram bot token, etc.
 
 If you find yourself wanting to commit anything from this list, stop and ask.

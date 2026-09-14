@@ -107,7 +107,24 @@ Every write-class verb (`write`, `patch`, `ingest`, `predict`, `hypothesize`, `c
 - Opt-out: `--no-auto-commit` flag, or `WIKI_NO_AUTO_COMMIT=1` env var.
 - Failure mode: a multi-line stderr block names the recovery steps. Verb exit code is not affected by git failure (the work is done; only the commit was missed).
 
-Tamper-check runs once at the start of every write-class verb. It refuses to proceed if `wiki/`, `raw/`, `SCHEMA.md`, or `.bin/` files have been edited outside the CLI since the last auto-commit. The race between the tamper-check and the very write that follows is documented in `AGENTS.md § safe-edit invariants`.
+Tamper-check runs once at the start of every write-class verb. It refuses to proceed if vault content (`wiki/`, `raw/`, `SCHEMA.md`) has been edited outside the CLI since the last auto-commit. The race between the tamper-check and the very write that follows is documented in `AGENTS.md § safe-edit invariants`.
+
+## Deployed `.bin/`
+
+`<vault>/.bin/` is a runtime copy of the repo's CLI surface, refreshed by `tools/deploy.sh`. It is required for the assistant runtime, but it is not vault content. New vaults should gitignore `.bin/`, and `tools/check-assistant-isolation.js` fails if a git-backed vault tracks `.bin` files.
+
+Why gitignored:
+
+- Refreshing assistant code should not dirty every vault that uses it.
+- Different assistants on the same machine should share the source repo, not each carry independent tracked copies of runtime code.
+- A private vault backup should contain the user's graph and local configuration, not the deploy artifact that can be reconstructed from `alfred_assistant`.
+
+If a legacy vault already tracks `.bin/`, migrate deliberately after inspecting local state:
+
+```sh
+git -C <vault> rm -r --cached .bin
+git -C <vault> commit -m "Stop tracking deployed .bin artifacts"
+```
 
 ## Output directory (`output/`)
 

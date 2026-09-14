@@ -20,6 +20,9 @@ Alfred touches three kinds of secret: Gmail app passwords (SMTP send + IMAP read
 **The flow.** The assistant runtime reads a hardcoded allowlist of keys from that assistant's env file via `readEnvFile()` (which deliberately does NOT load them into `process.env`) and injects them into the agent container with docker `-e` flags. To add a new secret env var, you must extend that allowlist (see `docs/NANOCLAW-PATCHES.md` Patch 3) and rebuild/restart the runtime. Putting a key in `.env` alone does nothing until it is allowlisted.
 
 `<vault>/.alfred/private/` is gitignored and never committed. No secret should ever be written into a tracked file.
+Full conversation mirrors created by `wiki conversation-log` also live under
+`<vault>/.alfred/private/conversations/`; they are local-only debug artifacts,
+not git-backed vault content. See `docs/CONVERSATION-LOGGING.md`.
 
 Each assistant env file must also declare the non-secret binding values:
 
@@ -101,7 +104,7 @@ For the record, so this document is not read as a list of holes:
 - Secrets are kept out of `process.env` (the `readEnvFile` dict pattern).
 - `bin/email-digest` and `bin/gmail` never print or log the password.
 - The allowlist in `claude.ts` means only the intended keys cross into the container, not the whole `.env`.
-- `.gitignore` covers `.alfred/private/`, `.env`, `*.local.*`, `audit/`, and the PII scanner's pattern list.
+- `.gitignore` covers `.alfred/private/`, deployed vault `.bin/`, `.env`, `*.local.*`, `audit/`, and the PII scanner's pattern list.
 
 The weak point is not the code. It is the human setup ritual, which is what this document hardens.
 

@@ -80,6 +80,16 @@ console.log('dry ok');
   return { root, vault, envFile, marker };
 }
 
+function git(cwd, ...args) {
+  return spawnSync('git', args, { cwd, encoding: 'utf8' });
+}
+
+function initGitVault(vault, ignoreText = '.bin/\n.alfred/private/\n') {
+  let r = git(vault, 'init', '-q');
+  assert.equal(r.status, 0, r.stderr);
+  fs.writeFileSync(path.join(vault, '.gitignore'), ignoreText);
+}
+
 function runCheck(args, env = {}) {
   return spawnSync(NODE, [TOOL, ...args], {
     cwd: ROOT,
@@ -95,6 +105,32 @@ test('passes for one vault/env/label namespace and does not print Telegram token
   assert.match(r.stdout, /Assistant isolation check passed/);
   assert.match(r.stdout, /com\.child\.\*/);
   assert.doesNotMatch(r.stdout + r.stderr, /SECRET_TOKEN/);
+});
+
+test('passes git hygiene when deployed .bin is ignored and untracked', () => {
+  const { vault, envFile } = makeVault();
+  initGitVault(vault);
+  const r = runCheck(['--vault', vault, '--env', envFile, '--label', 'child']);
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  assert.match(r.stdout, /git hygiene: \.bin\/ and private conversation logs are ignored/);
+});
+
+test('fails git hygiene when deployed .bin is tracked', () => {
+  const { vault, envFile } = makeVault();
+  initGitVault(vault);
+  let r = git(vault, 'add', '-f', '.bin/wiki');
+  assert.equal(r.status, 0, r.stderr);
+  r = runCheck(['--vault', vault, '--env', envFile, '--label', 'child']);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\.bin\/ has 1 tracked file/);
+});
+
+test('fails git hygiene when private conversation logs are not ignored', () => {
+  const { vault, envFile } = makeVault();
+  initGitVault(vault, '.bin/\n');
+  const r = runCheck(['--vault', vault, '--env', envFile, '--label', 'child']);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\.alfred\/private\/conversations\/ is not gitignored/);
 });
 
 test('can verify the configured assistant display name', () => {

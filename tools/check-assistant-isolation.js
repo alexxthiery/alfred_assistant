@@ -42,6 +42,7 @@ function usage() {
     '  - env file lives under <vault>/.alfred/private/ and is bound to this vault/label',
     '  - env file has TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, and TZ without printing secrets',
     '  - deployed wiki jobs manifest uses com.<label>.* labels',
+    '  - if the vault is a git repo, .bin/ is ignored and not tracked',
     '  - optional: user.slug matches --expect-user-slug',
     '  - optional: assistant.name matches --expect-assistant-name',
     '  - optional: each --other-vault is inaccessible from this runtime',
@@ -165,6 +166,30 @@ function runJson(cmd, args, opts = {}) {
   }
 }
 
+function git(args, opts = {}) {
+  return spawnSync('git', args, {
+    encoding: 'utf8',
+    cwd: opts.cwd || process.cwd(),
+    env: opts.env || process.env,
+  });
+}
+
+function isGitWorktree(vault) {
+  const r = git(['-C', vault, 'rev-parse', '--is-inside-work-tree']);
+  return r.status === 0 && r.stdout.trim() === 'true';
+}
+
+function gitCheckIgnored(vault, relPath) {
+  const r = git(['-C', vault, 'check-ignore', '--no-index', relPath]);
+  return r.status === 0;
+}
+
+function trackedFiles(vault, relPath) {
+  const r = git(['-C', vault, 'ls-files', relPath]);
+  if (r.status !== 0) throw new Error(`git ls-files ${relPath} failed: ${r.stderr || r.stdout}`);
+  return r.stdout.split(/\r?\n/).filter(Boolean);
+}
+
 function check(args) {
   if (!args.vault || !args.envFile || !args.label) throw new Error('--vault, --env, and --label are required');
   if (!LABEL_RE.test(args.label)) throw new Error(`invalid --label '${args.label}' (use lowercase letters, digits, hyphens)`);
@@ -240,6 +265,23 @@ function check(args) {
   const drift = jobHealth.filter((j) => j.status === 'drift');
   if (drift.length) throw new Error(`scheduled job drift: ${drift.map((j) => `${j.name}:${j.detail}`).join('; ')}`);
   ok(`scheduled-job check ran for label ${args.label} (${jobHealth.length} jobs; missing is allowed before install)`);
+
+  if (isGitWorktree(vault)) {
+    if (!gitCheckIgnored(vault, '.bin/wiki')) {
+      throw new Error('.bin/wiki is not gitignored; deployed runtime code should not dirty vault history');
+    }
+    if (!gitCheckIgnored(vault, '.alfred/private/conversations/probe')) {
+      throw new Error('.alfred/private/conversations/ is not gitignored; full discussion logs must stay local-only');
+    }
+    const trackedBin = trackedFiles(vault, '.bin');
+    if (trackedBin.length) {
+      const sample = trackedBin.slice(0, 3).join(', ');
+      throw new Error(`.bin/ has ${trackedBin.length} tracked file(s), e.g. ${sample}; run git rm -r --cached .bin after reviewing`);
+    }
+    ok('git hygiene: .bin/ and private conversation logs are ignored and .bin/ is untracked');
+  } else {
+    ok('git hygiene skipped (vault is not a git worktree)');
+  }
 
   if (args.telegramDryRun) {
     const childEnv = { ...process.env, ...env, ALFRED_ASSISTANT_LABEL: args.label };

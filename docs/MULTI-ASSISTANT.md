@@ -27,6 +27,7 @@ vault.
 | | Env-file vault binding (`ALFRED_EXPECTED_VAULT`, `ALFRED_EXPECTED_LABEL`) |
 | | Runtime group/container mounted to this vault |
 | | Private env file, `<vault>/.alfred/private/env` |
+| | Local-only conversation debug mirror, `<vault>/.alfred/private/conversations/` |
 | | Launchd labels, e.g. `com.child.daily-brief` |
 | | Cache, ledgers, logs under `<vault>/cache` and `<vault>/.cache` |
 
@@ -160,6 +161,15 @@ Before handing the assistant to the person:
 5. Confirm the other vault's `git status --short` is unchanged.
 6. Delete or mark done the test todo through `wiki`, then commit/push that vault.
 
+If conversation debug mirroring is enabled, also import only that assistant's
+runtime group and verify the other vault remains untouched:
+
+```sh
+<vault>/.bin/wiki conversation-log import --dry-run \
+  --source /path/to/that-assistant-runtime/conversations \
+  --source-name <assistant-runtime-group>
+```
+
 This is the end-to-end guard against the only serious failure mode: wrong bot or
 wrong runtime writing to the wrong vault.
 
@@ -237,7 +247,18 @@ push:
 git -C ~/<slug>-vault status --short
 git -C ~/<slug>-vault remote -v
 git -C ~/<slug>-vault ls-files
-git -C ~/<slug>-vault check-ignore -v .alfred/private/env .cache .DS_Store AGENTS.local.md
+git -C ~/<slug>-vault check-ignore -v .bin/wiki .alfred/private/env .alfred/private/conversations/probe .cache .DS_Store AGENTS.local.md
+git -C ~/<slug>-vault ls-files .bin
+```
+
+The last command should print nothing. `.bin/` is deployed runtime code, not
+vault content; tracking it makes every repo upgrade look like a personal-vault
+change. If a legacy vault already tracks it, remove only the index entries after
+reviewing local state:
+
+```sh
+git -C ~/<slug>-vault rm -r --cached .bin
+git -C ~/<slug>-vault commit -m "Stop tracking deployed .bin artifacts"
 ```
 
 Then create/push the private repo, for example:

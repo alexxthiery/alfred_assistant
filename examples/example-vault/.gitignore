@@ -7,3 +7,7 @@ output/
 # Per-vault credentials and local runtime secrets. This directory is the
 # supported place for the assistant env file, e.g. .alfred/private/env.
 .alfred/private/
+
+# Deployed CLI/runtime copy. The source of truth is the alfred_assistant repo;
+# deploy.sh refreshes this directory for the runtime.
+.bin/
