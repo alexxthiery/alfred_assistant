@@ -12,6 +12,7 @@
     "test:fixtures": "bin/wiki-test",
     "test:gmail": "python3 tests/unit/gmail.test.py && python3 tests/unit/email_review.test.py",
     "nanoclaw:gate": "tools/nanoclaw-upgrade-gate.js",
-    "nanoclaw:smoke": "tools/nanoclaw-disposable-smoke.js"
+    "nanoclaw:smoke": "tools/nanoclaw-disposable-smoke.js",
+    "nanoclaw:canary-env": "tools/nanoclaw-staging-canary-env.js"
   }
 }

@@ -245,15 +245,119 @@ Only after disposable staging passes:
    git -C "$SECONDARY_VAULT" status --short --branch
    ```
 
-3. Canary one assistant first. Prefer the less critical assistant or a
-   temporary runtime group, not both live assistants at once.
+3. Canary one assistant first. Prefer a temporary runtime group and a temporary
+   Telegram bot, not both live assistants at once. Do not use the production bot
+   token in staging: Telegram long-polling permits only one active consumer per
+   bot token, and a staging poller using the production token can steal updates
+   from production.
 
-4. Send three messages:
-   - harmless greeting/status;
-   - vault recall;
-   - tiny write through the CLI.
+4. Prepare the staging env split:
 
-5. Re-run audit/lint/isolation for that vault.
+   ```sh
+   # The staging env file should contain only the temporary canary bot token.
+   printf 'TELEGRAM_BOT_TOKEN=<temporary-canary-bot-token>\n' > "$NANOCLAW_STAGING/.env"
+   chmod 600 "$NANOCLAW_STAGING/.env"
+
+   cd "$ALFRED_REPO"
+   npm run nanoclaw:canary-env -- \
+     --staging-env "$NANOCLAW_STAGING/.env" \
+     --prod-env "$NANOCLAW_PROD/.env" \
+     --print-shell
+   ```
+
+   The helper must pass before staging starts. It verifies:
+
+   - staging has a Telegram token and it differs from production;
+   - production supplies `ONECLI_URL`, so staging can wake containers;
+   - Gmail credentials and `TELEGRAM_CHAT_ID` are not loaded into the staging
+     canary runtime.
+
+   Start staging with exactly the printed env shape: canary bot token from
+   staging; `ONECLI_URL` and `TZ` from production; `EMAIL_FROM`,
+   `GMAIL_APP_PASSWORD`, `GMAIL_IMAP_APP_PASSWORD`, and `TELEGRAM_CHAT_ID`
+   unset. This deliberately avoids sourcing the whole production `.env`.
+
+5. Pair and wire the temporary Telegram bot to the temporary staging agent
+   group. Record the wiring id and messaging-group id before sending test
+   messages so cleanup is deterministic.
+
+6. Confirm the temporary staging agent group mounts only the intended vault:
+
+   ```sh
+   "$NANOCLAW_STAGING/bin/ncl" groups config get --id <agent-group-id>
+   ```
+
+   The config must list only the target vault as an additional mount, normally
+   at container path `vault` with `readonly: false`. Do not proceed if any
+   sibling vault is mounted.
+
+7. Send three messages to the temporary staging bot:
+
+   - harmless greeting/status, with an explicit "do not read or write" clause;
+   - vault recall through `wiki`, with an explicit "do not write" clause;
+   - direct-write guard probe: ask it to use the direct file write tool on
+     `/workspace/extra/vault/wiki/nanoclaw-direct-write-should-be-blocked.md`
+     and not to try a fallback.
+
+   The expected result is: the first two messages deliver, the vault recall
+   uses a read-only wiki command, and the direct write is denied by the provider
+   hook. Verify the forbidden file is absent on the host.
+
+8. Run the in-container mount isolation probe while the canary container exists:
+
+   ```sh
+   # Set these to sibling-vault paths that must NOT be visible in the container.
+   CANARY_CONTAINER=<container-name>
+   SIBLING_HOST_PATH=/path/to/sibling-vault
+   SIBLING_CONTAINER_PATH=/workspace/extra/sibling-vault
+
+   docker exec \
+     -e SIBLING_HOST_PATH="$SIBLING_HOST_PATH" \
+     -e SIBLING_CONTAINER_PATH="$SIBLING_CONTAINER_PATH" \
+     "$CANARY_CONTAINER" bash -lc '
+     set -e
+     test -d /workspace/extra/vault/wiki
+     test ! -e "$SIBLING_HOST_PATH"
+     test ! -e "$SIBLING_CONTAINER_PATH"
+     touch /workspace/extra/vault/.alfred/private/staging-telegram-canary-write-probe
+     rm /workspace/extra/vault/.alfred/private/staging-telegram-canary-write-probe
+     echo isolation_rw_ok
+   '
+   ```
+
+   Replace the sibling paths when testing another machine or assistant. The
+   invariant is not the literal path; it is that only the intended vault is
+   mounted and the private-dir write probe succeeds.
+
+9. Cleanup immediately:
+
+   ```sh
+   "$NANOCLAW_STAGING/bin/ncl" wirings delete <temporary-wiring-id>
+   "$NANOCLAW_STAGING/bin/ncl" messaging-groups update <temporary-messaging-group-id> \
+     --denied-at "$(date -Iseconds)"
+   rm -f "$NANOCLAW_STAGING/.env"
+   ```
+
+   Stop the staging host and canary container. Re-check that only production
+   hosts remain, the live vault git status is clean except for expected CLI
+   writes, and the temporary direct-write probe file is absent.
+
+10. Triage canary logs before declaring the canary passed. These are hard
+    failures unless explicitly explained in the evidence packet:
+
+    - `Conflict: terminated by other getUpdates request` — staging is using a
+      bot token already consumed elsewhere, usually production.
+    - `OneCLI returned 401 Unauthorized` — staging did not get a valid
+      `ONECLI_URL` gateway credential.
+    - `Mount allowlist has unsupported top-level "nonMainReadOnly" key` —
+      host mount config is stale; remove that obsolete key and rely on
+      per-root `allowReadWrite`.
+    - `attempt to write a readonly database` — if it repeats or suppresses
+      delivery, stop and inspect the session mailbox before cutover. A single
+      recovered occurrence after a staging restart is not a vault-safety
+      failure, but it must be recorded.
+
+11. Re-run audit/lint/isolation for that vault.
 
 ## Rollback
 
