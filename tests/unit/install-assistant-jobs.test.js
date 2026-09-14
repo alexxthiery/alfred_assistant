@@ -30,6 +30,7 @@ function makeFixture(t) {
   fs.writeFileSync(envFile, [
     `ALFRED_EXPECTED_VAULT=${vault}`,
     'ALFRED_EXPECTED_LABEL=child',
+    'TZ=Asia/Singapore',
     'TELEGRAM_BOT_TOKEN=token',
     'TELEGRAM_CHAT_ID=123',
     '',
@@ -75,4 +76,47 @@ test('install-assistant-jobs refuses env files outside the vault private dir', (
   ]);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /env file must live under/);
+});
+
+test('install-assistant-jobs refuses env files bound to another label', (t) => {
+  const { vault, wrappers, envFile } = makeFixture(t);
+  fs.writeFileSync(envFile, [
+    `ALFRED_EXPECTED_VAULT=${vault}`,
+    'ALFRED_EXPECTED_LABEL=other',
+    'TZ=Asia/Singapore',
+    'TELEGRAM_BOT_TOKEN=token',
+    'TELEGRAM_CHAT_ID=123',
+    '',
+  ].join('\n'));
+  const r = run([
+    '--vault', vault,
+    '--env', envFile,
+    '--label', 'child',
+    '--brief', '07:00',
+    '--wrappers', wrappers,
+    '--dry-run',
+  ]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /env label binding mismatch/);
+});
+
+test('install-assistant-jobs refuses env files without timezone', (t) => {
+  const { vault, wrappers, envFile } = makeFixture(t);
+  fs.writeFileSync(envFile, [
+    `ALFRED_EXPECTED_VAULT=${vault}`,
+    'ALFRED_EXPECTED_LABEL=child',
+    'TELEGRAM_BOT_TOKEN=token',
+    'TELEGRAM_CHAT_ID=123',
+    '',
+  ].join('\n'));
+  const r = run([
+    '--vault', vault,
+    '--env', envFile,
+    '--label', 'child',
+    '--brief', '07:00',
+    '--wrappers', wrappers,
+    '--dry-run',
+  ]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /must set TZ/);
 });

@@ -55,6 +55,21 @@ SELF=$(cd "$(dirname "$0")" && pwd)
 SRC=$(cd "$SELF/.." && pwd)
 TARGET=$(cd "$TARGET" && pwd)
 
+ensure_gitignore_entry() {
+  local file="$1" entry="$2"
+  if grep -qxF "$entry" "$file" 2>/dev/null; then
+    return 0
+  fi
+  echo "[config] WOULD APPEND $entry to $file"
+  if $APPLY; then
+    {
+      printf '\n# Runtime + private assistant artifacts\n'
+      printf '%s\n' "$entry"
+    } >> "$file"
+    echo "[config] appended $entry to $file"
+  fi
+}
+
 echo "=== deploy.sh ==="
 echo "  source:   $SRC"
 echo "  target:   $TARGET"
@@ -115,6 +130,7 @@ GITIGNORE
   fi
 else
   echo "[config] OK (.gitignore present)"
+  ensure_gitignore_entry "$TARGET/.gitignore" ".alfred/private/"
 fi
 echo ""
 

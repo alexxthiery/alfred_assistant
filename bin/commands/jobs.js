@@ -14,6 +14,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { jobsForLabel, scheduleToText, parsePlist, parseCrontab, evaluateJob } = require('../lib/jobs.js');
+const { VAULT_ROOT } = require('../lib/vault.js');
 
 // Read installed launchd plist for a label, if present (user then system dir).
 function readLaunchdPlist(label) {
@@ -50,7 +51,7 @@ function readCrontab() {
 // crontab line whose command references the job's wrapper.
 function findInstalled(job, cronEntries) {
   const plist = readLaunchdPlist(job.label);
-  if (plist) return { source: 'launchd', command: plist.command, schedule: plist.schedule };
+  if (plist) return { source: 'launchd', command: plist.command, args: plist.args, schedule: plist.schedule, environment: plist.environment };
   const hit = cronEntries.find((e) => e.command && e.command.includes(job.wrapper));
   if (hit) return { source: 'cron', command: hit.command, schedule: hit.schedule };
   return null;
@@ -89,7 +90,7 @@ function cmdJobs(args) {
   const cronEntries = readCrontab();
   const results = jobs.map((job) => {
     const installed = findInstalled(job, cronEntries);
-    const { status, detail } = evaluateJob(job, installed);
+    const { status, detail } = evaluateJob(job, installed, { expectedVault: VAULT_ROOT, labelSlug });
     return { name: job.name, label: job.label, status, detail };
   });
 

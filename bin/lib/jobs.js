@@ -25,6 +25,7 @@ const JOB_SPECS = [
     wrapper: 'run-daily-brief.sh',
     schedule: { kind: 'calendar', hour: 7, minute: 0 },
     needsAgent: false,
+    requiresVaultBinding: true,
     purpose: 'Deterministic morning brief (overdue + due-today todos, events) emailed/Telegrammed.',
   },
   {
@@ -32,6 +33,7 @@ const JOB_SPECS = [
     wrapper: 'run-reminder-dispatch.sh',
     schedule: { kind: 'interval', seconds: 900 },
     needsAgent: false,
+    requiresVaultBinding: true,
     purpose: 'Fires vault todos whose remind_at is due; idempotent. Silent when nothing is due.',
   },
   {
@@ -39,6 +41,7 @@ const JOB_SPECS = [
     wrapper: 'vault-backup-push.sh',
     schedule: { kind: 'calendar', hour: 22, minute: 0 },
     needsAgent: false,
+    requiresVaultArg: true,
     purpose: 'Pushes the vault to its git origin if ahead. For a local vault this IS the backup.',
   },
   {
@@ -46,6 +49,7 @@ const JOB_SPECS = [
     wrapper: 'run-weekly-review.sh',
     schedule: { kind: 'calendar', hour: 9, minute: 0, weekday: 1 },
     needsAgent: true,
+    requiresVaultBinding: true,
     purpose: 'Headless agent reviews the vault and emails a three-section digest (Mondays).',
   },
   {
@@ -53,6 +57,7 @@ const JOB_SPECS = [
     wrapper: 'run-email-review.sh',
     schedule: { kind: 'calendar', hour: 10, minute: 0 },
     needsAgent: true,
+    requiresVaultBinding: true,
     purpose: 'Wrapper scans recent Gmail via email-review, then headless agent reviews the report and sends only actionable questions/updates to Telegram.',
   },
   {
@@ -111,7 +116,7 @@ function schedulesEqual(a, b) {
   return false;
 }
 
-// Parse a (simple, known-format) launchd plist into { label, command, schedule }.
+// Parse a (simple, known-format) launchd plist into { label, command, args, schedule }.
 // Returns null if it is not a parseable assistant plist. Regex-based on purpose:
 // these plists are template/tool-generated with a flat, predictable shape, and
 // a zero-dep XML parser would be overkill.
@@ -121,7 +126,18 @@ function parsePlist(xml) {
   if (!label) return null;
   // First ProgramArguments string is the executable/script.
   const argsBlock = (xml.match(/<key>\s*ProgramArguments\s*<\/key>\s*<array>([\s\S]*?)<\/array>/) || [])[1] || '';
-  const command = (argsBlock.match(/<string>([^<]+)<\/string>/) || [])[1] || '';
+  const args = [];
+  const argRe = /<string>([^<]+)<\/string>/g;
+  let argMatch;
+  while ((argMatch = argRe.exec(argsBlock)) !== null) args.push(argMatch[1]);
+  const command = args[0] || '';
+  const envBlock = (xml.match(/<key>\s*EnvironmentVariables\s*<\/key>\s*<dict>([\s\S]*?)<\/dict>/) || [])[1] || '';
+  const environment = {};
+  if (envBlock) {
+    const re = /<key>\s*([^<]+)\s*<\/key>\s*<string>([^<]*)<\/string>/g;
+    let m;
+    while ((m = re.exec(envBlock)) !== null) environment[m[1]] = m[2];
+  }
   let schedule = { kind: 'unknown', raw: '' };
   const interval = xml.match(/<key>\s*StartInterval\s*<\/key>\s*<integer>(\d+)<\/integer>/);
   const calBlock = xml.match(/<key>\s*StartCalendarInterval\s*<\/key>\s*<dict>([\s\S]*?)<\/dict>/);
@@ -136,7 +152,7 @@ function parsePlist(xml) {
     const wd = grab('Weekday');
     if (wd !== undefined) schedule.weekday = wd;
   }
-  return { label, command, schedule };
+  return { label, command, args, schedule, environment };
 }
 
 // Parse a crontab dump into [{ schedule, command, raw }]. Skips comments/blanks
@@ -153,6 +169,17 @@ function parseCrontab(text) {
     out.push({ schedule: cronToSchedule(min, hour, dom, mon, dow), command, raw: t });
   }
   return out;
+}
+
+function parseLeadingEnv(command) {
+  const environment = {};
+  if (typeof command !== 'string') return environment;
+  for (const part of command.trim().split(/\s+/)) {
+    const m = part.match(/^([A-Z_][A-Z0-9_]*)=(.+)$/);
+    if (!m) break;
+    environment[m[1]] = m[2];
+  }
+  return environment;
 }
 
 // Best-effort cron-field -> schedule object. Handles the two shapes this project uses:
@@ -179,13 +206,55 @@ function cronToSchedule(min, hour, dom, mon, dow) {
 //   'missing' no installed entry found (informational — may be intentional)
 //   'drift'   installed but the command does not reference the expected wrapper
 //             (actionable: stale path or wrong target) -> the only failure
-function evaluateJob(job, installed) {
+function evaluateVaultBinding(job, installed, opts) {
+  if (!job.requiresVaultBinding) return null;
+  const expectedVault = opts.expectedVault;
+  const expectedLabel = opts.labelSlug || 'alfred';
+  if (!expectedVault) return null;
+
+  const env = installed.environment || parseLeadingEnv(installed.command || '');
+  if (!env.ALFRED_VAULT) return 'missing ALFRED_VAULT in scheduler environment';
+  if (!env.ALFRED_ASSISTANT_LABEL) return 'missing ALFRED_ASSISTANT_LABEL in scheduler environment';
+  if (!env.ENV_FILE) return 'missing ENV_FILE in scheduler environment';
+  if (env.ALFRED_VAULT !== expectedVault) {
+    return `ALFRED_VAULT=${env.ALFRED_VAULT}, expected ${expectedVault}`;
+  }
+  if (env.ALFRED_ASSISTANT_LABEL !== expectedLabel) {
+    return `ALFRED_ASSISTANT_LABEL=${env.ALFRED_ASSISTANT_LABEL}, expected ${expectedLabel}`;
+  }
+  const privatePrefix = `${expectedVault}/.alfred/private/`;
+  if (!env.ENV_FILE.startsWith(privatePrefix)) {
+    return `ENV_FILE=${env.ENV_FILE}, expected under ${privatePrefix}`;
+  }
+  return null;
+}
+
+function evaluateVaultArgument(job, installed, opts) {
+  if (!job.requiresVaultArg) return null;
+  const expectedVault = opts.expectedVault;
+  if (!expectedVault) return null;
+  const args = Array.isArray(installed.args) ? installed.args : [];
+  if (args.includes(expectedVault)) return null;
+  const commandParts = String(installed.command || '').trim().split(/\s+/).filter(Boolean);
+  if (commandParts.includes(expectedVault)) return null;
+  return `missing vault argument ${expectedVault}`;
+}
+
+function evaluateJob(job, installed, opts = {}) {
   if (!installed) return { status: 'missing', detail: 'no launchd/cron entry found' };
   if (!installed.command || !installed.command.includes(job.wrapper)) {
     return {
       status: 'drift',
       detail: `${installed.source} entry runs "${installed.command || '(none)'}", expected to reference ${job.wrapper}`,
     };
+  }
+  const bindingDrift = evaluateVaultBinding(job, installed, opts);
+  if (bindingDrift) {
+    return { status: 'drift', detail: `${installed.source} entry has invalid vault binding: ${bindingDrift}` };
+  }
+  const vaultArgDrift = evaluateVaultArgument(job, installed, opts);
+  if (vaultArgDrift) {
+    return { status: 'drift', detail: `${installed.source} entry has invalid vault target: ${vaultArgDrift}` };
   }
   if (!schedulesEqual(installed.schedule, job.schedule)) {
     return {
@@ -204,6 +273,7 @@ module.exports = {
   schedulesEqual,
   parsePlist,
   parseCrontab,
+  parseLeadingEnv,
   cronToSchedule,
   evaluateJob,
 };

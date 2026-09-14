@@ -13,6 +13,7 @@ const {
   schedulesEqual,
   parsePlist,
   parseCrontab,
+  parseLeadingEnv,
   cronToSchedule,
   evaluateJob,
 } = require('../../bin/lib/jobs.js');
@@ -90,11 +91,22 @@ test('parsePlist: StartCalendarInterval -> calendar schedule + command', () => {
   const xml = `<?xml version="1.0"?><plist version="1.0"><dict>
     <key>Label</key><string>com.alfred.daily-brief</string>
     <key>ProgramArguments</key><array><string>/path/to/run-daily-brief.sh</string></array>
+    <key>EnvironmentVariables</key><dict>
+      <key>ALFRED_VAULT</key><string>/vault</string>
+      <key>ALFRED_ASSISTANT_LABEL</key><string>alfred</string>
+      <key>ENV_FILE</key><string>/vault/.alfred/private/env</string>
+    </dict>
     <key>StartCalendarInterval</key><dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>0</integer></dict>
     </dict></plist>`;
   const p = parsePlist(xml);
   assert.equal(p.label, 'com.alfred.daily-brief');
   assert.equal(p.command, '/path/to/run-daily-brief.sh');
+  assert.deepEqual(p.args, ['/path/to/run-daily-brief.sh']);
+  assert.deepEqual(p.environment, {
+    ALFRED_VAULT: '/vault',
+    ALFRED_ASSISTANT_LABEL: 'alfred',
+    ENV_FILE: '/vault/.alfred/private/env',
+  });
   assert.deepEqual(p.schedule, { kind: 'calendar', hour: 7, minute: 0 });
 });
 
@@ -137,15 +149,42 @@ test('parseCrontab: parses command lines, skips comments/blanks/@shortcuts', () 
   assert.deepEqual(out[1].schedule, { kind: 'interval', seconds: 900 });
 });
 
+test('parseLeadingEnv: extracts simple leading cron env assignments', () => {
+  assert.deepEqual(parseLeadingEnv('ALFRED_VAULT=/vault ALFRED_ASSISTANT_LABEL=alfred ENV_FILE=/vault/.alfred/private/env /x/run-daily-brief.sh'), {
+    ALFRED_VAULT: '/vault',
+    ALFRED_ASSISTANT_LABEL: 'alfred',
+    ENV_FILE: '/vault/.alfred/private/env',
+  });
+  assert.deepEqual(parseLeadingEnv('/x/run-daily-brief.sh'), {});
+});
+
 test('evaluateJob: ok when installed at default schedule with right wrapper', () => {
   const job = JOBS.find((j) => j.name === 'daily-brief');
-  const r = evaluateJob(job, { source: 'launchd', command: '/x/run-daily-brief.sh', schedule: { kind: 'calendar', hour: 7, minute: 0 } });
+  const r = evaluateJob(job, {
+    source: 'launchd',
+    command: '/x/run-daily-brief.sh',
+    schedule: { kind: 'calendar', hour: 7, minute: 0 },
+    environment: {
+      ALFRED_VAULT: '/vault',
+      ALFRED_ASSISTANT_LABEL: 'alfred',
+      ENV_FILE: '/vault/.alfred/private/env',
+    },
+  }, { expectedVault: '/vault', labelSlug: 'alfred' });
   assert.equal(r.status, 'ok');
 });
 
 test('evaluateJob: custom when right wrapper but non-default schedule', () => {
   const job = JOBS.find((j) => j.name === 'daily-brief');
-  const r = evaluateJob(job, { source: 'launchd', command: '/x/run-daily-brief.sh', schedule: { kind: 'calendar', hour: 8, minute: 30 } });
+  const r = evaluateJob(job, {
+    source: 'launchd',
+    command: '/x/run-daily-brief.sh',
+    schedule: { kind: 'calendar', hour: 8, minute: 30 },
+    environment: {
+      ALFRED_VAULT: '/vault',
+      ALFRED_ASSISTANT_LABEL: 'alfred',
+      ENV_FILE: '/vault/.alfred/private/env',
+    },
+  }, { expectedVault: '/vault', labelSlug: 'alfred' });
   assert.equal(r.status, 'custom');
   assert.match(r.detail, /08:30/);
 });
@@ -160,4 +199,45 @@ test('evaluateJob: drift when installed entry points at the wrong target', () =>
   const r = evaluateJob(job, { source: 'launchd', command: '/old/path/some-other.sh', schedule: { kind: 'calendar', hour: 7, minute: 0 } });
   assert.equal(r.status, 'drift');
   assert.match(r.detail, /run-daily-brief\.sh/);
+});
+
+test('evaluateJob: drift when a bound job uses an env file outside the vault private dir', () => {
+  const job = JOBS.find((j) => j.name === 'daily-brief');
+  const r = evaluateJob(job, {
+    source: 'launchd',
+    command: '/x/run-daily-brief.sh',
+    schedule: { kind: 'calendar', hour: 7, minute: 0 },
+    environment: {
+      ALFRED_VAULT: '/vault',
+      ALFRED_ASSISTANT_LABEL: 'alfred',
+      ENV_FILE: '/external/shared.env',
+    },
+  }, { expectedVault: '/vault', labelSlug: 'alfred' });
+  assert.equal(r.status, 'drift');
+  assert.match(r.detail, /invalid vault binding/);
+  assert.match(r.detail, /expected under \/vault\/\.alfred\/private\//);
+});
+
+test('evaluateJob: ok when backup job points at the expected vault argument', () => {
+  const job = JOBS.find((j) => j.name === 'vault-backup-push');
+  const r = evaluateJob(job, {
+    source: 'launchd',
+    command: '/x/vault-backup-push.sh',
+    args: ['/x/vault-backup-push.sh', '/vault-a'],
+    schedule: { kind: 'calendar', hour: 22, minute: 0 },
+  }, { expectedVault: '/vault-a', labelSlug: 'alfred' });
+  assert.equal(r.status, 'ok');
+});
+
+test('evaluateJob: drift when backup job points at another assistant vault', () => {
+  const job = JOBS.find((j) => j.name === 'vault-backup-push');
+  const r = evaluateJob(job, {
+    source: 'launchd',
+    command: '/x/vault-backup-push.sh',
+    args: ['/x/vault-backup-push.sh', '/vault-b'],
+    schedule: { kind: 'calendar', hour: 22, minute: 0 },
+  }, { expectedVault: '/vault-a', labelSlug: 'alfred' });
+  assert.equal(r.status, 'drift');
+  assert.match(r.detail, /invalid vault target/);
+  assert.match(r.detail, /\/vault-a/);
 });

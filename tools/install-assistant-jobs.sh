@@ -83,6 +83,20 @@ case "$ENVFILE_ABS" in
   "$VAULT_ABS/.alfred/private"/*) ;;
   *) echo "install-assistant-jobs: env file must live under $VAULT_ABS/.alfred/private; got $ENVFILE_ABS" >&2; exit 1 ;;
 esac
+
+set -a
+. "$ENVFILE_ABS"
+set +a
+[ -n "${ALFRED_EXPECTED_VAULT:-}" ] || { echo "install-assistant-jobs: env file must set ALFRED_EXPECTED_VAULT" >&2; exit 1; }
+[ -n "${ALFRED_EXPECTED_LABEL:-}" ] || { echo "install-assistant-jobs: env file must set ALFRED_EXPECTED_LABEL" >&2; exit 1; }
+EXPECTED_VAULT_ABS=$(cd "$ALFRED_EXPECTED_VAULT" 2>/dev/null && pwd -P) || { echo "install-assistant-jobs: ALFRED_EXPECTED_VAULT does not resolve: $ALFRED_EXPECTED_VAULT" >&2; exit 1; }
+[ "$EXPECTED_VAULT_ABS" = "$VAULT_ABS" ] || { echo "install-assistant-jobs: env vault binding mismatch: expected $EXPECTED_VAULT_ABS, installing $VAULT_ABS" >&2; exit 1; }
+[ "$ALFRED_EXPECTED_LABEL" = "$LABEL" ] || { echo "install-assistant-jobs: env label binding mismatch: expected $ALFRED_EXPECTED_LABEL, installing $LABEL" >&2; exit 1; }
+[ -n "${TZ:-}" ] || { echo "install-assistant-jobs: env file must set TZ=Area/City" >&2; exit 1; }
+case "$TZ" in
+  */*) ;;
+  *) echo "install-assistant-jobs: TZ must look like an IANA timezone (Area/City); got $TZ" >&2; exit 1 ;;
+esac
 PATH_LINE="$WRAPPERS_ABS:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 # Emit one plist to stdout. $1=label-suffix $2=schedule-xml $3=program-args-xml

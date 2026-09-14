@@ -15,7 +15,7 @@ Scheduled jobs do **not** belong to any agent runtime. They run from the OS sche
 
 The daily brief, reminders, backup, and watchdog need no LLM. Weekly review and email review invoke a *headless* agent on demand, not a persistent runtime. The watchdog is infrastructure: it keeps the container backend alive so any agent can run at all.
 
-This table is also the CLI's job manifest (`bin/lib/jobs.js`). Run `wiki jobs` to print it, and `wiki jobs --check` to validate what is actually installed for the default assistant label (`alfred`). On multi-vault hosts, run `wiki jobs --check --label <slug>` so the checker reads `~/Library/LaunchAgents/com.<slug>.*.plist` (and `crontab -l`) for the intended assistant. It reports each job as `ok` / `custom` (installed at a non-default time) / `missing` / `drift` (installed but pointing at the wrong script — the one actionable failure, which exits nonzero). It is read-only: the OS scheduler stays the executor; `wiki jobs` never installs or edits a schedule.
+This table is also the CLI's job manifest (`bin/lib/jobs.js`). Run `wiki jobs` to print it, and `wiki jobs --check` to validate what is actually installed for the default assistant label (`alfred`). On multi-vault hosts, run `wiki jobs --check --label <slug>` so the checker reads `~/Library/LaunchAgents/com.<slug>.*.plist` (and `crontab -l`) for the intended assistant. It reports each job as `ok` / `custom` (installed at a non-default time) / `missing` / `drift`. Drift is the actionable failure and exits nonzero: wrong wrapper, wrong `ALFRED_VAULT`, missing/wrong `ALFRED_ASSISTANT_LABEL`, `ENV_FILE` outside the active vault's `.alfred/private/`, or a backup job targeting the wrong vault. It is read-only: the OS scheduler stays the executor; `wiki jobs` never installs or edits a schedule.
 
 ## Methodology
 
@@ -28,7 +28,7 @@ Use this checklist before adding, changing, or debugging any scheduled Alfred ro
 5. **Deterministic stays deterministic:** daily brief, reminders, backups, and watchdog should not invoke an LLM. Use a headless agent only for routines that need judgment, such as email review and weekly synthesis.
 6. **Policy files are explicit:** if a headless agent runs, the wrapper prompt must point it at the relevant deployed instructions. Email review reads `AGENTS.md` plus `persona/email-review.md`; the wrapper, not the agent, performs the low-level `.bin/email-review` Gmail scan before invoking the agent.
 7. **Manifest or it does not exist:** every expected job belongs in `bin/lib/jobs.js`; `wiki jobs --check --label <label>` is the source of truth for drift on multi-assistant hosts.
-8. **Installer first:** prefer `tools/install-assistant-jobs.sh` for real machines. The committed `com.alfred.*.plist` files are examples and manual fallbacks.
+8. **Installer first:** prefer `tools/install-assistant-jobs.sh` for real machines. It refuses env files outside the vault private directory, env files internally bound to another vault/label, and env files without `TZ`. The committed `com.alfred.*.plist` files are examples and manual fallbacks.
 9. **Verify after install:** run `plutil -lint`, `launchctl print gui/$(id -u)/com.<label>.<job>` on macOS, and `<vault>/.bin/wiki jobs --check --label <label>`.
 
 ## Install (macOS / launchd)

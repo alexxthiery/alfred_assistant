@@ -33,3 +33,26 @@ test('deploy.sh gitignore template has no inline comments on active patterns', (
     assert.equal(line.includes('#'), false, `inline comments break gitignore patterns: ${line}`);
   }
 });
+
+test('deploy.sh appends vault-private ignore rule to existing legacy gitignore', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'deploy-gitignore-existing-'));
+  try {
+    const git = (...args) => execFileSync('git', args, { cwd: tmp, encoding: 'utf8' });
+    git('init', '-q');
+    fs.writeFileSync(path.join(tmp, '.gitignore'), '.DS_Store\n');
+
+    execFileSync('bash', [
+      DEPLOY,
+      '--target', tmp,
+      '--user-name', 'Test User',
+      '--user-slug', 'test-user',
+      '--assistant-name', 'TestAssistant',
+      '--apply',
+    ], { cwd: ROOT, encoding: 'utf8' });
+
+    const ignored = git('check-ignore', '.alfred/private/env').trim();
+    assert.equal(ignored, '.alfred/private/env');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
