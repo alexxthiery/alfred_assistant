@@ -4,10 +4,10 @@
 #
 # What it does (in order):
 #   1. Seed .alfred.yml from examples/.alfred.yml.example if missing.
-#   2. Render docs/persona/*.template.md → <target>/AGENTS.local.md (via
-#      render-persona.sh) and diff it against the canonical <target>/AGENTS.md
-#      so the user can merge new template content. The canonical AGENTS.md is
-#      never overwritten.
+#   2. Render docs/persona/*.template.md + optional
+#      <target>/persona/agents.d/*.md into <target>/AGENTS.md (via
+#      render-persona.sh). Existing hand-authored AGENTS.md files are protected:
+#      pass --adopt-generated-persona once after reviewing the rendered diff.
 #   3. Copy runtime policy docs that the deployed persona references.
 #   4. Refresh <target>/.bin/ via install.sh (handles copy → symlink upgrade
 #      when the current .bin/ entries are stale copies, e.g. from a previous
@@ -18,6 +18,7 @@
 #                   --user-name "Your Name" --user-slug your-slug \
 #                   --user-email you@example.com --user-tz-city "Your City" \
 #                   [--assistant-name "Alfred"] \
+#                   [--adopt-generated-persona] \
 #                   [--apply]
 #
 # Idempotent. Re-running with the same config is a no-op.
@@ -26,6 +27,7 @@ set -euo pipefail
 
 APPLY=false
 PRUNE_BACKUPS=false
+ADOPT_GENERATED_PERSONA=false
 TARGET=""
 USER_NAME=""; USER_SLUG=""; USER_EMAIL=""; USER_TZ_CITY=""; ASSISTANT_NAME="Alfred"
 
@@ -33,6 +35,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --apply)         APPLY=true; shift ;;
     --prune-backups) PRUNE_BACKUPS=true; shift ;;
+    --adopt-generated-persona) ADOPT_GENERATED_PERSONA=true; shift ;;
     --target)        TARGET="$2"; shift 2 ;;
     --user-name)     USER_NAME="$2"; shift 2 ;;
     --user-slug)     USER_SLUG="$2"; shift 2 ;;
@@ -77,6 +80,7 @@ echo "  apply:    $APPLY"
 echo "  user:     $USER_NAME ($USER_SLUG)"
 echo "  assistant:$ASSISTANT_NAME"
 echo "  tz_city:  $USER_TZ_CITY"
+echo "  persona:  generated AGENTS.md (adopt=$ADOPT_GENERATED_PERSONA)"
 echo ""
 
 # 1. .alfred.yml
@@ -101,7 +105,7 @@ echo ""
 
 # 1b. .gitignore — seed if absent so a fresh vault starts clean. Without this a
 # new vault tracks runtime artifacts (the cache/ logs the cron jobs append to,
-# the DuckDB .cache/, tamper.log, the AGENTS.local.md render), which dirty the
+# the DuckDB .cache/, tamper.log, rendered persona review files), which dirty the
 # tree on every run and trip the tamper-check. Idempotent: never clobber an
 # existing .gitignore.
 if [ ! -f "$TARGET/.gitignore" ]; then
@@ -123,6 +127,7 @@ alfred/log/
 alfred/scratchpad.md
 # persona render artifact (canonical is AGENTS.md)
 AGENTS.local.md
+AGENTS.rendered.md
 # deployed CLI/runtime copy (source of truth is alfred_assistant)
 .bin/
 __pycache__/
@@ -134,6 +139,8 @@ else
   echo "[config] OK (.gitignore present)"
   ensure_gitignore_entry "$TARGET/.gitignore" ".alfred/private/"
   ensure_gitignore_entry "$TARGET/.gitignore" ".bin/"
+  ensure_gitignore_entry "$TARGET/.gitignore" "AGENTS.local.md"
+  ensure_gitignore_entry "$TARGET/.gitignore" "AGENTS.rendered.md"
 fi
 echo ""
 
@@ -157,57 +164,18 @@ if $APPLY; then
 fi
 echo ""
 
-# 2. Render the template to AGENTS.local.md (a comparison artifact). We do NOT
-# overwrite the canonical AGENTS.md — it is hand-personalized (the worked-example
-# cast and tuning replaced with the user's actual content). The side-by-side
-# render lets the user merge new template sections without losing edits.
-TMP=$(mktemp)
-
-# Render via the single shared renderer (tools/render-persona.sh) so the
-# substitution + identity-from-.alfred.yml logic lives in exactly one place.
-# .alfred.yml was seeded above, so the renderer reads the canonical identity.
-"$SELF/render-persona.sh" --vault "$TARGET" --stdout > "$TMP"
-
-# Canonical persona is the personalized AGENTS.md at the vault root (all
-# runtimes read it: nanoclaw by instruction, Codex natively, Claude Code via
-# the CLAUDE.md @import). The template render goes to AGENTS.local.md for
-# comparison; the canonical AGENTS.md is never overwritten here.
-RENDERED="$TARGET/AGENTS.local.md"
-if [ -f "$RENDERED" ]; then
-  if diff -q "$RENDERED" "$TMP" > /dev/null 2>&1; then
-    echo "[persona] AGENTS.local.md unchanged"
-  else
-    echo "[persona] WOULD UPDATE $RENDERED"
-  fi
-else
-  echo "[persona] WOULD CREATE $RENDERED ($(wc -l < "$TMP" | tr -d ' ') lines)"
-fi
-
+# 2. Render the canonical runtime persona. AGENTS.md is generated from the repo
+# fragments, .alfred.yml identity, and optional vault-local overlays in
+# persona/agents.d/*.md. Existing hand-authored AGENTS.md files are protected by
+# render-persona.sh unless --adopt-generated-persona is passed.
+RENDER_ARGS=(--vault "$TARGET")
 if $APPLY; then
-  cp "$TMP" "$RENDERED"
-  echo "[persona] wrote $RENDERED"
-fi
-
-# Side-by-side comparison vs the canonical AGENTS.md, so the user can merge
-# new template content (new sections/features) into their personalized persona
-# without losing hand edits.
-if [ -f "$TARGET/AGENTS.md" ]; then
-  EXISTING=$(wc -l < "$TARGET/AGENTS.md" | tr -d ' ')
-  NEW=$(wc -l < "$TMP" | tr -d ' ')
-  if diff -q "$TARGET/AGENTS.md" "$TMP" > /dev/null 2>&1; then
-    echo "[persona] canonical AGENTS.md matches rendered template (no merge needed)"
-  else
-    ADDED=$(diff "$TARGET/AGENTS.md" "$TMP" | grep -c '^>' || true)
-    REMOVED=$(diff "$TARGET/AGENTS.md" "$TMP" | grep -c '^<' || true)
-    echo ""
-    echo "[persona] canonical AGENTS.md vs rendered template: $EXISTING → $NEW lines (+$ADDED / −$REMOVED)"
-    echo "  The canonical AGENTS.md is NOT overwritten by deploy.sh."
-    echo "  Inspect: diff $TARGET/AGENTS.md $RENDERED"
-    echo "  Merge wanted deltas manually. Hand personalization in AGENTS.md survives."
+  RENDER_ARGS+=(--apply)
+  if $ADOPT_GENERATED_PERSONA; then
+    RENDER_ARGS+=(--adopt-generated-persona)
   fi
 fi
-
-rm -f "$TMP"
+"$SELF/render-persona.sh" "${RENDER_ARGS[@]}"
 echo ""
 
 # 2b. Runtime policy docs referenced by the deployed persona.

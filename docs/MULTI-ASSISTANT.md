@@ -20,7 +20,7 @@ vault.
 | The Mac/server and OS scheduler | Vault folder and git repo |
 | The `alfred_assistant` source repo | `.alfred.yml` identity |
 | The copied wrapper scripts in `~/.local/bin` | Deployed `<vault>/.bin/` |
-| Optional OneCLI/Docker infrastructure | Canonical `<vault>/AGENTS.md` persona |
+| Optional OneCLI/Docker infrastructure | Generated canonical `<vault>/AGENTS.md` persona |
 | | Telegram bot token (`TELEGRAM_BOT_TOKEN`) |
 | | Telegram destination chat id (`TELEGRAM_CHAT_ID`) |
 | | Timezone (`TZ`, e.g. `Asia/Singapore`) |
@@ -47,9 +47,10 @@ Use `<slug>` for the assistant namespace, e.g. `child`.
      --assistant-name "<AssistantName>" --apply
    ```
 
-   Then create or merge the assistant's canonical `AGENTS.md`, initialize a
-   private git repo/remote, and commit. The deploy step writes `AGENTS.local.md`
-   only as a comparison artifact; it does not overwrite `AGENTS.md`.
+   If this vault already has a hand-authored persona, review the generated
+   `AGENTS.rendered.md` and re-run deploy with `--adopt-generated-persona` once.
+   New vaults get a generated canonical `AGENTS.md` directly. Initialize a
+   private git repo/remote, and commit.
 
 2. **Create a dedicated Telegram bot**
 
@@ -212,7 +213,10 @@ tools/check-assistant-isolation.js \
   --expect-assistant-name "<AssistantName>"
 ```
 
-This catches the "new assistant still calls itself Alfred" class of bugs.
+This catches the "new assistant still calls itself Alfred" class of bugs. If
+the assistant needs local voice or boundary policy, add it under
+`<vault>/persona/agents.d/*.md` and regenerate `AGENTS.md`; do not scatter
+manual edits through the generated file.
 
 ### Live vaults may change while you are working
 
@@ -247,7 +251,7 @@ push:
 git -C ~/<slug>-vault status --short
 git -C ~/<slug>-vault remote -v
 git -C ~/<slug>-vault ls-files
-git -C ~/<slug>-vault check-ignore -v .bin/wiki .alfred/private/env .alfred/private/conversations/probe .cache .DS_Store AGENTS.local.md
+git -C ~/<slug>-vault check-ignore -v .bin/wiki .alfred/private/env .alfred/private/conversations/probe .cache .DS_Store AGENTS.local.md AGENTS.rendered.md
 git -C ~/<slug>-vault ls-files .bin
 ```
 

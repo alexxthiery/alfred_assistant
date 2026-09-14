@@ -72,7 +72,7 @@ Closed sets live in `docs/SCHEMA.md` and are parsed at runtime by `bin/lib/schem
 | Vault constants + page iteration | `bin/lib/vault.js` | `VAULT_ROOT`, `WIKI_DIR`, `forEachPage`. The controlled fs boundary. |
 | CLI flag-rename / removal policy | `bin/lib/flag-aliases.js` | Pure; consulted at dispatch. |
 | Verb metadata | `bin/lib/verb-metadata.js` | Declarative help table, help-section order, and write-class/tamper-check set. No dispatch logic. |
-| Runtime persona template assembly | `bin/lib/persona-template.js`, `docs/persona/*.template.md` | Fragment source is assembled into `docs/PERSONA.template.md`; `tools/render-persona.sh` renders from fragments. |
+| Runtime persona template assembly | `bin/lib/persona-template.js`, `docs/persona/*.template.md`, `docs/PERSONA-ASSEMBLY.md` | Fragment source is assembled into `docs/PERSONA.template.md`; `tools/render-persona.sh` renders generated vault `AGENTS.md` from fragments plus optional `persona/agents.d/*.md` overlays. |
 | Read-only verbs (`list`, `print`, `search`, ...) | `bin/verbs/read.js` | Extracted from `bin/wiki`. |
 | Verb handlers (write, edit, ingest, hygiene, sql, review, ...) | `bin/commands/<group>.js` | Thin handlers exporting `cmdXxx`. All verbs now live here; `persona-lint` is the lone inline exception in `bin/wiki`. |
 | Dispatch, argv parse, help rendering, tamper/auto-commit gating | `bin/wiki` | Top-level CLI; imports handlers from `bin/commands/*` + `bin/verbs/*` and helpers from `bin/lib/*`. |

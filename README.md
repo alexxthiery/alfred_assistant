@@ -35,7 +35,7 @@ Open issues welcome. Breaking changes will be noted in `CHANGELOG.md`.
 ## Architecture (one paragraph)
 
 `raw/` (immutable source archive) → `wiki/` (assistant-maintained typed graph, one concept per page) → `SCHEMA.md` (the contract).
-The CLI is runtime-agnostic: drive it from a terminal, or let an agent runtime drive it (nanoclaw / Claude Code / Codex — see [`integrations/`](integrations/)), all reading one shared persona (`AGENTS.md` in the vault).
+The CLI is runtime-agnostic: drive it from a terminal, or let an agent runtime drive it (nanoclaw / Claude Code / Codex — see [`integrations/`](integrations/)), all reading one shared generated persona (`AGENTS.md` in the vault).
 All writes go through `bin/wiki`, which enforces schema, microsyntax, provenance, autolink, and audit invariants. That "go through the CLI" rule is enforced at the git layer by `wiki`'s tamper-check — it refuses to operate while the vault has out-of-band edits — so it holds on every runtime regardless of hook support (runtimes with hooks, like nanoclaw and Claude Code, add a friendlier early block).
 Auto-commit on every write turns the vault into a git-versioned, revertable knowledge base.
 
@@ -52,7 +52,7 @@ The capability surface, with a pointer to the detailed doc for each. This is the
 - **Email review (`bin/email-review`):** a bounded Gmail triage report for "what in the last D days may deserve action or vault logging?", with metadata-only ledger deduplication so Alfred does not ask twice about the same message. See [`docs/EMAIL-REVIEW.md`](docs/EMAIL-REVIEW.md).
 - **Live X/Twitter recall (`bin/twitter-read`):** a repo-owned read-only adapter for live tweets, bookmarks, likes, mentions, and timelines. It wraps an optional `bird` backend without turning `bird` into a core dependency. See [`docs/TWITTER.md`](docs/TWITTER.md).
 - **Maintenance:** `wiki groom --mechanical` (close missing relations, run autolink, report stub debt), `wiki audit --all` (quality score), `wiki review` (discovery digest), `wiki sync-ids` (backfill observation ids).
-- **The agent (Alfred):** the optional conversational layer over the CLI. One persona (`AGENTS.md` in the vault) is shared by every runtime — nanoclaw, Claude Code, Codex — so Alfred behaves identically wherever you reach him. The maintained template source lives in [`docs/persona/`](docs/persona/) and is assembled into [`docs/PERSONA.template.md`](docs/PERSONA.template.md); runtime wiring is in [`integrations/`](integrations/).
+- **The agent (Alfred):** the optional conversational layer over the CLI. One generated persona (`AGENTS.md` in the vault) is shared by every runtime — nanoclaw, Claude Code, Codex — so Alfred behaves identically wherever you reach him. The maintained template source lives in [`docs/persona/`](docs/persona/) and is assembled into [`docs/PERSONA.template.md`](docs/PERSONA.template.md); vault-specific overlays live in `persona/agents.d/*.md`; the generation contract is in [`docs/PERSONA-ASSEMBLY.md`](docs/PERSONA-ASSEMBLY.md). Runtime wiring is in [`integrations/`](integrations/).
 - **Credential handling:** the rules for app passwords and secrets are in [`docs/SECURITY.md`](docs/SECURITY.md).
 
 ## Repository layout
@@ -109,6 +109,7 @@ alfred_assistant/
     CONVENTIONS.md        # error-format genres, exit codes, error-prefix vocabulary
     persona/              # maintained source fragments for Alfred's runtime instructions
     PERSONA.template.md   # assembled compatibility aggregate, with {{USER_NAME}} placeholders
+    PERSONA-ASSEMBLY.md   # generated AGENTS.md contract + local overlays
     NANOCLAW-INTEGRATION.md # the Alfred/NanoClaw boundary and invariants
     NANOCLAW-UPGRADE-RUNBOOK.md # staging-first NanoClaw upgrade process
     NANOCLAW-PATCHES.md   # legacy carried patch inventory for the NanoClaw fork

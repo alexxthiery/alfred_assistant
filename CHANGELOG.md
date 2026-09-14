@@ -10,6 +10,9 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 ### Fixed
 - **`wiki list` now honors `--limit`** (it was silently ignored — a no-op flag that looked like it worked; surfaced when an agent ran `wiki list --limit 3` and got all ~250 pages). `--limit` caps output after the `--tag`/`--type` filter, and a `(showing N of M)` note goes to stderr so truncation is never silent. Help text updated; new fixture `list-respects-limit`.
 
+### Changed
+- **Generated runtime personas.** `tools/render-persona.sh` now renders the canonical vault `AGENTS.md` from repo fragments, `.alfred.yml`, and optional vault-local overlays in `persona/agents.d/*.md`. Existing hand-authored personas are protected: `--apply` refuses to overwrite them unless `--adopt-generated-persona` is passed, and writes `AGENTS.rendered.md` for review. Voice rules were split into `docs/persona/60-voice.template.md` so personality policy no longer lives in the command-reference tail.
+
 ### Added (Multi-runtime — runtime-independent scheduling)
 - **`integrations/scheduling/`** — OS cron / launchd recipes that decouple scheduling from any agent runtime. `run-daily-brief.sh` runs the deterministic brief (`daily-brief | email-digest`, no LLM); `run-weekly-review.sh` invokes a headless agent (`claude -p`, swappable for `codex exec`) for the synthesis digest, piped to email. A launchd plist template (`com.alfred.daily-brief.plist`) and a README with the macOS + Linux-cron install steps. Secrets are sourced from an `ENV_FILE`, never in the plist.
 - `docs/DAILY-BRIEF.md` + `docs/WEEKLY-DIGEST.md`: scheduling sections now lead with the OS-cron model and mark nanoclaw `schedule_task` as the legacy/fallback path (it couples a runtime-independent job to one always-on runtime, and its task table can drop on upgrade).
@@ -22,8 +25,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - **`integrations/nanoclaw/`** — pointer to `docs/NANOCLAW-PATCHES.md` + the one-line `CLAUDE.local.md` change to read `AGENTS.md`.
 
 ### Added (Multi-runtime — single canonical persona)
-- **`tools/render-persona.sh`** — the single persona-render engine. Strips the template's instruction comment and substitutes `{{USER_*}}` from `.alfred.yml` (via the existing `config.js` parser, so there is one identity source and one substitution code path). It renders the *template* to `AGENTS.local.md` (a merge-comparison artifact) — never the canonical persona — so a re-render can't clobber hand-personalization.
-- **`tools/deploy.sh`** now delegates its persona render to `render-persona.sh` (eliminating the duplicate inline substitution) and compares the render against the canonical `AGENTS.md`. Single render path; no divergence.
+- **`tools/render-persona.sh`** — the single persona-render engine. Strips the template's instruction comment and substitutes `{{USER_*}}` from `.alfred.yml` (via the existing `config.js` parser, so there is one identity source and one substitution code path). It now supports generated canonical `AGENTS.md`, stale checks, explicit one-time adoption over hand-authored personas, and vault-local overlays.
+- **`tools/deploy.sh`** now delegates its persona render to `render-persona.sh` (eliminating the duplicate inline substitution). Single render path; no divergence.
 - These support the runtime model where one canonical `AGENTS.md` (the user's personalized persona, in the vault) is read by every runtime: nanoclaw (loader repointed to `AGENTS.md`), Codex (native), and Claude Code (a one-line `@AGENTS.md` import in `CLAUDE.md`). No symlinks (Dropbox-fragile per the Phase 10 lesson); the `@`-import is the no-drift way to share one file. The persona's remaining runtime-isms (vault paths, scheduling) are harmless (the CLI locates the vault itself) and are cleaned up alongside the scheduling rework.
 
 ### Added (Multi-runtime — integrity core)

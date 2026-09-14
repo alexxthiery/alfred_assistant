@@ -140,7 +140,7 @@ function writeEnv(vault, label) {
 function prepareVault(root, spec) {
   const vault = path.join(root, `${spec.label}-vault`);
   fs.cpSync(path.join(ROOT, 'tests', 'vault'), vault, { recursive: true });
-  appendIgnore(vault, ['.bin/', '.alfred/private/', 'AGENTS.local.md']);
+  appendIgnore(vault, ['.bin/', '.alfred/private/', 'AGENTS.local.md', 'AGENTS.rendered.md']);
 
   run('bash', [
     'tools/deploy.sh',
@@ -153,9 +153,8 @@ function prepareVault(root, spec) {
     '--apply',
   ]);
 
-  const rendered = path.join(vault, 'AGENTS.local.md');
   const canonical = path.join(vault, 'AGENTS.md');
-  if (!fs.existsSync(canonical)) fs.copyFileSync(rendered, canonical);
+  if (!fs.existsSync(canonical)) throw new Error(`${spec.label}: deploy did not create AGENTS.md`);
 
   const envFile = writeEnv(vault, spec.label);
   git(vault, ['init', '-q']);

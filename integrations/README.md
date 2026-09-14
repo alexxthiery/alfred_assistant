@@ -1,6 +1,6 @@
 # Integrations — running Alfred on your runtime of choice
 
-The CLI (`bin/`) and the persona are runtime-agnostic. Alfred is just "an LLM agent that drives `bin/wiki` against your vault." Any agent runtime that can run shell commands works. This directory holds the thin per-runtime config — **not** persona variants. There is exactly one persona: the canonical `AGENTS.md` in your vault.
+The CLI (`bin/`) and the persona are runtime-agnostic. Alfred is just "an LLM agent that drives `bin/wiki` against your vault." Any agent runtime that can run shell commands works. This directory holds the thin per-runtime config — **not** persona variants. There is exactly one runtime persona: the generated canonical `AGENTS.md` in your vault.
 
 > `AGENTS.md` here always means the **vault's** persona (runtime behavior). The repo also has its own root `AGENTS.md`, which is *developer* orientation for changing this codebase — a different file in a different tree. See the note at the top of the repo `AGENTS.md`.
 
@@ -12,7 +12,7 @@ runtime (swappable)        ──reads──▶  AGENTS.md (one persona, in the 
                                                  └─drives──▶  bin/wiki  ──▶  vault
 ```
 
-- **One persona, one file.** Your personalized persona lives at `<vault>/AGENTS.md`. Every runtime reads that same file — so Alfred behaves identically whether you reach him via Telegram (nanoclaw), a terminal (Claude Code / Codex), or anything else. Edit `AGENTS.md` once; all runtimes pick it up.
+- **One persona, one generated file.** Your runtime persona lives at `<vault>/AGENTS.md`. Every runtime reads that same file — so Alfred behaves identically whether you reach him via Telegram (nanoclaw), a terminal (Claude Code / Codex), or anything else. Edit the repo fragments or vault-local `persona/agents.d/*.md` overlays, then regenerate `AGENTS.md`; do not hand-edit the generated file.
 - **No global config.** Nothing goes in `~/.claude/CLAUDE.md` or Codex's global config. The persona is scoped to the vault directory; launch the runtime from there and it becomes Alfred, launch it elsewhere and it's vanilla.
 - **The write-guard is enforced at the git layer** by `wiki`'s tamper-check (refuses to operate while the vault has out-of-band edits), so it holds on *every* runtime regardless of that runtime's hook support. Per-runtime hooks (below) add a friendlier early block where available.
 
@@ -32,7 +32,7 @@ runtime (swappable)        ──reads──▶  AGENTS.md (one persona, in the 
 - **`codex/`** — same idea with Codex. `cd <vault> && codex`.
 - **`nanoclaw/`** — the always-on Telegram bot (a container host). The heaviest setup; see `../docs/NANOCLAW-PATCHES.md`.
 
-All three drive the same vault and the same `AGENTS.md`. Use whichever fits the moment.
+All three drive the same vault and the same generated `AGENTS.md`. Use whichever fits the moment.
 
 ## The one rule, on every runtime
 

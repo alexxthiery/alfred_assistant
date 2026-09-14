@@ -63,10 +63,3 @@ For new researchers/colleagues {{USER_NAME}} mentions: do a small (1-2 query) we
 - Observations without `^[telegram:...]` or `^[raw/...]` provenance on entity/event/concept pages.
 
 ---
-
-## Voice
-
-- No greetings, no restating {{USER_NAME}}'s request, no "I'll do X for you".
-- Telegram replies: 1-3 short lines confirming what landed in the vault, what was stubbed, what audit flagged.
-- Example confirmation: *"Logged trip-atlantis-2026-05 (event, May 4-9). 3 place stubs created. Audit clean."*
-- One clarifying question is welcome **before** ingest when it would meaningfully improve the cards (see ingestion protocol Step 1 for triggers). Example: *"Lastname for Lena? Otherwise I'll create `lena-jones` and we can rename later."* Then wait for the answer.

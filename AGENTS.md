@@ -6,7 +6,7 @@ This is the provider-agnostic name (`AGENTS.md`). Claude Code is pointed here vi
 
 > Two different `AGENTS.md` exist, and they do not conflict (the convention is directory-scoped):
 > - **This file** (repo root) is *developer* orientation: how to change this codebase.
-> - The **vault's** `AGENTS.md` is the *runtime persona*: how the assistant behaves when driving a vault. It is rendered from `docs/persona/*.template.md`; `docs/PERSONA.template.md` is the assembled compatibility aggregate. If you want runtime behavior, read the relevant fragment first.
+> - The **vault's** `AGENTS.md` is the *runtime persona*: how the assistant behaves when driving a vault. It is generated from `docs/persona/*.template.md`, the vault's `.alfred.yml`, and optional vault-local overlays in `persona/agents.d/*.md`; `docs/PERSONA.template.md` is the assembled compatibility aggregate. If you want runtime behavior, read the relevant fragment first.
 
 ## What this is
 
@@ -46,8 +46,9 @@ No file sizes here on purpose: they rot. The durable signal is *which file owns 
 | `bin/email-digest`, `bin/daily-brief` | SMTP send / morning brief.                             |
 | `integrations/scheduling/README.md`   | Scheduled-job methodology: wrappers, launchd/cron install, job manifest, drift checks. Read before changing any scheduled job. |
 | `docs/SCHEMA.md`                    | Tag/type/verb/microsyntax questions. **The contract.**    |
-| `docs/persona/*.template.md`        | Source fragments for the runtime persona. Edit these, then reassemble/check the aggregate. |
+| `docs/persona/*.template.md`        | Source fragments for the generated runtime persona. Edit these, then reassemble/check the aggregate. |
 | `docs/PERSONA.template.md`          | Assembled compatibility aggregate for the runtime persona; must equal the fragments. |
+| `docs/PERSONA-ASSEMBLY.md`          | How generated vault personas work, including `persona/agents.d/*.md` overlays and adoption safeguards. |
 | `docs/CONVENTIONS.md`               | Naming, error format, exit codes, where-things-live.      |
 | `docs/WEEKLY-DIGEST.md`, `docs/DAILY-BRIEF.md` | Cron + SMTP pipelines.                         |
 | `docs/RETRIEVAL-HARDENING.md` | Retrieval evals, confidence/explain diagnostics, and the boundary against heavier search machinery. |
@@ -151,7 +152,7 @@ Worked example: a hypothetical `next-up` verb that lists `type=event` pages with
 3. **Add `cmdNextUp(args)`** in the `bin/commands/` module that owns its group (alongside the sibling), and `module.exports` it. Pattern for this example: walk pages via `forEachPage` (from `bin/lib/vault.js`), filter for `fm.type === 'event'` with `fm.when` within today + 7 days, sort by `when`, print one line per event.
 4. **Register in the dispatch map.** Grep `const cmds = {` in `bin/wiki`; `require` the handler from its command module and add the entry. Match the existing comment-cluster convention (read, write, graph, todo, hygiene, etc.). Kebab-case verbs use string keys (`'sync-ids': cmdSyncIds`); single-word verbs use bare identifiers. The parity test (`tests/unit/dispatch-parity.test.js`) will fail loudly if a metadata entry, a `cmds` entry, or an exported `cmd` is missing its counterpart.
 5. **Add an entry to the metadata table** in `bin/lib/verb-metadata.js`. Each entry has `{ name, section, lines: ['  <synopsis>'] }` and optionally `longHelp: '...'` for the most-complex verbs. If normal invocation writes to the vault, add it to `WRITE_VERB_NAMES` in that file. The table feeds both the global help banner and `wiki <verb> --help`.
-6. **Update `docs/persona/*.template.md`** if the persona should know to invoke it. Grep for the closest existing verb in the fragments (`` `wiki agenda` ``, `` `wiki audit` ``, etc.), add yours nearby, then run `tools/assemble-persona-template.js > docs/PERSONA.template.md` or `tools/assemble-persona-template.js --check` if the aggregate is already current.
+6. **Update `docs/persona/*.template.md`** if the persona should know to invoke it. Grep for the closest existing verb in the fragments (`` `wiki agenda` ``, `` `wiki audit` ``, etc.), add yours nearby, then run `tools/assemble-persona-template.js > docs/PERSONA.template.md` or `tools/assemble-persona-template.js --check` if the aggregate is already current. If a live vault should receive the change, regenerate its generated `AGENTS.md` with `tools/render-persona.sh --vault <vault> --apply` (using `--adopt-generated-persona` only for the one-time migration from a hand-authored persona).
 7. **Add a fixture.** `tests/fixtures/next-up-window.json` + `.expected.json`. CLI-fixture shape (`{cmd: [...]}`). Optional `setup` to arrange vault state. Read `tests/fixtures/README.md` for the assertion vocabulary.
 8. **Run `npm test`.** Unit + fixture suite must all pass.
 9. **Run `node bin/wiki persona-lint`.** Catches dangling verb refs in docs.
