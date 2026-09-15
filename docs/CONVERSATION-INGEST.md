@@ -28,6 +28,12 @@ second writer. The only durable writer remains `wiki`.
 The job is idempotent at the local-day level. Re-running the same day is skipped
 unless the wrapper is called with `--force`.
 
+For Claude Code headless runs, the wrapper passes a narrow `--allowedTools`
+list for `.bin/wiki` invocations. This is intentional: scheduled jobs cannot
+answer interactive permission prompts, and the wrapper should not depend on a
+machine-local `.claude/settings.local.json` allowlist. The permission is scoped
+to the wiki CLI path only; the agent still cannot edit markdown files directly.
+
 ## Input Window
 
 The wrapper does not ask the agent to read the full conversation archive. It
@@ -131,3 +137,9 @@ Never edit `wiki/*.md` directly. Never write raw markdown cards by hand. Read
 the CLI output after every write and fix strict audit issues before finishing.
 
 If there is nothing worth storing, output nothing.
+
+If a scheduled run reports that it could read conversations but could not call
+`.bin/wiki`, first check that the deployed
+`run-conversation-ingest.sh` is current. The expected behavior is that a Claude
+agent binary named `claude` is invoked with explicit `.bin/wiki` allowed tools
+by the wrapper itself.

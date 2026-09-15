@@ -194,8 +194,22 @@ PROMPT
 )
 
 AGENT_ERR="$LOG_DIR/agent.stderr"
+AGENT_ARGS=()
+case "$(basename "$ALFRED_AGENT_BIN")" in
+  claude)
+    # Headless Claude Code denies permission prompts by default in scheduled
+    # runs. Grant only the wiki CLI write path this job explicitly requires;
+    # the wrapper still performs mirroring and Telegram delivery itself.
+    AGENT_ARGS=(
+      --allowedTools
+      "Bash(.bin/wiki *)"
+      "Bash(./.bin/wiki *)"
+      "Bash($ALFRED_VAULT/.bin/wiki *)"
+    )
+    ;;
+esac
 set +e
-MESSAGE="$("$ALFRED_AGENT_BIN" -p "$PROMPT" 2>"$AGENT_ERR")"
+MESSAGE="$("$ALFRED_AGENT_BIN" "${AGENT_ARGS[@]}" -p "$PROMPT" 2>"$AGENT_ERR")"
 agent_rc=$?
 set -e
 if [ "$agent_rc" -ne 0 ]; then

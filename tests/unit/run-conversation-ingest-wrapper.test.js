@@ -78,12 +78,14 @@ function addConversationFile(vault, rel = 'nanoclaw/test-assistant/2026-09-15.md
   return file;
 }
 
-test('conversation ingest wrapper runs the agent on recent private conversation files and sends questions', (t) => {
+test('conversation ingest wrapper passes narrow wiki permissions to Claude and sends questions', (t) => {
   const promptFile = path.join(os.tmpdir(), `alfred-conv-prompt-${process.pid}-${Date.now()}`);
+  const allowedToolsFile = path.join(os.tmpdir(), `alfred-conv-allowed-${process.pid}-${Date.now()}`);
   const wikiArgs = path.join(os.tmpdir(), `alfred-conv-wiki-${process.pid}-${Date.now()}`);
   const telegramFile = path.join(os.tmpdir(), `alfred-conv-telegram-${process.pid}-${Date.now()}`);
   t.after(() => {
     fs.rmSync(promptFile, { force: true });
+    fs.rmSync(allowedToolsFile, { force: true });
     fs.rmSync(wikiArgs, { force: true });
     fs.rmSync(telegramFile, { force: true });
   });
@@ -100,12 +102,33 @@ cat > "$TEST_TELEGRAM"
   });
   addConversationFile(vault);
 
-  const agent = path.join(tmp, 'agent');
+  const agent = path.join(tmp, 'claude');
   writeExecutable(agent, `#!/usr/bin/env bash
 set -euo pipefail
-[ "$1" = "-p" ]
-printf '%s' "$2" > "$TEST_PROMPT"
-case "$2" in
+prompt=''
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --allowedTools|--allowed-tools)
+      shift
+      while [ "$#" -gt 0 ] && [ "$1" != "-p" ]; do
+        printf '%s\\n' "$1" >> "$TEST_ALLOWED_TOOLS"
+        shift
+      done
+      ;;
+    -p)
+      shift
+      prompt="$1"
+      shift
+      ;;
+    *)
+      echo "unexpected argument: $1" >&2
+      exit 7
+      ;;
+  esac
+done
+[ -n "$prompt" ] || { echo "missing prompt" >&2; exit 7; }
+printf '%s' "$prompt" > "$TEST_PROMPT"
+case "$prompt" in
   *"persona/conversation-ingest.md"*".bin/wiki ingest"*".bin/wiki patch"*) ;;
   *) echo "prompt missing pipeline policy" >&2; exit 8 ;;
 esac
@@ -116,11 +139,17 @@ printf '%s\\n' "Should I also remember who runs robotics club?"
   const result = runWrapper(vault, [], {
     ALFRED_AGENT_BIN: agent,
     TEST_PROMPT: promptFile,
+    TEST_ALLOWED_TOOLS: allowedToolsFile,
     TEST_WIKI_ARGS: wikiArgs,
     TEST_TELEGRAM: telegramFile,
   });
 
   assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(fs.readFileSync(allowedToolsFile, 'utf8').trim().split('\n'), [
+    'Bash(.bin/wiki *)',
+    'Bash(./.bin/wiki *)',
+    `Bash(${vault}/.bin/wiki *)`,
+  ]);
   const prompt = fs.readFileSync(promptFile, 'utf8');
   assert.match(prompt, /No over-interpretation|conservative ingestion pass/);
   assert.match(prompt, /Recent private conversation files/);

@@ -56,15 +56,19 @@ function runWrapper(vault, extraEnv = {}) {
   for (const key of Object.keys(fileEnv)) {
     if (Object.prototype.hasOwnProperty.call(extraEnv, key)) fileEnv[key] = extraEnv[key];
   }
-  fs.writeFileSync(envFile, [
+  const lines = [
     `ALFRED_EXPECTED_VAULT=${fileEnv.ALFRED_EXPECTED_VAULT}`,
     `ALFRED_EXPECTED_LABEL=${fileEnv.ALFRED_EXPECTED_LABEL}`,
     `EMAIL_FROM=${fileEnv.EMAIL_FROM}`,
     `GMAIL_APP_PASSWORD=${fileEnv.GMAIL_APP_PASSWORD}`,
     `TELEGRAM_BOT_TOKEN=${fileEnv.TELEGRAM_BOT_TOKEN}`,
     `TELEGRAM_CHAT_ID=${fileEnv.TELEGRAM_CHAT_ID}`,
-    '',
-  ].join('\n'));
+  ];
+  if (Object.prototype.hasOwnProperty.call(extraEnv, 'ONECLI_URL')) {
+    lines.push(`ONECLI_URL=${extraEnv.ONECLI_URL}`);
+  }
+  lines.push('');
+  fs.writeFileSync(envFile, lines.join('\n'));
   return spawnSync('bash', [WRAPPER], {
     encoding: 'utf8',
     env: {
@@ -164,6 +168,26 @@ cat > "$TEST_TELEGRAM"
   assert.match(result.stderr, /unsafe shell syntax in ENV_FILE/);
   assert.equal(fs.existsSync(marker), false, 'env-file value must not execute command substitution');
   assert.equal(fs.existsSync(telegramFile), false, 'job should not reach Telegram after unsafe env');
+});
+
+test('daily brief wrapper accepts documented runtime gateway env key', (t) => {
+  const { vault } = makeVault(t, {
+    'daily-brief': dailyBriefScript(),
+    'email-digest': `#!/usr/bin/env bash
+cat >/dev/null
+echo "sent to email"
+`,
+    'telegram-send': `#!/usr/bin/env bash
+cat >/dev/null
+`,
+  });
+
+  const result = runWrapper(vault, {
+    ONECLI_URL: 'http://gateway.example.invalid',
+    DAILY_BRIEF_RETRY_ON_FAILURE: '0',
+  });
+
+  assert.equal(result.status, 0, result.stderr);
 });
 
 test('daily brief wrapper fails before channels when env binding points elsewhere', (t) => {
