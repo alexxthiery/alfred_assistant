@@ -7,13 +7,13 @@
 
 # Alfred Assistant
 
-A typed-graph personal-knowledge CLI, plus an agent persona that drives it.
+A typed-graph personal-knowledge CLI, plus a portable agent persona that drives it.
 
-The foundation is **`bin/wiki`** — a standalone, zero-dependency CLI that turns a folder of markdown into a versioned, schema-enforced graph. Drive it by hand, or point an **LLM agent ("Alfred")** at it. Alfred runs on whatever agent runtime you like — a terminal session (Claude Code or Codex) or an always-on Telegram bot (nanoclaw) — all reading one shared persona and the same vault. Verbs (`wiki ingest`, `wiki patch`, `wiki review`, …) do the writing; never markdown by hand.
+The foundation is **`bin/wiki`** — a standalone, zero-dependency CLI that turns a folder of markdown into a versioned, schema-enforced graph. Drive it by hand, or point an **LLM agent ("Alfred")** at it. Alfred runs on whatever agent runtime you like — a terminal session (Claude Code or Codex) or an always-on Telegram bot (nanoclaw) — all reading one generated persona and one vault. Verbs (`wiki ingest`, `wiki patch`, `wiki review`, …) do the writing; never markdown by hand.
 
-> This repository contains the CLI, schema, persona, runtime adapters, and tests.
+> This repository contains the CLI, schema, generated-persona source, runtime adapters, scheduled-job wrappers, and tests.
 > The CLI works standalone; an agent is optional. To run the agent, pick a runtime in [`integrations/`](integrations/) — Claude Code or Codex (a terminal, the lightest setup) or [nanoclaw](https://github.com/<your-username>/nanoclaw) (an always-on Telegram bot).
-> The vault content (your `wiki/*.md`, `raw/*`) lives outside this repo, on your machine.
+> Vault content (`wiki/*.md`, `raw/*`, private env, caches) lives outside this repo. One machine can host several independent vaults; see [`docs/MULTI-ASSISTANT.md`](docs/MULTI-ASSISTANT.md).
 
 ## Philosophy
 
@@ -46,13 +46,17 @@ The capability surface, with a pointer to the detailed doc for each. This is the
 - **Typed-graph CLI (`wiki`):** create, read, link, and query atomic pages. Verbs include `ingest`, `patch`, `write`, `merge`, `search` (DuckDB BM25 + synonym expansion), `related`, `path`, `context`, `timeline`, `sql`. The contract (page types, tags, microsyntax, the SQL view) lives in [`docs/SCHEMA.md`](docs/SCHEMA.md).
 - **Capture pipeline (`wiki capture`):** turn a one-line utterance into a classified, provenance-stamped observation on the right page. `--today` / `--on YYYY-MM-DD` stamp activity dates; `wiki day [YYYY-MM-DD]` lists what you did on a day.
 - **Reminders and calendar:** `wiki todo` (dated with `--due`, or undated backlog), `type=event` pages surfaced by `wiki agenda`, and birthdays via a `born:` field. A **timed reminder** is a todo with `--remind_at <ISO>` (and `--notify`): the vault is the single source of truth, so one write covers both channels — the morning brief surfaces it on its due date, and a deterministic dispatcher (`bin/reminder-dispatch`, run by a host cron) pushes it to Telegram at the set time and stamps it (idempotent, no duplicates). See [`docs/REMINDERS.md`](docs/REMINDERS.md) and [`docs/TELEGRAM.md`](docs/TELEGRAM.md).
-- **Daily morning brief (`bin/daily-brief`):** a deterministic 07:00 email listing overdue todos, due-today todos, today's events, and today's birthdays. Composed by a script, not the agent, so it cannot drift or hallucinate. See [`docs/DAILY-BRIEF.md`](docs/DAILY-BRIEF.md).
+- **Daily morning brief (`bin/daily-brief`):** a deterministic 07:00 email/Telegram note listing overdue todos, due-today todos, today's events, and today's birthdays. Composed by a script, not the agent, so it cannot drift or hallucinate. See [`docs/DAILY-BRIEF.md`](docs/DAILY-BRIEF.md).
+- **Daily conversational check-ins:** optional headless-agent Telegram nudges (`morning`, `afternoon`, `evening`) that invite replies without writing to the vault during the proactive send. See [`docs/DAILY-CHECKINS.md`](docs/DAILY-CHECKINS.md).
 - **Weekly digest:** a Monday discovery-and-quality email (promotion candidates, missing edges, audit offenders, stale markers). See [`docs/WEEKLY-DIGEST.md`](docs/WEEKLY-DIGEST.md).
 - **Gmail recall (`bin/gmail`):** a stateless IMAP read CLI (`search` / `show` / `count`) so the agent can answer "what did X send me last week?" or "what's the deadline in that email?" without mirroring your inbox to disk. See [`docs/GMAIL.md`](docs/GMAIL.md).
 - **Email review (`bin/email-review`):** a bounded Gmail triage report for "what in the last D days may deserve action or vault logging?", with metadata-only ledger deduplication so Alfred does not ask twice about the same message. See [`docs/EMAIL-REVIEW.md`](docs/EMAIL-REVIEW.md).
+- **Conversation logging:** local-only debug mirrors plus compact Claude JSONL deltas under `.alfred/private/conversations/`; this is evidence for analysis, not graph knowledge. See [`docs/CONVERSATION-LOGGING.md`](docs/CONVERSATION-LOGGING.md).
+- **Conversation fact ingestion:** an optional daily headless-agent pass that reviews compact local conversation deltas and writes only durable low-risk facts/todos through the normal `wiki` pipeline. See [`docs/CONVERSATION-INGEST.md`](docs/CONVERSATION-INGEST.md).
 - **Live X/Twitter recall (`bin/twitter-read`):** a repo-owned read-only adapter for live tweets, bookmarks, likes, mentions, and timelines. It wraps an optional `bird` backend without turning `bird` into a core dependency. See [`docs/TWITTER.md`](docs/TWITTER.md).
 - **Maintenance:** `wiki groom --mechanical` (close missing relations, run autolink, report stub debt), `wiki audit --all` (quality score), `wiki review` (discovery digest), `wiki sync-ids` (backfill observation ids).
-- **The agent (Alfred):** the optional conversational layer over the CLI. One generated persona (`AGENTS.md` in the vault) is shared by every runtime — nanoclaw, Claude Code, Codex — so Alfred behaves identically wherever you reach him. The maintained template source lives in [`docs/persona/`](docs/persona/) and is assembled into [`docs/PERSONA.template.md`](docs/PERSONA.template.md); vault-specific overlays live in `persona/agents.d/*.md`; the generation contract is in [`docs/PERSONA-ASSEMBLY.md`](docs/PERSONA-ASSEMBLY.md). Runtime wiring is in [`integrations/`](integrations/).
+- **The agent persona:** the optional conversational layer over the CLI. A generated `AGENTS.md` in each vault is shared by every runtime — nanoclaw, Claude Code, Codex — so the assistant behaves consistently wherever you reach it. Template source lives in [`docs/persona/`](docs/persona/) and is assembled into [`docs/PERSONA.template.md`](docs/PERSONA.template.md); vault-specific overlays live in `persona/agents.d/*.md`; the generation contract is in [`docs/PERSONA-ASSEMBLY.md`](docs/PERSONA-ASSEMBLY.md).
+- **Multi-assistant hosting:** one source repo can serve several independent vaults on the same machine, with one vault-private env file, Telegram bot, scheduler label, and runtime mount per assistant. See [`docs/MULTI-ASSISTANT.md`](docs/MULTI-ASSISTANT.md).
 - **Credential handling:** the rules for app passwords and secrets are in [`docs/SECURITY.md`](docs/SECURITY.md).
 
 ## Repository layout
@@ -68,11 +72,15 @@ alfred_assistant/
     gmail                 # stateless Gmail IMAP read CLI (Python, stdlib only)
     email-review          # bounded Gmail triage report + metadata ledger (Python, stdlib only)
     twitter-read          # read-only X/Twitter adapter over an optional bird backend
+    telegram-send         # Telegram send helper used by scheduled wrappers
+    reminder-dispatch     # deterministic due-reminder dispatcher
+    docker-watchdog       # macOS Docker backend health nudge for runtime infrastructure
     lib/                  # pure helper modules (require()-able, unit-tested)
       audit.js            #   AUDIT_RULES table + auditPage + auditVault
       autolink.js         #   buildTitleEntries + autolinkBody (fence-aware)
       capture-classifier.js #  classifyUtterance: utterance -> observation category
       config.js           #   .alfred.yml loader
+      conversation-log.js #   local-only conversation mirror + compact Claude JSONL extraction
       daily-brief.js      #   parsers + formatBrief (pure; consumed by bin/daily-brief)
       date.js             #   isISODate / ISO_RE (single source for date-shape validation)
       duckdb.js           #   vault snapshot + DuckDB view (BM25, sql, day)
@@ -94,14 +102,22 @@ alfred_assistant/
       tag-filter.js       #   boolean tag-expression grammar -> SQL
       verb-metadata.js    #   declarative help table + write-class/tamper metadata
       persona-template.js #   runtime persona fragment assembly + rendering helpers
+      jobs.js             #   scheduled-job manifest + launchd/cron drift checks
       vault-root.js       #   detectVaultRoot (shared by wiki + inbox)
+      vault-binding.js    #   vault/env binding checks for multi-assistant safety
       vault.js            #   forEachPage, listWikiPages, wikiPath, readPage, vault paths
     verbs/
       read.js             # read-only verbs split out of bin/wiki (list, search, recent, preview, print, sources, related, unlinked-mentions, agenda, day, context, challenge, render)
     commands/             # verb handlers (cmdXxx), one file per group; all verbs live here (see AGENTS.md verb-module index)
   tools/
+    check-assistant-isolation.js  # multi-vault safety smoke: env binding, deployed CLI, job labels, sibling visibility
+    deploy.sh                    # render persona + copy runtime CLI/docs into one target vault
+    install-assistant-jobs.sh    # generate/load launchd jobs for one assistant label
+    render-persona.sh            # render generated vault AGENTS.md from persona fragments + overlays
     nanoclaw-upgrade-gate.js      # non-destructive fast/full gate for NanoClaw upgrade staging
     nanoclaw-disposable-smoke.js # disposable two-vault smoke before NanoClaw canaries
+    scan-pii.sh                  # pre-commit PII scanner (used in development)
+    pre-commit                   # symlinked into .git/hooks/; runs scan-pii.sh + npm test on relevant changes
   schemas/
     wiki-ingest.schema.json   # JSON Schema for the ingest spec
   docs/
@@ -110,6 +126,10 @@ alfred_assistant/
     persona/              # maintained source fragments for Alfred's runtime instructions
     PERSONA.template.md   # assembled compatibility aggregate, with {{USER_NAME}} placeholders
     PERSONA-ASSEMBLY.md   # generated AGENTS.md contract + local overlays
+    MULTI-ASSISTANT.md    # one-host, many-vaults isolation contract
+    CONVERSATION-LOGGING.md # local-only transcript mirrors and compact deltas
+    CONVERSATION-INGEST.md # daily conversation fact-ingestion policy
+    DAILY-CHECKINS.md     # optional proactive Telegram check-ins
     NANOCLAW-INTEGRATION.md # the Alfred/NanoClaw boundary and invariants
     NANOCLAW-UPGRADE-RUNBOOK.md # staging-first NanoClaw upgrade process
     NANOCLAW-PATCHES.md   # legacy carried patch inventory for the NanoClaw fork
@@ -124,7 +144,7 @@ alfred_assistant/
     claude-code/          #   PreToolUse write-guard hook + settings snippet + alfred-cc wrapper
     codex/                #   alfred-codex wrapper (+ tamper-check backstop note)
     nanoclaw/             #   pointer to docs/NANOCLAW-PATCHES.md + AGENTS.md loader note
-    scheduling/           #   OS cron/launchd methodology and recipes for brief, email review, reminders, backup, weekly review, watchdog
+    scheduling/           #   OS cron/launchd wrappers for brief, check-ins, email review, conversation ingest, reminders, backup, weekly review, watchdog
   examples/
     .alfred.yml.example   # config file template, copy to <vault>/.alfred.yml
     example-vault/        # 13-page demo vault you can experiment against (alice, bob-jones, paper-llm-wiki-2024, …)
@@ -132,9 +152,7 @@ alfred_assistant/
     vault/                # template vault used by wiki-test (fresh copy per fixture)
     fixtures/             # JSON specs + expected outputs (cmd-shape and ingest-shape; see tests/fixtures/README.md)
     unit/                 # node:test suites for each bin/lib/ module (see npm run test:unit)
-  tools/
-    scan-pii.sh           # pre-commit PII scanner (used in development)
-    pre-commit            # symlinked into .git/hooks/; runs scan-pii.sh + npm test on relevant changes
+  .claude/codemap.md      # compact project map for coding agents
   AGENTS.md               # orientation for LLM agents working on this repo (Codex/Claude Code/etc.)
   CLAUDE.md               # one-line @AGENTS.md import so Claude Code loads the same orientation
   CHANGELOG.md            # human-readable history per audit / refactor batch
@@ -154,10 +172,13 @@ mkdir -p ~/my-vault/wiki
 cp examples/.alfred.yml.example ~/my-vault/.alfred.yml
 $EDITOR ~/my-vault/.alfred.yml           # set user.slug, user.name, email.from
 
-# 3. Install the CLI into the vault
+# 3. Install just the CLI into the vault
 ./install.sh ~/my-vault
 
-# 4. Sanity-check
+# 4. Or deploy the full assistant runtime surface (CLI + generated persona + policy docs)
+tools/deploy.sh --target ~/my-vault --user-name "Me" --user-slug me --assistant-name Alfred --apply
+
+# 5. Sanity-check
 cd ~/my-vault
 wiki preflight            # one-shot env + dependency check; should report OK
 wiki list                 # should print "no pages yet" or similar
@@ -170,34 +191,29 @@ as a permanent fork plan.
 
 ## Configuration
 
-`.alfred.yml` at the vault root.
-See `examples/.alfred.yml.example` for the full schema.
-Secrets (`GMAIL_APP_PASSWORD`, OneCLI tokens, Telegram bot token) stay in `.env` — never in the YAML.
+`.alfred.yml` at the vault root holds non-secret identity/config. See `examples/.alfred.yml.example` for the full schema.
+
+Secrets and per-assistant runtime bindings live in `<vault>/.alfred/private/env`, not in `.alfred.yml` and not in a shared host env file. At minimum, scheduled/runtime env files should include `ALFRED_EXPECTED_VAULT`, `ALFRED_EXPECTED_LABEL`, and `TZ`; add Telegram/Gmail/X credentials only for the features that assistant uses. See [`docs/SECURITY.md`](docs/SECURITY.md) and [`docs/MULTI-ASSISTANT.md`](docs/MULTI-ASSISTANT.md).
+
 Optional non-secret backend paths such as `paths.bird_bin` may live in `.alfred.yml`; live X/Twitter cookie values must not.
 
 ## Weekly digest
 
 A cron-scheduled task fires every Monday at 09:00 in your configured timezone.
 Alfred runs `wiki review`, `wiki audit --all`, `wiki agenda upcoming`, and a few SQL queries; synthesises the output into a three-section email (Stats / Top promotion candidates / Action items); pipes it to `bin/email-digest` for delivery via Gmail SMTP.
-The Gmail app-password is **SMTP-send-only** — Alfred cannot read your mail.
+The Gmail app-password used by `bin/email-digest` is for SMTP sending. Gmail read features use the separate IMAP app password documented in `docs/GMAIL.md` and `docs/EMAIL-REVIEW.md`.
 Setup is in `docs/WEEKLY-DIGEST.md`.
 
 ## Tests
 
 ```bash
-./bin/wiki-test
-```
-
-Should print `N/N passed` (count grows over time as new fixtures land).
-Each fixture either runs `wiki ingest` against a fresh copy of `tests/vault/` (ingest-shape) or invokes the CLI directly (cmd-shape), then diffs against `<fixture>.expected.json`. See `tests/fixtures/README.md` for the two shapes and the assertion vocabulary.
-
-Unit tests for the pure helpers in `bin/lib/` live under `tests/unit/`:
-
-```bash
-npm test          # unit tests + fixture suite
+npm test          # unit tests + fixture suite + Gmail/email-review tests
 npm run test:unit
 npm run test:fixtures
+npm run test:gmail
 ```
+
+`npm test` runs `node:test` unit tests, the `bin/wiki-test` fixture suite, and the Python Gmail/email-review tests. Fixtures run against a fresh copy of `tests/vault/` and compare to `<fixture>.expected.json`. See `tests/fixtures/README.md` for the two fixture shapes and the assertion vocabulary.
 
 ## PII discipline
 

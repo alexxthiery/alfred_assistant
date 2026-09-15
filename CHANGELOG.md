@@ -7,6 +7,10 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added
+- **Daily conversational check-ins.** Added `integrations/scheduling/run-daily-checkin.sh --slot morning|afternoon|evening`, a headless-agent Telegram wrapper for short memory-aware check-ins. It is vault/label-bound through the same private-env guard as other scheduled jobs, never writes to the vault during proactive sends, and records sent prompts in `cache/daily-checkin/checkins.jsonl` to avoid repetition. `tools/install-assistant-jobs.sh` now supports `--morning-checkin`, `--afternoon-checkin`, and `--evening-checkin`; `wiki jobs --check` validates all slots, including required `--slot` args.
+- **Daily conversation fact ingestion.** Added `integrations/scheduling/run-conversation-ingest.sh`, a vault-bound headless-agent wrapper that reviews local-only conversation mirrors and writes durable facts only through `wiki ingest` / `wiki patch` / `wiki todo`. The deployed policy lives at `persona/conversation-ingest.md`; `tools/install-assistant-jobs.sh --conversation-ingest` installs it and `wiki jobs --check` validates it.
+
 ### Fixed
 - **`wiki list` now honors `--limit`** (it was silently ignored — a no-op flag that looked like it worked; surfaced when an agent ran `wiki list --limit 3` and got all ~250 pages). `--limit` caps output after the `--tag`/`--type` filter, and a `(showing N of M)` note goes to stderr so truncation is never silent. Help text updated; new fixture `list-respects-limit`.
 

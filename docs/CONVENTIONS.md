@@ -70,9 +70,12 @@ Closed sets live in `docs/SCHEMA.md` and are parsed at runtime by `bin/lib/schem
 | Ingest-spec + body validators | `bin/lib/ingest.js` | Pure; injects deps. |
 | Shared audit rule table | `bin/lib/audit.js` | One source for write-time strict subset + audit-time scored set. |
 | Vault constants + page iteration | `bin/lib/vault.js` | `VAULT_ROOT`, `WIKI_DIR`, `forEachPage`. The controlled fs boundary. |
+| Conversation mirror/import logic | `bin/lib/conversation-log.js`, `bin/commands/conversation-log.js`, `docs/CONVERSATION-LOGGING.md` | Local-only raw mirrors and compact deltas under `.alfred/private/conversations/`; not graph knowledge. |
 | CLI flag-rename / removal policy | `bin/lib/flag-aliases.js` | Pure; consulted at dispatch. |
 | Verb metadata | `bin/lib/verb-metadata.js` | Declarative help table, help-section order, and write-class/tamper-check set. No dispatch logic. |
 | Runtime persona template assembly | `bin/lib/persona-template.js`, `docs/persona/*.template.md`, `docs/PERSONA-ASSEMBLY.md` | Fragment source is assembled into `docs/PERSONA.template.md`; `tools/render-persona.sh` renders generated vault `AGENTS.md` from fragments plus optional `persona/agents.d/*.md` overlays. |
+| Scheduled job manifest + drift checks | `bin/lib/jobs.js`, `bin/commands/jobs.js`, `integrations/scheduling/README.md` | Jobs are host-scheduled; manifest entries must match installer support and wrapper behavior. |
+| Vault/env binding checks | `bin/lib/vault-binding.js`, `integrations/scheduling/assistant-binding.sh`, `tools/check-assistant-isolation.js` | Multi-assistant safety boundary: env files must belong to the active vault/label. |
 | Read-only verbs (`list`, `print`, `search`, ...) | `bin/verbs/read.js` | Extracted from `bin/wiki`. |
 | Verb handlers (write, edit, ingest, hygiene, sql, review, ...) | `bin/commands/<group>.js` | Thin handlers exporting `cmdXxx`. All verbs now live here; `persona-lint` is the lone inline exception in `bin/wiki`. |
 | Dispatch, argv parse, help rendering, tamper/auto-commit gating | `bin/wiki` | Top-level CLI; imports handlers from `bin/commands/*` + `bin/verbs/*` and helpers from `bin/lib/*`. |

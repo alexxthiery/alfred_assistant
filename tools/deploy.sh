@@ -179,24 +179,32 @@ fi
 echo ""
 
 # 2b. Runtime policy docs referenced by the deployed persona.
-EMAIL_REVIEW_SRC="$SRC/docs/EMAIL-REVIEW.md"
-EMAIL_REVIEW_DST="$TARGET/persona/email-review.md"
-if [ -f "$EMAIL_REVIEW_SRC" ]; then
-  if [ ! -e "$EMAIL_REVIEW_DST" ]; then
-    echo "[persona-doc] WOULD CREATE $EMAIL_REVIEW_DST"
-  elif cmp -s "$EMAIL_REVIEW_SRC" "$EMAIL_REVIEW_DST"; then
-    echo "[persona-doc] OK (email-review policy unchanged)"
+POLICY_DOCS=(
+  "EMAIL-REVIEW.md:email-review.md"
+  "CONVERSATION-INGEST.md:conversation-ingest.md"
+)
+for policy in "${POLICY_DOCS[@]}"; do
+  SRC_NAME="${policy%%:*}"
+  DST_NAME="${policy##*:}"
+  POLICY_SRC="$SRC/docs/$SRC_NAME"
+  POLICY_DST="$TARGET/persona/$DST_NAME"
+  if [ -f "$POLICY_SRC" ]; then
+    if [ ! -e "$POLICY_DST" ]; then
+      echo "[persona-doc] WOULD CREATE $POLICY_DST"
+    elif cmp -s "$POLICY_SRC" "$POLICY_DST"; then
+      echo "[persona-doc] OK ($DST_NAME policy unchanged)"
+    else
+      echo "[persona-doc] WOULD UPDATE $POLICY_DST"
+    fi
+    if $APPLY; then
+      mkdir -p "$TARGET/persona"
+      cp "$POLICY_SRC" "$POLICY_DST"
+      echo "[persona-doc] wrote $POLICY_DST"
+    fi
   else
-    echo "[persona-doc] WOULD UPDATE $EMAIL_REVIEW_DST"
+    echo "[persona-doc] WARN: source $POLICY_SRC missing, skipping"
   fi
-  if $APPLY; then
-    mkdir -p "$TARGET/persona"
-    cp "$EMAIL_REVIEW_SRC" "$EMAIL_REVIEW_DST"
-    echo "[persona-doc] wrote $EMAIL_REVIEW_DST"
-  fi
-else
-  echo "[persona-doc] WARN: source $EMAIL_REVIEW_SRC missing, skipping"
-fi
+done
 echo ""
 
 # 3. bin/ deployment (COPY, not symlink)

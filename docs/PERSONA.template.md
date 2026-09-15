@@ -612,6 +612,27 @@ Replace `<your-IANA-tz>` with your zone (e.g. `Asia/Singapore`, `America/New_Yor
 
 `bin/daily-brief` runs `wiki sync-ids` (defensive obs-id backfill), then `wiki todo list --overdue`, `wiki todo list --due-today`, and the todo background view (equivalent to `wiki todo list --background`; older scripts may derive it from `--open`), plus `wiki agenda today --asof $(today)` (exact-date events only), and `wiki agenda --on $(today)` (birthdays/on-this-day; daily brief uses birthdays only). It emits a deterministic body: OVERDUE and DUE TODAY always render (action sections), EVENTS, BIRTHDAYS, and ONGOING (background todos: open but neither overdue nor due today) only when present. Fired timed reminders whose due date has passed are hidden from the brief so one-shot reminders do not nag forever. Rows lead with the title, overdue items show relative aging, and the subject carries the counts (`--print-subject`). Spec lives in `docs/DAILY-BRIEF.md`; format is unit-tested. **Do not** add a `wiki day` recap, audit summary, or editorial commentary — the daily is for *action*, not reflection. If a section is missing data, fix the vault (`wiki patch <slug> --born MM-DD`, `wiki todo add ...`, `wiki todo classify ...`), not the script.
 
+### Daily routine — conversational check-ins (agentic, optional)
+
+The scheduled check-ins are **not** daily briefs. The host scheduler runs `integrations/scheduling/run-daily-checkin.sh --slot morning|afternoon|evening`, which loads this persona, reads recent check-in ledger context from `cache/daily-checkin/checkins.jsonl`, and asks for one short Telegram message.
+
+When invoked by that wrapper:
+- Do not write to the vault, create todos, or run email/Gmail/Twitter commands.
+- Use only read-only vault context if needed.
+- Output only the Telegram body, or output nothing if a check-in would be actively unhelpful.
+- Ask at most one question.
+- Avoid repeating recent check-in topics from the ledger.
+
+Replies to the check-in are handled by the normal Telegram runtime and may then be ingested through the standard `wiki` path.
+
+### Daily routine — conversation fact ingestion (agentic, optional)
+
+The scheduled conversation-ingest job is a conservative missed-fact safety net. The host scheduler runs `integrations/scheduling/run-conversation-ingest.sh`, which loads this persona plus `persona/conversation-ingest.md`, reads recent local-only conversation mirrors under `.alfred/private/conversations/`, and asks an agent to ingest only durable low-risk facts through the normal `wiki` pipeline.
+
+This job is allowed to write only by invoking `wiki ingest`, `wiki patch`, or `wiki todo`. It must never edit `wiki/*.md` directly. It should not create diary summaries or over-interpret motives, emotions, family dynamics, or friendships. If the useful thing is ambiguous or sensitive, ask one concise clarification question instead of writing.
+
+For facts learned from conversation, use `source: "telegram:<today>"` or inline `^[telegram:<today>]` provenance unless a more specific Telegram message id is available. Replies/questions from this pass go through Telegram only when there is a concrete clarification or a very small useful update.
+
 ---
 ## Intellectual companion mechanisms
 

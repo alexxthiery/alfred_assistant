@@ -16,6 +16,7 @@ const {
   parseLeadingEnv,
   cronToSchedule,
   evaluateJob,
+  hasRequiredArgSequence,
 } = require('../../bin/lib/jobs.js');
 
 test('JOBS manifest: every job has the fields the verb and validator rely on', () => {
@@ -62,6 +63,41 @@ test('JOBS manifest: email-review is registered as a 10:00 daily agentic job', (
   assert.equal(scheduleToText(job.schedule), '10:00 daily');
 });
 
+test('JOBS manifest: conversation-ingest is registered as a 21:30 daily agentic job', () => {
+  const job = JOBS.find((j) => j.name === 'conversation-ingest');
+  assert.ok(job, 'conversation-ingest job must be in the manifest so `wiki jobs --check` tracks it');
+  assert.equal(job.label, 'com.alfred.conversation-ingest');
+  assert.equal(job.wrapper, 'run-conversation-ingest.sh');
+  assert.deepEqual(job.schedule, { kind: 'calendar', hour: 21, minute: 30 });
+  assert.equal(job.needsAgent, true);
+  assert.equal(job.requiresVaultBinding, true);
+  assert.equal(scheduleToText(job.schedule), '21:30 daily');
+});
+
+test('JOBS manifest: daily check-ins are separate agentic slot-bound jobs', () => {
+  const morning = JOBS.find((j) => j.name === 'daily-checkin-morning');
+  const afternoon = JOBS.find((j) => j.name === 'daily-checkin-afternoon');
+  const evening = JOBS.find((j) => j.name === 'daily-checkin-evening');
+  assert.ok(morning, 'morning check-in job must be in the manifest');
+  assert.ok(afternoon, 'afternoon check-in job must be in the manifest');
+  assert.ok(evening, 'evening check-in job must be in the manifest');
+  assert.equal(morning.label, 'com.alfred.daily-checkin-morning');
+  assert.equal(afternoon.label, 'com.alfred.daily-checkin-afternoon');
+  assert.equal(evening.label, 'com.alfred.daily-checkin-evening');
+  assert.equal(morning.wrapper, 'run-daily-checkin.sh');
+  assert.equal(afternoon.wrapper, 'run-daily-checkin.sh');
+  assert.equal(evening.wrapper, 'run-daily-checkin.sh');
+  assert.deepEqual(morning.requiredArgs, ['--slot', 'morning']);
+  assert.deepEqual(afternoon.requiredArgs, ['--slot', 'afternoon']);
+  assert.deepEqual(evening.requiredArgs, ['--slot', 'evening']);
+  assert.deepEqual(morning.schedule, { kind: 'calendar', hour: 7, minute: 0 });
+  assert.deepEqual(afternoon.schedule, { kind: 'calendar', hour: 17, minute: 0 });
+  assert.deepEqual(evening.schedule, { kind: 'calendar', hour: 22, minute: 0 });
+  assert.equal(morning.needsAgent, true);
+  assert.equal(afternoon.needsAgent, true);
+  assert.equal(evening.needsAgent, true);
+});
+
 test('JOBS manifest: weekly-review is registered as a Monday 09:00 agentic job', () => {
   const job = JOBS.find((j) => j.name === 'weekly-review');
   assert.ok(job, 'weekly-review job must be in the manifest so `wiki jobs --check` tracks it');
@@ -70,6 +106,13 @@ test('JOBS manifest: weekly-review is registered as a Monday 09:00 agentic job',
   assert.deepEqual(job.schedule, { kind: 'calendar', hour: 9, minute: 0, weekday: 1 });
   assert.equal(job.needsAgent, true);
   assert.equal(scheduleToText(job.schedule), 'Mon 09:00');
+});
+
+test('hasRequiredArgSequence: catches exact contiguous wrapper arguments', () => {
+  assert.equal(hasRequiredArgSequence(['/x/run-daily-checkin.sh', '--slot', 'morning'], ['--slot', 'morning']), true);
+  assert.equal(hasRequiredArgSequence(['/x/run-daily-checkin.sh', '--slot', 'afternoon'], ['--slot', 'morning']), false);
+  assert.equal(hasRequiredArgSequence(['/x/run-daily-checkin.sh', '--slot', 'evening'], ['--slot', 'evening']), true);
+  assert.equal(hasRequiredArgSequence(['/x/run-daily-checkin.sh', '--dry-run', '--slot', 'morning'], ['--slot', 'morning']), true);
 });
 
 test('scheduleToText: calendar daily, calendar weekday, interval', () => {
@@ -199,6 +242,23 @@ test('evaluateJob: drift when installed entry points at the wrong target', () =>
   const r = evaluateJob(job, { source: 'launchd', command: '/old/path/some-other.sh', schedule: { kind: 'calendar', hour: 7, minute: 0 } });
   assert.equal(r.status, 'drift');
   assert.match(r.detail, /run-daily-brief\.sh/);
+});
+
+test('evaluateJob: drift when a check-in job is missing its required slot args', () => {
+  const job = JOBS.find((j) => j.name === 'daily-checkin-morning');
+  const r = evaluateJob(job, {
+    source: 'launchd',
+    command: '/x/run-daily-checkin.sh',
+    args: ['/x/run-daily-checkin.sh', '--slot', 'afternoon'],
+    schedule: { kind: 'calendar', hour: 7, minute: 0 },
+    environment: {
+      ALFRED_VAULT: '/vault',
+      ALFRED_ASSISTANT_LABEL: 'alfred',
+      ENV_FILE: '/vault/.alfred/private/env',
+    },
+  }, { expectedVault: '/vault', labelSlug: 'alfred' });
+  assert.equal(r.status, 'drift');
+  assert.match(r.detail, /missing required args: --slot morning/);
 });
 
 test('evaluateJob: drift when a bound job uses an env file outside the vault private dir', () => {

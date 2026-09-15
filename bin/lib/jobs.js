@@ -29,6 +29,33 @@ const JOB_SPECS = [
     purpose: 'Deterministic morning brief (overdue + due-today todos, events) emailed/Telegrammed.',
   },
   {
+    name: 'daily-checkin-morning',
+    wrapper: 'run-daily-checkin.sh',
+    requiredArgs: ['--slot', 'morning'],
+    schedule: { kind: 'calendar', hour: 7, minute: 0 },
+    needsAgent: true,
+    requiresVaultBinding: true,
+    purpose: 'Headless agent sends a short, memory-aware morning Telegram check-in.',
+  },
+  {
+    name: 'daily-checkin-afternoon',
+    wrapper: 'run-daily-checkin.sh',
+    requiredArgs: ['--slot', 'afternoon'],
+    schedule: { kind: 'calendar', hour: 17, minute: 0 },
+    needsAgent: true,
+    requiresVaultBinding: true,
+    purpose: 'Headless agent sends a short, memory-aware afternoon Telegram check-in.',
+  },
+  {
+    name: 'daily-checkin-evening',
+    wrapper: 'run-daily-checkin.sh',
+    requiredArgs: ['--slot', 'evening'],
+    schedule: { kind: 'calendar', hour: 22, minute: 0 },
+    needsAgent: true,
+    requiresVaultBinding: true,
+    purpose: 'Headless agent sends a short, memory-aware evening Telegram check-in.',
+  },
+  {
     name: 'reminder-dispatch',
     wrapper: 'run-reminder-dispatch.sh',
     schedule: { kind: 'interval', seconds: 900 },
@@ -59,6 +86,14 @@ const JOB_SPECS = [
     needsAgent: true,
     requiresVaultBinding: true,
     purpose: 'Wrapper scans recent Gmail via email-review, then headless agent reviews the report and sends only actionable questions/updates to Telegram.',
+  },
+  {
+    name: 'conversation-ingest',
+    wrapper: 'run-conversation-ingest.sh',
+    schedule: { kind: 'calendar', hour: 21, minute: 30 },
+    needsAgent: true,
+    requiresVaultBinding: true,
+    purpose: 'Headless agent conservatively ingests durable facts from private conversation mirrors through wiki.',
   },
   {
     name: 'docker-watchdog',
@@ -240,6 +275,31 @@ function evaluateVaultArgument(job, installed, opts) {
   return `missing vault argument ${expectedVault}`;
 }
 
+function hasRequiredArgSequence(args, required) {
+  if (!required || !required.length) return true;
+  if (!Array.isArray(args) || args.length < required.length) return false;
+  for (let i = 0; i <= args.length - required.length; i += 1) {
+    let ok = true;
+    for (let j = 0; j < required.length; j += 1) {
+      if (args[i + j] !== required[j]) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) return true;
+  }
+  return false;
+}
+
+function evaluateRequiredArgs(job, installed) {
+  if (!job.requiredArgs || !job.requiredArgs.length) return null;
+  const args = Array.isArray(installed.args) && installed.args.length
+    ? installed.args
+    : String(installed.command || '').trim().split(/\s+/).filter(Boolean);
+  if (hasRequiredArgSequence(args, job.requiredArgs)) return null;
+  return `missing required args: ${job.requiredArgs.join(' ')}`;
+}
+
 function evaluateJob(job, installed, opts = {}) {
   if (!installed) return { status: 'missing', detail: 'no launchd/cron entry found' };
   if (!installed.command || !installed.command.includes(job.wrapper)) {
@@ -247,6 +307,10 @@ function evaluateJob(job, installed, opts = {}) {
       status: 'drift',
       detail: `${installed.source} entry runs "${installed.command || '(none)'}", expected to reference ${job.wrapper}`,
     };
+  }
+  const argDrift = evaluateRequiredArgs(job, installed);
+  if (argDrift) {
+    return { status: 'drift', detail: `${installed.source} entry has invalid arguments: ${argDrift}` };
   }
   const bindingDrift = evaluateVaultBinding(job, installed, opts);
   if (bindingDrift) {
@@ -275,5 +339,6 @@ module.exports = {
   parseCrontab,
   parseLeadingEnv,
   cronToSchedule,
+  hasRequiredArgSequence,
   evaluateJob,
 };

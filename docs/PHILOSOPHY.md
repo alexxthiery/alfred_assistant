@@ -52,9 +52,9 @@ Rule of thumb: *a capability you don't exercise is a claim, not a fact.*
 
 ## 9. Determinism where you can, agents where you must
 
-The daily brief is a pure function of vault state: byte-identical output for identical input, no LLM in the loop. Only genuinely synthesis-shaped work (the weekly review) puts an agent in the path. Fewer moving parts mean fewer surprises and easier debugging, so reach for an agent only when the task actually needs judgment.
+The daily brief is a pure function of vault state: byte-identical output for identical input, no LLM in the loop. Timed reminders, backup pushes, and watchdog checks are also deterministic. Only genuinely judgment-shaped work (weekly review, email triage, conversational check-ins, conversation fact ingestion) puts an agent in the path, and even then the wrapper does deterministic collection before the agent sees a prompt. Fewer moving parts mean fewer surprises and easier debugging, so reach for an agent only when the task actually needs judgment.
 
-Enforced by: `bin/daily-brief` (deterministic) vs the agent-driven weekly routine.
+Enforced by: deterministic wrappers for daily brief/reminders/backups/watchdog; explicit policy docs for agentic scheduled jobs.
 
 ## 10. Provider-agnostic
 
@@ -65,6 +65,18 @@ Enforced by: `AGENTS.md` + the `CLAUDE.md` import stub; `docs/persona/*.template
 ## 11. Surgical changes
 
 Touch only what the task needs. No speculative abstractions, no flexibility nobody asked for, no drive-by refactors of code that already works. Three similar lines beat a premature abstraction. Every changed line should trace to the task at hand. The codebase stays small because each change earns its place.
+
+## 12. One vault is one security cell
+
+The source repo and host wrapper scripts can be shared, but credentials, private logs, generated persona overlays, caches, and scheduled-job bindings belong to one vault at a time. A multi-user machine should run one assistant label, one env file, one Telegram bot token, and one mounted vault per person. Do not make sibling vaults visible inside an assistant runtime unless there is an explicit, tested router or isolation check proving the boundary.
+
+Enforced by: vault-private env files, `ALFRED_EXPECTED_VAULT`, `ALFRED_EXPECTED_LABEL`, `assistant-binding.sh`, `wiki jobs --check --label`, and `tools/check-assistant-isolation.js`.
+
+## 13. Private mirrors are evidence, not knowledge
+
+Conversation logs, scheduler ledgers, caches, and debug mirrors are useful evidence for agents and operators, but they are not graph knowledge. Durable knowledge is still the typed markdown graph, written through `wiki`. Local mirrors live under `.alfred/private/` or `cache/`, are gitignored, and should be compacted or re-derived when needed rather than promoted wholesale into the vault.
+
+Enforced by: `wiki conversation-log` writing only under `.alfred/private/conversations/`, extractor deltas staying local-only, and conversation ingestion requiring durable writes through `wiki ingest`, `wiki patch`, or `wiki todo`.
 
 ---
 

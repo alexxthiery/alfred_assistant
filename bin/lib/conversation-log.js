@@ -14,6 +14,7 @@ const { execFileSync } = require('node:child_process');
 const { isPathInside } = require('./vault-binding.js');
 
 const DEFAULT_EXTENSIONS = ['.md', '.txt', '.jsonl', '.json'];
+const SUPPORTED_EXTRACTORS = new Set(['claude-jsonl']);
 
 function sha256(input) {
   return crypto.createHash('sha256').update(input).digest('hex');
@@ -37,6 +38,22 @@ function parseExtensions(value) {
     .map((x) => x.trim())
     .filter(Boolean)
     .map((x) => x.startsWith('.') ? x : `.${x}`);
+}
+
+function parseCsv(value) {
+  if (!value) return [];
+  return String(value).split(',').map((x) => x.trim()).filter(Boolean);
+}
+
+function formatDateInTimeZone(date, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const get = (type) => parts.find((p) => p.type === type)?.value;
+  return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
 function assertNotSymlink(p, label) {
@@ -138,11 +155,13 @@ function redactSecrets(input) {
   return { text, redactions };
 }
 
-function listConversationFiles(sourceDir, extensions = DEFAULT_EXTENSIONS) {
+function listConversationFiles(sourceDir, extensions = DEFAULT_EXTENSIONS, excludeDirs = []) {
   const sourceReal = fs.realpathSync(path.resolve(sourceDir));
   const allowed = new Set(extensions);
+  const excludedDirNames = new Set(excludeDirs);
   const files = [];
   const skippedSymlinks = [];
+  const skippedDirs = [];
 
   function walk(dir) {
     for (const name of fs.readdirSync(dir).sort()) {
@@ -153,6 +172,10 @@ function listConversationFiles(sourceDir, extensions = DEFAULT_EXTENSIONS) {
         continue;
       }
       if (st.isDirectory()) {
+        if (excludedDirNames.has(name)) {
+          skippedDirs.push(relUnix(sourceReal, p));
+          continue;
+        }
         walk(p);
       } else if (st.isFile() && allowed.has(path.extname(name))) {
         files.push(p);
@@ -161,13 +184,196 @@ function listConversationFiles(sourceDir, extensions = DEFAULT_EXTENSIONS) {
   }
 
   walk(sourceReal);
-  return { sourceReal, files, skippedSymlinks };
+  return { sourceReal, files, skippedSymlinks, skippedDirs };
 }
 
 function defaultSourceName(sourceReal) {
   const base = path.basename(sourceReal);
   if (base === 'conversations') return path.basename(path.dirname(sourceReal));
   return base;
+}
+
+function textFromClaudeContent(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  const parts = [];
+  for (const block of content) {
+    if (!block || typeof block !== 'object') continue;
+    if (block.type === 'text' && typeof block.text === 'string') {
+      parts.push(block.text);
+    } else if (!block.type && typeof block.text === 'string') {
+      parts.push(block.text);
+    }
+  }
+  return parts.join('\n\n');
+}
+
+function extractClaudeJsonlMessage(line, meta = {}) {
+  let obj;
+  try {
+    obj = JSON.parse(line);
+  } catch {
+    return null;
+  }
+
+  const message = obj.message && typeof obj.message === 'object' ? obj.message : null;
+  const role = message?.role;
+  if (role !== 'user' && role !== 'assistant') return null;
+
+  const text = textFromClaudeContent(message.content).trim();
+  if (!text) return null;
+
+  const redacted = redactSecrets(text);
+  const cleaned = redacted.text.trim();
+  if (!cleaned) return null;
+
+  return {
+    schema_version: 1,
+    kind: 'conversation_message',
+    provider: meta.provider,
+    source_name: meta.sourceName,
+    source_rel: meta.sourceRel,
+    source_line: meta.sourceLine,
+    source_byte_start: meta.sourceByteStart,
+    source_byte_end: meta.sourceByteEnd,
+    source_line_sha256: sha256(line),
+    timestamp: typeof obj.timestamp === 'string' ? obj.timestamp : null,
+    local_date: meta.localDate,
+    role,
+    text: cleaned,
+    redactions: redacted.redactions,
+  };
+}
+
+function lineSegments(text) {
+  const segments = [];
+  let start = 0;
+  let lineNo = 1;
+  const re = /.*(?:\n|$)/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const raw = m[0];
+    if (raw === '') break;
+    const end = start + Buffer.byteLength(raw, 'utf8');
+    const line = raw.endsWith('\n') ? raw.slice(0, -1) : raw;
+    if (line) segments.push({ line, raw, lineNo, start, end });
+    start = end;
+    lineNo++;
+  }
+  return segments;
+}
+
+function readJsonFile(file, fallback) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJsonFile(file, value) {
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  assertNotSymlink(file, 'conversation cursor');
+  fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 });
+}
+
+function appendRecordsByDate({ vaultReal, destRoot, providerSafe, sourceSafe, records, dryRun }) {
+  const written = new Set();
+  if (dryRun || records.length === 0) return written;
+  for (const record of records) {
+    const date = record.local_date || 'unknown-date';
+    const deltaPath = path.join(destRoot, 'deltas', `${date}.jsonl`);
+    const deltaRel = relUnix(vaultReal, deltaPath);
+    if (!deltaRel.startsWith(`.alfred/private/conversations/${providerSafe}/${sourceSafe}/deltas/`)) {
+      throw new Error(`delta destination is outside private conversations: ${deltaRel}`);
+    }
+    fs.mkdirSync(path.dirname(deltaPath), { recursive: true, mode: 0o700 });
+    assertNotSymlink(deltaPath, 'conversation delta file');
+    fs.appendFileSync(deltaPath, JSON.stringify(record) + '\n', { mode: 0o600 });
+    written.add(deltaRel);
+  }
+  return written;
+}
+
+function extractClaudeJsonlDeltas({ vaultReal, scan, providerSafe, sourceSafe, destRoot, dryRun, timeZone }) {
+  const cursorRel = `.alfred/private/conversations/${providerSafe}/${sourceSafe}/cursor/claude-jsonl.json`;
+  const cursorPath = path.join(vaultReal, cursorRel);
+  const cursor = readJsonFile(cursorPath, { schema_version: 1, extractor: 'claude-jsonl', files: {} });
+  if (!cursor.files || typeof cursor.files !== 'object') cursor.files = {};
+
+  const allRecords = [];
+  const nextFiles = { ...cursor.files };
+
+  for (const file of scan.files.filter((p) => path.extname(p) === '.jsonl')) {
+    const sourceRel = relUnix(scan.sourceReal, file);
+    const sourceText = fs.readFileSync(file, 'utf8');
+    const sourceBytes = Buffer.byteLength(sourceText, 'utf8');
+    const prev = cursor.files[sourceRel] || {};
+    const segments = lineSegments(sourceText);
+    let processedLines = Number.isInteger(prev.processed_lines) ? prev.processed_lines : 0;
+    if (processedLines > segments.length) processedLines = 0;
+    if (processedLines > 0 && prev.processed_prefix_sha256) {
+      const prefix = segments.slice(0, processedLines).map((seg) => seg.raw).join('');
+      if (sha256(prefix) !== prev.processed_prefix_sha256) processedLines = 0;
+    }
+    const newSegments = segments.filter((seg) => seg.lineNo > processedLines);
+    const records = [];
+    for (const seg of newSegments) {
+      let timestamp = null;
+      try {
+        const parsed = JSON.parse(seg.line);
+        if (typeof parsed.timestamp === 'string') timestamp = parsed.timestamp;
+      } catch {
+        /* handled by extractor below */
+      }
+      const date = timestamp ? new Date(timestamp) : null;
+      const localDate = date && Number.isFinite(date.getTime())
+        ? formatDateInTimeZone(date, timeZone)
+        : formatDateInTimeZone(new Date(), timeZone);
+      const extracted = extractClaudeJsonlMessage(seg.line, {
+        provider: providerSafe,
+        sourceName: sourceSafe,
+        sourceRel,
+        sourceLine: seg.lineNo,
+        sourceByteStart: seg.start,
+        sourceByteEnd: seg.end,
+        localDate,
+      });
+      if (extracted) records.push(extracted);
+    }
+    allRecords.push(...records);
+
+    const processedText = segments.map((seg) => seg.raw).join('');
+    nextFiles[sourceRel] = {
+      source_bytes: sourceBytes,
+      processed_bytes: sourceBytes,
+      processed_lines: segments.length,
+      processed_prefix_sha256: sha256(processedText),
+      updated_at: new Date().toISOString(),
+    };
+  }
+
+  const written = appendRecordsByDate({
+    vaultReal,
+    destRoot,
+    providerSafe,
+    sourceSafe,
+    records: allRecords,
+    dryRun,
+  });
+
+  if (!dryRun) {
+    cursor.files = nextFiles;
+    cursor.updated_at = new Date().toISOString();
+    writeJsonFile(cursorPath, cursor);
+  }
+
+  return {
+    extractor: 'claude-jsonl',
+    deltaRecords: allRecords.length,
+    deltaFiles: Array.from(written).sort(),
+    cursorRel,
+  };
 }
 
 function importConversationFiles(opts = {}) {
@@ -177,12 +383,16 @@ function importConversationFiles(opts = {}) {
     provider = 'nanoclaw',
     sourceName,
     extensions,
+    excludeDirs,
+    extract,
+    timeZone = process.env.TZ || 'UTC',
     dryRun = false,
     now = () => new Date().toISOString(),
   } = opts;
 
   if (!vaultRoot) throw new Error('vaultRoot is required');
   if (!sourceDir) throw new Error('--source is required');
+  if (extract && !SUPPORTED_EXTRACTORS.has(extract)) throw new Error(`unsupported extractor: ${extract}`);
   if (!fs.existsSync(sourceDir)) throw new Error(`source directory does not exist: ${sourceDir}`);
   if (!fs.statSync(sourceDir).isDirectory()) throw new Error(`source is not a directory: ${sourceDir}`);
 
@@ -190,7 +400,7 @@ function importConversationFiles(opts = {}) {
   const root = ensurePrivateConversationRoot(vaultReal);
   assertGitIgnored(vaultReal, '.alfred/private/conversations/probe');
 
-  const scan = listConversationFiles(sourceDir, extensions || DEFAULT_EXTENSIONS);
+  const scan = listConversationFiles(sourceDir, extensions || DEFAULT_EXTENSIONS, excludeDirs || []);
   const providerSafe = safeName(provider, 'provider');
   const sourceSafe = safeName(sourceName || defaultSourceName(scan.sourceReal), 'source');
   const destRoot = path.join(root, providerSafe, sourceSafe);
@@ -266,6 +476,19 @@ function importConversationFiles(opts = {}) {
     fs.writeFileSync(manifestPath, records.map((r) => JSON.stringify(r)).join('\n') + (records.length ? '\n' : ''), { mode: 0o600 });
   }
 
+  let extraction = null;
+  if (extract === 'claude-jsonl') {
+    extraction = extractClaudeJsonlDeltas({
+      vaultReal,
+      scan,
+      providerSafe,
+      sourceSafe,
+      destRoot,
+      dryRun,
+      timeZone,
+    });
+  }
+
   return {
     vaultRoot: vaultReal,
     privateRoot: root,
@@ -278,6 +501,8 @@ function importConversationFiles(opts = {}) {
     unchanged,
     redactions,
     skippedSymlinks: scan.skippedSymlinks,
+    skippedDirs: scan.skippedDirs,
+    extraction,
     dryRun: !!dryRun,
   };
 }
@@ -290,5 +515,7 @@ module.exports = {
   redactSecrets,
   listConversationFiles,
   importConversationFiles,
+  extractClaudeJsonlMessage,
   parseExtensions,
+  parseCsv,
 };

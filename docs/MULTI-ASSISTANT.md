@@ -94,8 +94,10 @@ Use `<slug>` for the assistant namespace, e.g. `child`.
 
    ```sh
    cp integrations/scheduling/run-daily-brief.sh \
+      integrations/scheduling/run-daily-checkin.sh \
       integrations/scheduling/run-reminder-dispatch.sh \
       integrations/scheduling/run-email-review.sh \
+      integrations/scheduling/run-conversation-ingest.sh \
       integrations/scheduling/run-weekly-review.sh \
       integrations/scheduling/assistant-binding.sh \
       tools/vault-backup-push.sh ~/.local/bin/
@@ -112,8 +114,9 @@ Use `<slug>` for the assistant namespace, e.g. `child`.
      --reminders --brief 07:00 --backup 22:00
    ```
 
-   Add `--email-review 10:00` or `--weekly 09:00` only when that assistant has
-   the required mail credentials and the feature is wanted.
+   Add `--email-review 10:00`, `--conversation-ingest 21:30`, or
+   `--weekly 09:00` only when that assistant has the required credentials,
+   private conversation mirror source, and the feature is wanted.
 
 5. **Verify the namespace**
 

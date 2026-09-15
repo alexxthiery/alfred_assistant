@@ -86,6 +86,97 @@ test('importConversationFiles mirrors transcripts only under gitignored vault-pr
   ]);
 });
 
+function claudeLine({ type = 'user', role = type, content, timestamp = '2026-09-15T01:00:00.000Z', extra = {} }) {
+  return JSON.stringify({
+    type,
+    timestamp,
+    sessionId: 'sess-1',
+    message: { role, content },
+    ...extra,
+  });
+}
+
+test('importConversationFiles extracts compact Claude JSONL deltas and advances a cursor', () => {
+  const vault = initVault({ ignored: true });
+  const source = tmp('conversation-log-claude-source-');
+  const transcript = path.join(source, 'session.jsonl');
+  fs.mkdirSync(path.join(source, 'old-session', 'subagents'), { recursive: true });
+  fs.writeFileSync(
+    path.join(source, 'old-session', 'subagents', 'agent-noise.jsonl'),
+    claudeLine({ role: 'user', content: [{ type: 'text', text: 'Subagent text should not appear.' }] }) + '\n',
+  );
+  fs.writeFileSync(transcript, [
+    claudeLine({ role: 'user', content: [{ type: 'text', text: 'The user likes chess.' }] }),
+    claudeLine({ role: 'assistant', content: [{ type: 'text', text: 'Nice, I will remember chess.' }] }),
+    claudeLine({
+      role: 'user',
+      content: [{ type: 'tool_result', content: 'huge command output that should not be ingested' }],
+      extra: { toolUseResult: { stdout: 'huge command output that should not be ingested' } },
+    }),
+    claudeLine({ role: 'assistant', content: [{ type: 'thinking', thinking: 'private reasoning should not be ingested' }] }),
+    claudeLine({ role: 'user', content: [{ type: 'text', text: 'TELEGRAM_BOT_TOKEN=123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ_abc' }] }),
+    '',
+  ].join('\n'));
+
+  const first = importConversationFiles({
+    vaultRoot: vault,
+    sourceDir: source,
+    provider: 'nanoclaw',
+    sourceName: 'dm-with-test',
+    extensions: ['.jsonl'],
+    excludeDirs: ['subagents'],
+    extract: 'claude-jsonl',
+    timeZone: 'Asia/Singapore',
+    now: () => '2026-09-15T02:00:00.000Z',
+  });
+
+  assert.equal(first.files, 1);
+  assert.deepEqual(first.skippedDirs, ['old-session/subagents']);
+  assert.equal(first.extraction.deltaRecords, 3);
+  assert.deepEqual(first.extraction.deltaFiles, [
+    '.alfred/private/conversations/nanoclaw/dm-with-test/deltas/2026-09-15.jsonl',
+  ]);
+
+  const deltaPath = path.join(vault, first.extraction.deltaFiles[0]);
+  const records = fs.readFileSync(deltaPath, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.deepEqual(records.map((r) => r.role), ['user', 'assistant', 'user']);
+  assert.match(records[0].text, /The user likes chess/);
+  assert.match(records[1].text, /remember chess/);
+  assert.match(records[2].text, /TELEGRAM_BOT_TOKEN=\[REDACTED\]/);
+  assert.doesNotMatch(records.map((r) => r.text).join('\n'), /huge command output|private reasoning|123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ_abc/);
+  assert.equal(records[0].source_line, 1);
+  assert.equal(records[2].redactions, 1);
+
+  const second = importConversationFiles({
+    vaultRoot: vault,
+    sourceDir: source,
+    provider: 'nanoclaw',
+    sourceName: 'dm-with-test',
+    extensions: ['.jsonl'],
+    excludeDirs: ['subagents'],
+    extract: 'claude-jsonl',
+    timeZone: 'Asia/Singapore',
+  });
+  assert.equal(second.extraction.deltaRecords, 0);
+  assert.equal(fs.readFileSync(deltaPath, 'utf8').trim().split('\n').length, 3);
+
+  fs.appendFileSync(transcript, claudeLine({ role: 'user', content: [{ type: 'text', text: 'The user also likes climbing.' }] }) + '\n');
+  const third = importConversationFiles({
+    vaultRoot: vault,
+    sourceDir: source,
+    provider: 'nanoclaw',
+    sourceName: 'dm-with-test',
+    extensions: ['.jsonl'],
+    excludeDirs: ['subagents'],
+    extract: 'claude-jsonl',
+    timeZone: 'Asia/Singapore',
+  });
+  assert.equal(third.extraction.deltaRecords, 1);
+  const updated = fs.readFileSync(deltaPath, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(updated.length, 4);
+  assert.match(updated[3].text, /climbing/);
+});
+
 test('importConversationFiles refuses a git worktree where private conversations are trackable', () => {
   const vault = initVault({ ignored: false });
   const source = tmp('conversation-log-source-');
