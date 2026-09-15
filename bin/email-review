@@ -215,8 +215,25 @@ def main(argv=None):
     p.add_argument('--format', choices=['markdown', 'json'], default='markdown')
     p.add_argument('--ledger', default=None, help='metadata-only JSONL ledger path')
     p.add_argument('--include-reviewed', action='store_true', help='do not suppress ledger-reviewed messages')
-    p.add_argument('--record-ledger', action='store_true', help='append surfaced messages as status=reported')
+    p.add_argument('--record-ledger', action='store_true', help='append surfaced messages from this scan as status=reported immediately')
+    p.add_argument('--record-from-json', default=None, metavar='PATH',
+                   help='append ledger records from a prior --format json review; use - for stdin')
+    p.add_argument('--ledger-status', default='reported',
+                   choices=['reported', 'asked', 'ignored', 'todo-created', 'vaulted', 'done', 'not-actionable'],
+                   help='status for --record-ledger/--record-from-json records; default: reported')
     args = p.parse_args(argv)
+
+    ledger_path = args.ledger or _default_ledger_path()
+
+    if args.record_from_json:
+        if args.record_from_json == '-':
+            review = json.load(sys.stdin)
+        else:
+            with open(args.record_from_json, 'r', encoding='utf-8') as fh:
+                review = json.load(fh)
+        reviewed_at = datetime.now().astimezone().isoformat(timespec='seconds')
+        _append_ledger(ledger_path, R.ledger_records_for_review(review, reviewed_at, status=args.ledger_status))
+        return EXIT_OK
 
     days = _bounded_int('--days', args.days, 1, 90)
     limit = _bounded_int('--limit', args.limit, 1, 500)
@@ -224,7 +241,6 @@ def main(argv=None):
     body_limit = min(body_limit, limit)
     max_questions = _bounded_int('--max-questions', args.max_questions, 0, 20)
 
-    ledger_path = args.ledger or _default_ledger_path()
     ledger = _read_ledger(ledger_path)
     today = datetime.now().astimezone().date().isoformat()
     messages = _collect_messages(days, limit, body_limit, args.query)
@@ -238,7 +254,7 @@ def main(argv=None):
 
     if args.record_ledger:
         reviewed_at = datetime.now().astimezone().isoformat(timespec='seconds')
-        _append_ledger(ledger_path, R.ledger_records_for_review(review, reviewed_at))
+        _append_ledger(ledger_path, R.ledger_records_for_review(review, reviewed_at, status=args.ledger_status))
 
     if args.format == 'json':
         print(json.dumps(review, indent=2, sort_keys=True, ensure_ascii=False))

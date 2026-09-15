@@ -17,7 +17,7 @@ Alfred touches two kinds of secret: Gmail app passwords (SMTP send + IMAP read) 
 
 **The flow.** The assistant runtime reads a hardcoded allowlist of keys from that assistant's env file via `readEnvFile()` (which deliberately does NOT load them into `process.env`) and injects them into the agent container with docker `-e` flags. In the legacy NanoClaw integration this allowlist is Patch 3 in `docs/NANOCLAW-PATCHES.md`; the target design is described in `docs/NANOCLAW-INTEGRATION.md`, where Alfred-specific secrets should cross into the container only when an in-container feature genuinely needs them. Putting a key in `.env` alone does nothing until it is allowlisted.
 
-`<vault>/.alfred/private/` is gitignored and never committed. No secret should ever be written into a tracked file.
+`<vault>/.alfred/private/` is gitignored and never committed. No secret should ever be written into a tracked file. Gitignored does **not** mean local-only: if the vault is under Dropbox, iCloud Drive, CloudStorage, Google Drive, OneDrive, or similar sync roots, private env files, conversation mirrors, and cache ledgers may still sync outside the machine. `wiki preflight` and `tools/deploy.sh` warn on common sync roots, but the operator must decide whether that storage location is acceptable.
 Full conversation mirrors created by `wiki conversation-log` also live under
 `<vault>/.alfred/private/conversations/`; they are local-only debug artifacts,
 not git-backed vault content. See `docs/CONVERSATION-LOGGING.md`.
@@ -36,10 +36,12 @@ vault when `ALFRED_EXPECTED_VAULT` is present. This is the guard that prevents a
 credential file from being accidentally reused with the wrong vault.
 
 The env file must live under the owning vault's `.alfred/private/` directory and
-must not be a symlink. This is deliberate: credentials are part of one vault's
-local runtime cell, not shared host state.
+must not be a symlink. Scheduled wrappers parse it as inert `KEY=VALUE` data and
+reject shell syntax such as `export`, backticks, and command substitution. This
+is deliberate: credentials are part of one vault's runtime cell, not shared host
+state or executable shell configuration.
 
-**Host-side jobs are exempt from the allowlist.** Scheduled wrappers (`integrations/scheduling/run-*.sh`) run from the OS scheduler, not inside the container, and source the `ENV_FILE` named in the plist. They require `ALFRED_EXPECTED_VAULT` and `ALFRED_EXPECTED_LABEL` before touching email, Telegram, or vault writes. So `TELEGRAM_CHAT_ID` and `TELEGRAM_BOT_TOKEN` work for `bin/telegram-send` without any container allowlist change. Patch 3 is only needed for secrets the in-container agent must read.
+**Host-side jobs are exempt from the allowlist.** Scheduled wrappers (`integrations/scheduling/run-*.sh`) run from the OS scheduler, not inside the container, and parse the `ENV_FILE` named in the plist. They require `ALFRED_EXPECTED_VAULT` and `ALFRED_EXPECTED_LABEL` before touching email, Telegram, or vault writes. So `TELEGRAM_CHAT_ID` and `TELEGRAM_BOT_TOKEN` work for `bin/telegram-send` without any container allowlist change. Patch 3 is only needed for secrets the in-container agent must read.
 
 ## The rules
 

@@ -42,7 +42,7 @@ ALFRED_AGENT_BIN="${ALFRED_AGENT_BIN:-claude}"
 
 . "$SCRIPT_DIR/assistant-binding.sh"
 alfred_require_private_env_path "run-daily-checkin"
-set -a && . "$ENV_FILE" && set +a
+alfred_load_private_env "run-daily-checkin"
 alfred_require_assistant_binding "run-daily-checkin"
 
 LOG_DIR="$ALFRED_VAULT/cache/daily-checkin"

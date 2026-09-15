@@ -13,7 +13,7 @@ const {
 
 function usage() {
   console.error('Usage:');
-  console.error('  wiki conversation-log import --source <dir> [--provider nanoclaw] [--source-name name] [--extensions md,txt,jsonl,json] [--exclude-dir subagents] [--extract claude-jsonl] [--dry-run]');
+  console.error('  wiki conversation-log import --source <dir> [--provider nanoclaw] [--source-name name] [--extensions md,txt,jsonl,json] [--exclude-dir subagents] [--extract claude-jsonl] [--extract-only] [--dry-run]');
   console.error('  wiki conversation-log status');
 }
 
@@ -51,6 +51,7 @@ function cmdConversationLog(args) {
       extensions: parseExtensions(args.extensions),
       excludeDirs: parseCsv(args['exclude-dir']),
       extract: args.extract,
+      extractOnly: !!args['extract-only'],
       dryRun: !!args['dry-run'],
     });
   } catch (e) {
@@ -64,6 +65,7 @@ function cmdConversationLog(args) {
   console.log(`manifest: ${result.manifestRel}`);
   console.log(`copied: ${result.copied}`);
   console.log(`unchanged: ${result.unchanged}`);
+  console.log(`extract-only: ${result.extractOnly ? 'yes' : 'no'}`);
   console.log(`redactions: ${result.redactions}`);
   if (result.extraction) {
     console.log(`extractor: ${result.extraction.extractor}`);

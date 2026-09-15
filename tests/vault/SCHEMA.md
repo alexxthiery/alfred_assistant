@@ -473,9 +473,12 @@ Required env vars in the agent's container environment:
 | Var | Value | How to obtain |
 |---|---|---|
 | `EMAIL_FROM` | `alice@example.com` | Alice's Gmail address |
-| `GMAIL_APP_PASSWORD` | 16-char string | <https://myaccount.google.com/apppasswords> — requires 2FA enabled on the Gmail account first |
+| `GMAIL_APP_PASSWORD` | 16-char string | SMTP-send password for `email-digest`; <https://myaccount.google.com/apppasswords> requires 2FA enabled first |
+| `GMAIL_IMAP_APP_PASSWORD` | 16-char string | IMAP-read password for `gmail` / `email-review`; prefer a separate named app password from the SMTP one |
 
-The app password is scoped to **SMTP-SEND only**: it authenticates against `smtp.gmail.com:465` and **cannot read mail**, list messages, or do anything else with the Gmail account. Distinct from full Gmail OAuth.
+The SMTP and IMAP values should be separate Gmail app passwords where possible.
+Gmail app passwords are account-level credentials, not OAuth scopes; separating
+the names lets one purpose be revoked without breaking the other.
 
 Usage:
 ```

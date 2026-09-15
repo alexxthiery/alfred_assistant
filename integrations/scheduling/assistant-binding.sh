@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # assistant-binding.sh — shared fail-closed checks for scheduled wrappers.
 #
-# Source before ENV_FILE is sourced. The env file must live under the active
+# Source before ENV_FILE is loaded. The env file must live under the active
 # vault's .alfred/private/ directory and must declare:
 #   ALFRED_EXPECTED_VAULT=/absolute/path/to/the/one/vault
 #   ALFRED_EXPECTED_LABEL=<assistant-label>
@@ -36,6 +36,67 @@ alfred_require_private_env_path() {
   esac
 }
 
+alfred_env_key_allowed() {
+  case "$1" in
+    ALFRED_EXPECTED_VAULT|ALFRED_EXPECTED_LABEL|ALFRED_AGENT_BIN|\
+ALFRED_EMAIL_REVIEW_DAYS|ALFRED_EMAIL_REVIEW_MAX_QUESTIONS|\
+ALFRED_CONVERSATION_SOURCE|ALFRED_CONVERSATION_PROVIDER|\
+ALFRED_CONVERSATION_SOURCE_NAME|ALFRED_CONVERSATION_SOURCE_EXTENSIONS|\
+ALFRED_CONVERSATION_EXCLUDE_DIRS|ALFRED_CONVERSATION_EXTRACT|\
+ALFRED_CONVERSATION_EXTRACT_ONLY|ALFRED_CONVERSATION_INGEST_DAYS|\
+DAILY_BRIEF_RETRY_AFTER_SECONDS|DAILY_BRIEF_RETRY_ON_FAILURE|\
+EMAIL_FROM|GMAIL_APP_PASSWORD|GMAIL_IMAP_APP_PASSWORD|\
+TELEGRAM_BOT_TOKEN|TELEGRAM_CHAT_ID|TZ)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+alfred_load_private_env() {
+  local caller="$1"
+  local line key value line_no
+
+  [ -n "${ENV_FILE:-}" ] || { echo "$caller: ENV_FILE is not set" >&2; exit 2; }
+  line_no=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line_no=$((line_no + 1))
+    line="${line%$'\r'}"
+    case "$line" in
+      ""|\#*) continue ;;
+    esac
+    case "$line" in
+      export\ *)
+        echo "$caller: ENV_FILE line $line_no must be KEY=VALUE, not shell syntax" >&2
+        exit 2
+        ;;
+      *=*) ;;
+      *)
+        echo "$caller: ENV_FILE line $line_no must be KEY=VALUE" >&2
+        exit 2
+        ;;
+    esac
+
+    key="${line%%=*}"
+    value="${line#*=}"
+    if ! [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+      echo "$caller: invalid ENV_FILE key on line $line_no: $key" >&2
+      exit 2
+    fi
+    if ! alfred_env_key_allowed "$key"; then
+      echo "$caller: unsupported ENV_FILE key on line $line_no: $key" >&2
+      exit 2
+    fi
+    if [[ "$value" == *'$('* || "$value" == *'`'* ]]; then
+      echo "$caller: unsafe shell syntax in ENV_FILE line $line_no for $key" >&2
+      exit 2
+    fi
+    export "$key=$value"
+  done < "$ENV_FILE"
+}
+
 alfred_require_assistant_binding() {
   local caller="$1"
   local active expected
@@ -56,4 +117,10 @@ alfred_require_assistant_binding() {
     echo "$caller: assistant label mismatch: active=$ALFRED_ASSISTANT_LABEL expected=$ALFRED_EXPECTED_LABEL" >&2
     exit 2
   fi
+
+  # Bound scheduled jobs run in deployed mode by default. Any wiki writes made
+  # by deterministic wrappers or child agents then fail closed on missing git,
+  # disabled auto-commit, or git-status failures. Local repair sessions can
+  # still opt out explicitly by launching the wrapper with ALFRED_STRICT_DEPLOYED=0.
+  export ALFRED_STRICT_DEPLOYED="${ALFRED_STRICT_DEPLOYED:-1}"
 }

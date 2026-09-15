@@ -20,6 +20,7 @@
 #                                 for the runtime source; default: wiki CLI default
 #   ALFRED_CONVERSATION_EXCLUDE_DIRS optional comma-separated source dir names to skip
 #   ALFRED_CONVERSATION_EXTRACT  optional compact extractor; currently claude-jsonl
+#   ALFRED_CONVERSATION_EXTRACT_ONLY optional true/1 to skip full raw mirror
 #   ALFRED_CONVERSATION_INGEST_DAYS lookback window; default: 1
 set -euo pipefail
 
@@ -46,7 +47,7 @@ ALFRED_CONVERSATION_INGEST_DAYS="${ALFRED_CONVERSATION_INGEST_DAYS:-1}"
 
 . "$SCRIPT_DIR/assistant-binding.sh"
 alfred_require_private_env_path "run-conversation-ingest"
-set -a && . "$ENV_FILE" && set +a
+alfred_load_private_env "run-conversation-ingest"
 alfred_require_assistant_binding "run-conversation-ingest"
 
 ALFRED_CONVERSATION_SOURCE_NAME="${ALFRED_CONVERSATION_SOURCE_NAME:-$ALFRED_ASSISTANT_LABEL}"
@@ -123,6 +124,9 @@ if [ -n "${ALFRED_CONVERSATION_SOURCE:-}" ]; then
   fi
   if [ -n "${ALFRED_CONVERSATION_EXTRACT:-}" ]; then
     IMPORT_ARGS+=(--extract "$ALFRED_CONVERSATION_EXTRACT")
+  fi
+  if [ -n "${ALFRED_CONVERSATION_EXTRACT_ONLY:-}" ] && [ "$ALFRED_CONVERSATION_EXTRACT_ONLY" != "0" ] && [ "$ALFRED_CONVERSATION_EXTRACT_ONLY" != "false" ]; then
+    IMPORT_ARGS+=(--extract-only)
   fi
   set +e
   "$ALFRED_VAULT/.bin/wiki" "${IMPORT_ARGS[@]}" >"$IMPORT_OUT" 2>"$IMPORT_ERR"

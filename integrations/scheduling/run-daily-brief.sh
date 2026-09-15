@@ -21,7 +21,7 @@
 # Config (edit or set in the environment / launchd plist):
 #   ALFRED_VAULT      vault path (contains .bin/)
 #   ALFRED_ASSISTANT_LABEL  assistant label stamped by the scheduler installer
-#   ENV_FILE          a file (sourced) exporting any of: EMAIL_FROM +
+#   ENV_FILE          vault-private KEY=VALUE file exporting any of: EMAIL_FROM +
 #                     ALFRED_EXPECTED_VAULT + ALFRED_EXPECTED_LABEL +
 #                     GMAIL_APP_PASSWORD (email), TELEGRAM_BOT_TOKEN +
 #                     TELEGRAM_CHAT_ID (Telegram)
@@ -32,10 +32,10 @@ ENV_FILE="${ENV_FILE:-$ALFRED_VAULT/.alfred/private/env}"
 RETRY_AFTER_SECONDS="${DAILY_BRIEF_RETRY_AFTER_SECONDS:-10800}"
 RETRY_ON_FAILURE="${DAILY_BRIEF_RETRY_ON_FAILURE:-1}"
 
-# Secrets are sourced from a file, never hardcoded here.
+# Secrets are parsed from a vault-private KEY=VALUE file, never hardcoded here.
 . "$SCRIPT_DIR/assistant-binding.sh"
 alfred_require_private_env_path "run-daily-brief"
-set -a && . "$ENV_FILE" && set +a
+alfred_load_private_env "run-daily-brief"
 alfred_require_assistant_binding "run-daily-brief"
 
 LOG_DIR="$ALFRED_VAULT/cache/daily-brief"

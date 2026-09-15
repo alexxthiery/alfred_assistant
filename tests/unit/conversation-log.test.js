@@ -177,6 +177,53 @@ test('importConversationFiles extracts compact Claude JSONL deltas and advances 
   assert.match(updated[3].text, /climbing/);
 });
 
+test('importConversationFiles extract-only mode writes deltas without full transcript copy', () => {
+  const vault = initVault({ ignored: true });
+  const source = tmp('conversation-log-extract-only-source-');
+  const transcript = path.join(source, 'session.jsonl');
+  fs.writeFileSync(transcript, [
+    claudeLine({ role: 'user', content: [{ type: 'text', text: 'The user likes piano.' }] }),
+    '',
+  ].join('\n'));
+
+  const result = importConversationFiles({
+    vaultRoot: vault,
+    sourceDir: source,
+    provider: 'nanoclaw',
+    sourceName: 'dm-with-test',
+    extensions: ['.jsonl'],
+    extract: 'claude-jsonl',
+    extractOnly: true,
+    timeZone: 'Asia/Singapore',
+  });
+
+  assert.equal(result.extractOnly, true);
+  assert.equal(result.files, 1);
+  assert.equal(result.copied, 0);
+  assert.equal(fs.existsSync(path.join(vault, '.alfred/private/conversations/nanoclaw/dm-with-test/session.jsonl')), false);
+
+  const deltaPath = path.join(vault, result.extraction.deltaFiles[0]);
+  const records = fs.readFileSync(deltaPath, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(records.length, 1);
+  assert.match(records[0].text, /likes piano/);
+
+  const manifest = fs.readFileSync(path.join(vault, result.manifestRel), 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(manifest[0].extract_only, true);
+  assert.equal(manifest[0].vault_rel, '');
+  assert.equal(manifest[0].stored_bytes, 0);
+});
+
+test('importConversationFiles refuses extract-only without an extractor', () => {
+  const vault = initVault({ ignored: true });
+  const source = tmp('conversation-log-extract-only-no-extractor-');
+  fs.writeFileSync(path.join(source, 'conversation.md'), 'User: hello\n');
+
+  assert.throws(
+    () => importConversationFiles({ vaultRoot: vault, sourceDir: source, extractOnly: true }),
+    /--extract-only requires --extract/,
+  );
+});
+
 test('importConversationFiles refuses a git worktree where private conversations are trackable', () => {
   const vault = initVault({ ignored: false });
   const source = tmp('conversation-log-source-');

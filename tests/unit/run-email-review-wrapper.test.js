@@ -82,24 +82,44 @@ test('email review wrapper scans Gmail before invoking the headless agent', (t) 
   const emailArgs = path.join(os.tmpdir(), `alfred-email-args-${process.pid}-${Date.now()}`);
   const promptFile = path.join(os.tmpdir(), `alfred-email-prompt-${process.pid}-${Date.now()}`);
   const telegramFile = path.join(os.tmpdir(), `alfred-email-telegram-${process.pid}-${Date.now()}`);
+  const ledgerRecord = path.join(os.tmpdir(), `alfred-email-ledger-record-${process.pid}-${Date.now()}`);
   t.after(() => {
     fs.rmSync(emailArgs, { force: true });
     fs.rmSync(promptFile, { force: true });
     fs.rmSync(telegramFile, { force: true });
+    fs.rmSync(ledgerRecord, { force: true });
   });
 
   const { vault } = makeVault(t, {
     'email-review': `#!/usr/bin/env bash
 set -euo pipefail
-printf '%s\\n' "$@" > "$TEST_EMAIL_ARGS"
+printf '%s\\n' "$@" >> "$TEST_EMAIL_ARGS"
+printf '%s\\n' '---' >> "$TEST_EMAIL_ARGS"
+if [ "$1" = "--record-from-json" ]; then
+  cat > "$TEST_LEDGER_RECORD"
+  exit 0
+fi
 cat <<'REPORT'
-# Email Review - last 1 day
-
-Reviewed: 3 messages; skipped already-reviewed: 0; surfaced: 1; questions: 1.
-
-## 1. Action item
-- Category: todo candidate
-- Provenance: gmail:uid=123 date=2026-09-10 from=sender@example.com subject="Thing"
+{
+  "already_reviewed_count": 0,
+  "asof": "2026-09-10",
+  "items": [
+    {
+      "category": "action_needed",
+      "date": "2026-09-10",
+      "from": "sender@example.com",
+      "key": "message-id:<thing>",
+      "provenance": "gmail:uid=123; date=2026-09-10; from=sender@example.com; subject=\\"Thing\\"",
+      "question": "This looks actionable. Should I create/update a background todo, or is it already handled?",
+      "reasons": ["request-language"],
+      "score": 4,
+      "subject": "Thing",
+      "suggested_action": "consider creating or updating a background todo",
+      "uid": "123"
+    }
+  ],
+  "reviewed_count": 3
+}
 REPORT
 `,
     'telegram-send': `#!/usr/bin/env bash
@@ -118,21 +138,23 @@ printf '%s\\n' "Please confirm whether I should create the Thing todo."
     TEST_EMAIL_ARGS: emailArgs,
     TEST_PROMPT: promptFile,
     TEST_TELEGRAM: telegramFile,
+    TEST_LEDGER_RECORD: ledgerRecord,
   });
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(
     fs.readFileSync(emailArgs, 'utf8'),
-    '--days\n1\n--max-questions\n7\n--record-ledger\n',
+    '--days\n1\n--max-questions\n7\n--format\njson\n---\n--record-from-json\n-\n---\n',
   );
   const prompt = fs.readFileSync(promptFile, 'utf8');
-  assert.match(prompt, /EMAIL REVIEW REPORT/);
-  assert.match(prompt, /Action item/);
+  assert.match(prompt, /EMAIL REVIEW JSON REPORT/);
+  assert.match(prompt, /"subject": "Thing"/);
   assert.match(prompt, /Do NOT run \.bin\/email-review, \.bin\/gmail/);
   assert.equal(
     fs.readFileSync(telegramFile, 'utf8'),
     'Please confirm whether I should create the Thing todo.\n',
   );
+  assert.match(fs.readFileSync(ledgerRecord, 'utf8'), /"key": "message-id:<thing>"/);
 });
 
 test('email review wrapper fails before Gmail scan when env binding points elsewhere', (t) => {
@@ -163,6 +185,80 @@ exit 9
   assert.equal(fs.existsSync(emailArgs), false, 'Gmail scanner should not run after binding failure');
 });
 
+test('email review wrapper treats env file as inert data, not shell code', (t) => {
+  const marker = path.join(os.tmpdir(), `alfred-email-env-code-${process.pid}-${Date.now()}`);
+  const emailArgs = path.join(os.tmpdir(), `alfred-email-env-code-args-${process.pid}-${Date.now()}`);
+  t.after(() => {
+    fs.rmSync(marker, { force: true });
+    fs.rmSync(emailArgs, { force: true });
+  });
+
+  const { vault } = makeVault(t, {
+    'email-review': `#!/usr/bin/env bash
+printf '%s\\n' "$@" > "$TEST_EMAIL_ARGS"
+`,
+    'telegram-send': `#!/usr/bin/env bash
+cat >/dev/null
+`,
+  });
+  const agent = makeAgent(t, `#!/usr/bin/env bash
+exit 9
+`);
+
+  const result = runWrapper(vault, agent, {
+    GMAIL_IMAP_APP_PASSWORD: `$(touch ${marker})`,
+    TEST_EMAIL_ARGS: emailArgs,
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /unsafe shell syntax in ENV_FILE/);
+  assert.equal(fs.existsSync(marker), false, 'env-file value must not execute command substitution');
+  assert.equal(fs.existsSync(emailArgs), false, 'Gmail scanner should not run after unsafe env');
+});
+
+test('email review wrapper does not record ledger when agent fails after scanner success', (t) => {
+  const emailArgs = path.join(os.tmpdir(), `alfred-email-agent-fail-args-${process.pid}-${Date.now()}`);
+  const ledgerRecord = path.join(os.tmpdir(), `alfred-email-agent-fail-ledger-${process.pid}-${Date.now()}`);
+  t.after(() => {
+    fs.rmSync(emailArgs, { force: true });
+    fs.rmSync(ledgerRecord, { force: true });
+  });
+
+  const { vault } = makeVault(t, {
+    'email-review': `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$@" >> "$TEST_EMAIL_ARGS"
+printf '%s\\n' '---' >> "$TEST_EMAIL_ARGS"
+if [ "$1" = "--record-from-json" ]; then
+  cat > "$TEST_LEDGER_RECORD"
+  exit 0
+fi
+cat <<'REPORT'
+{"already_reviewed_count":0,"asof":"2026-09-10","items":[{"category":"action_needed","date":"2026-09-10","from":"sender@example.com","key":"message-id:<thing>","provenance":"gmail:uid=123","question":"Should I create/update a background todo?","reasons":["request-language"],"score":4,"subject":"Thing","suggested_action":"consider creating or updating a background todo","uid":"123"}],"reviewed_count":1}
+REPORT
+`,
+    'telegram-send': `#!/usr/bin/env bash
+cat >/dev/null
+`,
+  });
+  const agent = makeAgent(t, `#!/usr/bin/env bash
+echo "agent crashed" >&2
+exit 9
+`);
+
+  const result = runWrapper(vault, agent, {
+    TEST_EMAIL_ARGS: emailArgs,
+    TEST_LEDGER_RECORD: ledgerRecord,
+  });
+
+  assert.equal(result.status, 9);
+  assert.equal(fs.existsSync(ledgerRecord), false, 'ledger should not be recorded after agent failure');
+  assert.equal(
+    fs.readFileSync(emailArgs, 'utf8'),
+    '--days\n1\n--max-questions\n7\n--format\njson\n---\n',
+  );
+});
+
 test('email review wrapper stays silent when the report has no surfaced candidates', (t) => {
   const promptFile = path.join(os.tmpdir(), `alfred-empty-prompt-${process.pid}-${Date.now()}`);
   const telegramFile = path.join(os.tmpdir(), `alfred-empty-telegram-${process.pid}-${Date.now()}`);
@@ -175,11 +271,7 @@ test('email review wrapper stays silent when the report has no surfaced candidat
     'email-review': `#!/usr/bin/env bash
 set -euo pipefail
 cat <<'REPORT'
-# Email Review - last 1 day
-
-Reviewed: 51 messages; skipped already-reviewed: 36; surfaced: 0; questions: 0.
-
-No action-worthy or vault-worthy email candidates found.
+{"already_reviewed_count":36,"asof":"2026-09-10","items":[],"reviewed_count":51}
 REPORT
 `,
     'telegram-send': `#!/usr/bin/env bash

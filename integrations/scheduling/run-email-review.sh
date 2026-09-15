@@ -9,7 +9,7 @@
 # Config:
 #   ALFRED_VAULT                  vault path (contains AGENTS.md and .bin/)
 #   ALFRED_ASSISTANT_LABEL        assistant label stamped by the scheduler installer
-#   ENV_FILE                      file exporting EMAIL_FROM +
+#   ENV_FILE                      vault-private KEY=VALUE file exporting EMAIL_FROM +
 #                                 ALFRED_EXPECTED_VAULT + ALFRED_EXPECTED_LABEL +
 #                                 GMAIL_IMAP_APP_PASSWORD +
 #                                 TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID
@@ -39,7 +39,7 @@ ALFRED_EMAIL_REVIEW_MAX_QUESTIONS="${ALFRED_EMAIL_REVIEW_MAX_QUESTIONS:-7}"
 
 . "$SCRIPT_DIR/assistant-binding.sh"
 alfred_require_private_env_path "run-email-review"
-set -a && . "$ENV_FILE" && set +a
+alfred_load_private_env "run-email-review"
 alfred_require_assistant_binding "run-email-review"
 
 LOG_DIR="$ALFRED_VAULT/cache/email-review"
@@ -81,11 +81,12 @@ if [ "$DRY_RUN" -eq 1 ]; then
 Run the assistant's scheduled daily email review.
 
 Wrapper will run from the vault:
-  .bin/email-review --days ${ALFRED_EMAIL_REVIEW_DAYS} --max-questions ${ALFRED_EMAIL_REVIEW_MAX_QUESTIONS} --record-ledger
+  .bin/email-review --days ${ALFRED_EMAIL_REVIEW_DAYS} --max-questions ${ALFRED_EMAIL_REVIEW_MAX_QUESTIONS} --format json
 
 If that report has surfaced candidates, wrapper will pass the metadata-only report
 to ${ALFRED_AGENT_BIN} with AGENTS.md and persona/email-review.md instructions.
 The headless agent is not asked to run Gmail commands.
+The wrapper records the ledger only after successful agent processing.
 DRYRUN
   exit 0
 fi
@@ -93,7 +94,7 @@ fi
 cd "$ALFRED_VAULT"
 EMAIL_REVIEW_ERR="$LOG_DIR/email-review.stderr"
 set +e
-REPORT="$("$ALFRED_VAULT/.bin/email-review" --days "$ALFRED_EMAIL_REVIEW_DAYS" --max-questions "$ALFRED_EMAIL_REVIEW_MAX_QUESTIONS" --record-ledger 2>"$EMAIL_REVIEW_ERR")"
+REPORT="$("$ALFRED_VAULT/.bin/email-review" --days "$ALFRED_EMAIL_REVIEW_DAYS" --max-questions "$ALFRED_EMAIL_REVIEW_MAX_QUESTIONS" --format json 2>"$EMAIL_REVIEW_ERR")"
 email_review_rc=$?
 set -e
 if [ "$email_review_rc" -ne 0 ]; then
@@ -101,7 +102,11 @@ if [ "$email_review_rc" -ne 0 ]; then
   log_msg "email-review failed exit=$rc; stderr: $EMAIL_REVIEW_ERR"
   exit "$rc"
 fi
-if printf '%s\n' "$REPORT" | grep -q 'surfaced: 0; questions: 0'; then
+
+REPORT_SUMMARY="$(printf '%s\n' "$REPORT" | python3 -c 'import json,sys; r=json.load(sys.stdin); items=r.get("items") or []; q=sum(1 for i in items if i.get("question")); print(f"{len(items)} {q}")')"
+SURFACED_COUNT="${REPORT_SUMMARY%% *}"
+QUESTIONS_COUNT="${REPORT_SUMMARY##* }"
+if [ "$SURFACED_COUNT" = "0" ] && [ "$QUESTIONS_COUNT" = "0" ]; then
   log_msg "completed: no surfaced email-review candidates"
   exit 0
 fi
@@ -112,11 +117,11 @@ Run the assistant's scheduled daily email review.
 Before analyzing anything, read AGENTS.md and persona/email-review.md.
 
 The scheduler wrapper has already run:
-  .bin/email-review --days ${ALFRED_EMAIL_REVIEW_DAYS} --max-questions ${ALFRED_EMAIL_REVIEW_MAX_QUESTIONS} --record-ledger
+  .bin/email-review --days ${ALFRED_EMAIL_REVIEW_DAYS} --max-questions ${ALFRED_EMAIL_REVIEW_MAX_QUESTIONS} --format json
 
 Do NOT run .bin/email-review, .bin/gmail, or any other Gmail command again. Use only the report below as the Gmail evidence for this scheduled pass.
 
-EMAIL REVIEW REPORT
+EMAIL REVIEW JSON REPORT
 ---
 ${REPORT}
 ---
@@ -148,3 +153,6 @@ if [ -n "$(printf '%s' "$MESSAGE" | tr -d '[:space:]')" ]; then
 else
   log_msg "completed: agent output empty"
 fi
+
+printf '%s\n' "$REPORT" | "$ALFRED_VAULT/.bin/email-review" --record-from-json - >/dev/null
+log_msg "completed: recorded email-review ledger"

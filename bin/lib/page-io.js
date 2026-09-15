@@ -73,6 +73,10 @@ function autoCommitDisabled() {
   return !!(process.env.WIKI_NO_AUTO_COMMIT && process.env.WIKI_NO_AUTO_COMMIT !== '0' && process.env.WIKI_NO_AUTO_COMMIT !== 'false');
 }
 
+function strictDeployedMode() {
+  return !!(process.env.ALFRED_STRICT_DEPLOYED && process.env.ALFRED_STRICT_DEPLOYED !== '0' && process.env.ALFRED_STRICT_DEPLOYED !== 'false');
+}
+
 // True for the lifetime of a `--accept-tamper` / `wiki bless` invocation so the
 // ensuing write's auto-commit folds in the accepted out-of-band edit (which may
 // be outside wiki/raw). Normal writes leave it unset → scoped staging. Read from
@@ -84,11 +88,21 @@ function stageAllRequested() {
 
 function autoCommit(op, detail, opts = {}) {
   if (autoCommitDisabled()) {
+    if (strictDeployedMode()) {
+      console.error('auto-commit: WIKI_NO_AUTO_COMMIT is not allowed when ALFRED_STRICT_DEPLOYED=1.');
+      process.exit(2);
+    }
     console.error('auto-commit: skipped (WIKI_NO_AUTO_COMMIT / --no-auto-commit). Run `git -C $VAULT_ROOT add -A && git commit` to capture this write.');
     return;
   }
   const gitDir = path.join(VAULT_ROOT, '.git');
-  if (!fs.existsSync(gitDir)) return;
+  if (!fs.existsSync(gitDir)) {
+    if (strictDeployedMode()) {
+      console.error(`auto-commit: refusing write because ALFRED_STRICT_DEPLOYED=1 and ${gitDir} is missing.`);
+      process.exit(2);
+    }
+    return;
+  }
   try {
     const { spawnSync } = require('child_process');
     const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
@@ -139,6 +153,7 @@ function autoCommit(op, detail, opts = {}) {
     console.error('      wiki <verb> --no-auto-commit ...   # per invocation');
     console.error('      WIKI_NO_AUTO_COMMIT=1 wiki ...     # process-scoped');
     console.error('');
+    if (strictDeployedMode()) process.exit(2);
   }
 }
 
@@ -154,9 +169,21 @@ function autoCommit(op, detail, opts = {}) {
 // (commit the current state as accepted). No-op when the vault isn't a git repo
 // or when auto-commit is disabled (a dirty tree is then expected).
 function tamperCheck({ accept = false } = {}) {
-  if (autoCommitDisabled()) return;
+  if (autoCommitDisabled()) {
+    if (strictDeployedMode()) {
+      console.error('tamper-check: WIKI_NO_AUTO_COMMIT is not allowed when ALFRED_STRICT_DEPLOYED=1.');
+      process.exit(2);
+    }
+    return;
+  }
   const gitDir = path.join(VAULT_ROOT, '.git');
-  if (!fs.existsSync(gitDir)) return;
+  if (!fs.existsSync(gitDir)) {
+    if (strictDeployedMode()) {
+      console.error(`tamper-check: refusing write because ALFRED_STRICT_DEPLOYED=1 and ${gitDir} is missing.`);
+      process.exit(2);
+    }
+    return;
+  }
   let lines = [];
   try {
     const { spawnSync } = require('child_process');
@@ -175,6 +202,10 @@ function tamperCheck({ accept = false } = {}) {
   } catch (e) {
     // Fail-open on a git hiccup: a transient git error shouldn't brick writes.
     const msg = e && e.message ? e.message.split('\n')[0] : String(e);
+    if (strictDeployedMode()) {
+      console.error(`tamper-check: refusing write because git status failed under ALFRED_STRICT_DEPLOYED=1: ${msg}`);
+      process.exit(2);
+    }
     console.error(`(tamper-check failed, proceeding: ${msg})`);
     return;
   }
@@ -195,4 +226,4 @@ function tamperCheck({ accept = false } = {}) {
   process.exit(3);
 }
 
-module.exports = { readPageForWrite, regenerateIndex, appendLog, autoCommit, autoCommitDisabled, tamperCheck };
+module.exports = { readPageForWrite, regenerateIndex, appendLog, autoCommit, autoCommitDisabled, strictDeployedMode, tamperCheck };

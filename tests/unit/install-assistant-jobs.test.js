@@ -15,15 +15,20 @@ function writeExecutable(file, body = '#!/usr/bin/env bash\nexit 0\n') {
   fs.chmodSync(file, 0o755);
 }
 
-function makeFixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'install-assistant-jobs-'));
+function makeFixture(t, prefix = 'install-assistant-jobs-') {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const vault = path.join(root, 'child-vault');
   const wrappers = path.join(root, 'wrappers');
   const privateDir = path.join(vault, '.alfred', 'private');
   fs.mkdirSync(privateDir, { recursive: true });
   fs.mkdirSync(wrappers, { recursive: true });
-  for (const f of ['assistant-binding.sh', 'run-daily-brief.sh', 'run-daily-checkin.sh', 'run-conversation-ingest.sh']) {
+  fs.copyFileSync(
+    path.join(ROOT, 'integrations', 'scheduling', 'assistant-binding.sh'),
+    path.join(wrappers, 'assistant-binding.sh'),
+  );
+  fs.chmodSync(path.join(wrappers, 'assistant-binding.sh'), 0o755);
+  for (const f of ['run-daily-brief.sh', 'run-daily-checkin.sh', 'run-conversation-ingest.sh']) {
     writeExecutable(path.join(wrappers, f));
   }
   const envFile = path.join(privateDir, 'env');
@@ -60,6 +65,35 @@ test('install-assistant-jobs dry-run stamps label and vault-private env path', (
   const envReal = fs.realpathSync(envFile);
   assert.match(r.stdout, /<key>ALFRED_ASSISTANT_LABEL<\/key><string>child<\/string>/);
   assert.match(r.stdout, new RegExp(`<key>ENV_FILE</key><string>${envReal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}</string>`));
+});
+
+test('install-assistant-jobs rejects labels outside the job-manifest slug contract', (t) => {
+  const { vault, wrappers, envFile } = makeFixture(t);
+  const r = run([
+    '--vault', vault,
+    '--env', envFile,
+    '--label', 'Bad_Label',
+    '--brief', '07:00',
+    '--wrappers', wrappers,
+    '--dry-run',
+  ]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /invalid --label/);
+});
+
+test('install-assistant-jobs XML-escapes plist string values', (t) => {
+  const { vault, wrappers, envFile } = makeFixture(t, 'install-A&B-');
+  const r = run([
+    '--vault', vault,
+    '--env', envFile,
+    '--label', 'child',
+    '--brief', '07:00',
+    '--wrappers', wrappers,
+    '--dry-run',
+  ]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /install-A&amp;B-/);
+  assert.doesNotMatch(r.stdout, /<string>[^<]*install-A&B-[^<]*<\/string>/);
 });
 
 test('install-assistant-jobs dry-run emits slot-bound daily check-in plists', (t) => {
@@ -151,6 +185,33 @@ test('install-assistant-jobs refuses env files bound to another label', (t) => {
   ]);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /env label binding mismatch/);
+});
+
+test('install-assistant-jobs treats env file as inert data, not shell code', (t) => {
+  const marker = path.join(os.tmpdir(), `alfred-install-env-code-${process.pid}-${Date.now()}`);
+  t.after(() => fs.rmSync(marker, { force: true }));
+  const { vault, wrappers, envFile } = makeFixture(t);
+  fs.writeFileSync(envFile, [
+    `ALFRED_EXPECTED_VAULT=${vault}`,
+    'ALFRED_EXPECTED_LABEL=child',
+    `TZ=$(touch ${marker})`,
+    'TELEGRAM_BOT_TOKEN=token',
+    'TELEGRAM_CHAT_ID=123',
+    '',
+  ].join('\n'));
+
+  const r = run([
+    '--vault', vault,
+    '--env', envFile,
+    '--label', 'child',
+    '--brief', '07:00',
+    '--wrappers', wrappers,
+    '--dry-run',
+  ]);
+
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /unsafe shell syntax in ENV_FILE/);
+  assert.equal(fs.existsSync(marker), false, 'installer must not execute env-file command substitution');
 });
 
 test('install-assistant-jobs refuses env files without timezone', (t) => {

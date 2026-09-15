@@ -74,7 +74,7 @@ Enforced by: vault-private env files, `ALFRED_EXPECTED_VAULT`, `ALFRED_EXPECTED_
 
 ## 13. Private mirrors are evidence, not knowledge
 
-Conversation logs, scheduler ledgers, caches, and debug mirrors are useful evidence for agents and operators, but they are not graph knowledge. Durable knowledge is still the typed markdown graph, written through `wiki`. Local mirrors live under `.alfred/private/` or `cache/`, are gitignored, and should be compacted or re-derived when needed rather than promoted wholesale into the vault.
+Conversation logs, scheduler ledgers, caches, and debug mirrors are useful evidence for agents and operators, but they are not graph knowledge. Durable knowledge is still the typed markdown graph, written through `wiki`. Runtime mirrors live under `.alfred/private/` or `cache/`, are gitignored, and should be compacted or re-derived when needed rather than promoted wholesale into the vault. Gitignored is a git property, not a storage-locality guarantee; if a vault sits under Dropbox/iCloud/CloudStorage, those ignored files may still sync.
 
 Enforced by: `wiki conversation-log` writing only under `.alfred/private/conversations/`, extractor deltas staying local-only, and conversation ingestion requiring durable writes through `wiki ingest`, `wiki patch`, or `wiki todo`.
 

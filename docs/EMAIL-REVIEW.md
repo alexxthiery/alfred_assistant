@@ -21,6 +21,7 @@ It is not an inbox mirror, not a replacement for reading email, and not an autom
 bin/email-review --days 1
 bin/email-review --days 7 --format json
 bin/email-review --days 1 --record-ledger
+bin/email-review --record-from-json review.json
 bin/email-review --query "newer_than:7d has:attachment" --limit 100
 ```
 
@@ -36,7 +37,9 @@ Flags:
 | `--format markdown\|json` | Report format. Default: markdown. |
 | `--ledger PATH` | Override the metadata-only review ledger path. |
 | `--include-reviewed` | Show messages even if the ledger says they were already reviewed. |
-| `--record-ledger` | Append surfaced messages to the ledger with `status=reported`. |
+| `--record-ledger` | Append surfaced messages from this scan to the ledger with `status=reported` immediately. Useful interactively only after the assistant has actually surfaced/handled the report. |
+| `--record-from-json PATH|-` | Append ledger records from a previous `--format json` review. The scheduled wrapper uses this only after successful agent processing. |
+| `--ledger-status STATUS` | Ledger status for `--record-ledger` / `--record-from-json`; default `reported`. |
 
 Default ledger path when deployed in a vault:
 
@@ -51,19 +54,22 @@ The ledger is operational state, not durable knowledge.
 The intended daily routine is agentic, not purely deterministic. In an
 interactive session the assistant can run the CLI directly:
 
-1. Run `/workspace/extra/vault/.bin/email-review --days 1 --max-questions 7 --record-ledger`.
+1. Run `/workspace/extra/vault/.bin/email-review --days 1 --max-questions 7`.
 2. Read the short report.
-3. If there are no concrete questions, say so briefly or stay silent depending on the scheduler wrapper.
+3. If there are no concrete questions, say so briefly or stay silent depending on context.
 4. If there are questions, ask only the few listed questions that still need human judgment.
-5. After the user answers, write confirmed todos/facts/events/entities through `wiki`.
-6. Append stronger ledger statuses when useful: `todo-created`, `vaulted`, `not-actionable`, `deferred`.
+5. Record the ledger only after the report has actually been surfaced or handled. For JSON reports, prefer `--record-from-json`.
+6. After the user answers, write confirmed todos/facts/events/entities through `wiki`.
+7. Append stronger ledger statuses when useful: `todo-created`, `vaulted`, `not-actionable`, `deferred`.
 
 Do not schedule this as a fully deterministic host-only job like `daily-brief`: the analysis needs agent judgment. The supported scheduler path is `integrations/scheduling/run-email-review.sh`, normally installed as `com.<assistant-label>.email-review` at 10:00 local after the user asks for it.
 
-For scheduled runs, the wrapper runs `.bin/email-review` itself and then passes
-the metadata-only report to the headless agent. The agent should not run Gmail
-commands again in that path; this avoids coupling daily email review to a
-non-interactive shell-command permission gate.
+For scheduled runs, the wrapper runs `.bin/email-review --format json` itself,
+passes the metadata-only report to the headless agent, and records the ledger
+only after the agent path succeeds. The agent should not run Gmail commands
+again in that path; this avoids coupling daily email review to a non-interactive
+shell-command permission gate and avoids suppressing messages that were scanned
+but never actually surfaced.
 
 The scheduled wrapper requires the assistant env file to be vault-bound before
 it reads Gmail:

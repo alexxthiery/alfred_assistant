@@ -12,9 +12,9 @@
 #   EMAIL_FROM             — sender address (must match the Gmail account that owns the app password)
 #   GMAIL_APP_PASSWORD     — 16-char Google app password (NOT your account password)
 #
-# Generate the app password at: https://myaccount.google.com/apppasswords
-# (requires 2FA enabled on the Gmail account). App passwords are scoped to
-# SMTP-SEND only — they cannot read mail.
+# Generate a dedicated app password at:
+# https://myaccount.google.com/apppasswords (requires 2FA). This CLI uses it
+# only for SMTP send; prefer a separate named app password for IMAP read.
 
 set -euo pipefail
 

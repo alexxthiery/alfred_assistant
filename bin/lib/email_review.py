@@ -239,7 +239,7 @@ def format_markdown_report(review, days):
     return '\n'.join(lines).rstrip() + '\n'
 
 
-def ledger_records_for_review(review, reviewed_at):
+def ledger_records_for_review(review, reviewed_at, status='reported'):
     """Create JSON-serializable ledger rows for surfaced messages.
 
     Records contain identity, metadata, category, and decision status, but no
@@ -254,7 +254,7 @@ def ledger_records_for_review(review, reviewed_at):
             'from': item.get('from', ''),
             'subject_hash': _subject_hash(item.get('subject', '')),
             'category': item.get('category', ''),
-            'status': 'reported',
+            'status': status,
             'reviewed_at': reviewed_at,
             'reason': ', '.join(item.get('reasons', [])),
         })

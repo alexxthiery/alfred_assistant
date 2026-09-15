@@ -14,17 +14,18 @@
 # Config (edit or set in the environment / launchd plist):
 #   ALFRED_VAULT  vault path (contains .bin/)
 #   ALFRED_ASSISTANT_LABEL  assistant label stamped by the scheduler installer
-#   ENV_FILE      a file exporting TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID +
-#                 ALFRED_EXPECTED_VAULT + ALFRED_EXPECTED_LABEL (sourced)
+#   ENV_FILE      vault-private KEY=VALUE file exporting TELEGRAM_BOT_TOKEN +
+#                 TELEGRAM_CHAT_ID + ALFRED_EXPECTED_VAULT +
+#                 ALFRED_EXPECTED_LABEL
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 ALFRED_VAULT="${ALFRED_VAULT:-$HOME/my-vault}"
 ENV_FILE="${ENV_FILE:-$ALFRED_VAULT/.alfred/private/env}"
 
-# Secrets are sourced from a file, never hardcoded here.
+# Secrets are parsed from a vault-private KEY=VALUE file, never hardcoded here.
 . "$SCRIPT_DIR/assistant-binding.sh"
 alfred_require_private_env_path "run-reminder-dispatch"
-set -a && . "$ENV_FILE" && set +a
+alfred_load_private_env "run-reminder-dispatch"
 alfred_require_assistant_binding "run-reminder-dispatch"
 : "${TELEGRAM_BOT_TOKEN:?run-reminder-dispatch: TELEGRAM_BOT_TOKEN not set (check ENV_FILE)}"
 : "${TELEGRAM_CHAT_ID:?run-reminder-dispatch: TELEGRAM_CHAT_ID not set (check ENV_FILE)}"

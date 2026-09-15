@@ -138,6 +138,34 @@ exit 9
   assert.match(result.stderr, /ENV_FILE must live under/);
 });
 
+test('daily brief wrapper treats env file as inert data, not shell code', (t) => {
+  const marker = path.join(os.tmpdir(), `alfred-env-code-${process.pid}-${Date.now()}`);
+  const telegramFile = path.join(os.tmpdir(), `alfred-env-code-telegram-${process.pid}-${Date.now()}`);
+  t.after(() => {
+    fs.rmSync(marker, { force: true });
+    fs.rmSync(telegramFile, { force: true });
+  });
+  const { vault } = makeVault(t, {
+    'daily-brief': dailyBriefScript(),
+    'email-digest': `#!/usr/bin/env bash
+exit 9
+`,
+    'telegram-send': `#!/usr/bin/env bash
+cat > "$TEST_TELEGRAM"
+`,
+  });
+
+  const result = runWrapper(vault, {
+    EMAIL_FROM: `$(touch ${marker})`,
+    TEST_TELEGRAM: telegramFile,
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /unsafe shell syntax in ENV_FILE/);
+  assert.equal(fs.existsSync(marker), false, 'env-file value must not execute command substitution');
+  assert.equal(fs.existsSync(telegramFile), false, 'job should not reach Telegram after unsafe env');
+});
+
 test('daily brief wrapper fails before channels when env binding points elsewhere', (t) => {
   const marker = path.join(os.tmpdir(), `alfred-binding-marker-${process.pid}-${Date.now()}`);
   t.after(() => fs.rmSync(marker, { force: true }));
@@ -161,6 +189,61 @@ echo touched > "$TEST_MARKER"
   assert.equal(result.status, 2);
   assert.match(result.stderr, /vault binding mismatch/);
   assert.equal(fs.existsSync(marker), false);
+});
+
+test('daily brief wrapper enables strict deployed mode after binding', (t) => {
+  const strictMarker = path.join(os.tmpdir(), `alfred-strict-deployed-${process.pid}-${Date.now()}`);
+  t.after(() => fs.rmSync(strictMarker, { force: true }));
+  const { vault } = makeVault(t, {
+    'daily-brief': `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s' "\${ALFRED_STRICT_DEPLOYED:-}" > "$TEST_STRICT_MARKER"
+echo "BODY"
+`,
+    'email-digest': `#!/usr/bin/env bash
+cat >/dev/null
+echo "sent to email"
+`,
+    'telegram-send': `#!/usr/bin/env bash
+cat >/dev/null
+`,
+  });
+
+  const result = runWrapper(vault, {
+    TEST_STRICT_MARKER: strictMarker,
+    DAILY_BRIEF_RETRY_ON_FAILURE: '0',
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(fs.readFileSync(strictMarker, 'utf8'), '1');
+});
+
+test('daily brief wrapper preserves an explicit strict-mode repair override', (t) => {
+  const strictMarker = path.join(os.tmpdir(), `alfred-strict-deployed-override-${process.pid}-${Date.now()}`);
+  t.after(() => fs.rmSync(strictMarker, { force: true }));
+  const { vault } = makeVault(t, {
+    'daily-brief': `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s' "\${ALFRED_STRICT_DEPLOYED:-}" > "$TEST_STRICT_MARKER"
+echo "BODY"
+`,
+    'email-digest': `#!/usr/bin/env bash
+cat >/dev/null
+echo "sent to email"
+`,
+    'telegram-send': `#!/usr/bin/env bash
+cat >/dev/null
+`,
+  });
+
+  const result = runWrapper(vault, {
+    ALFRED_STRICT_DEPLOYED: '0',
+    TEST_STRICT_MARKER: strictMarker,
+    DAILY_BRIEF_RETRY_ON_FAILURE: '0',
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(fs.readFileSync(strictMarker, 'utf8'), '0');
 });
 
 test('daily brief wrapper retries only the failed channel once', (t) => {

@@ -18,7 +18,7 @@
 #       [--dry-run] [--uninstall]
 #
 #   --vault       the assistant's vault (contains .bin/)
-#   --env         env file under <vault>/.alfred/private/ that the wrappers source
+#   --env         env file under <vault>/.alfred/private/ that the wrappers parse
 #                 (ALFRED_EXPECTED_VAULT /
 #                 ALFRED_EXPECTED_LABEL / EMAIL_FROM / GMAIL_APP_PASSWORD /
 #                 GMAIL_IMAP_APP_PASSWORD / TELEGRAM_BOT_TOKEN /
@@ -69,6 +69,10 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$LABEL" ] || { echo "install-assistant-jobs: --label is required" >&2; exit 1; }
+if ! [[ "$LABEL" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]]; then
+  echo "install-assistant-jobs: invalid --label: $LABEL (use lowercase letters, digits, and internal hyphens)" >&2
+  exit 1
+fi
 
 if [ "$UNINSTALL" -eq 1 ]; then
   for kind in daily-brief daily-checkin-morning daily-checkin-afternoon daily-checkin-evening email-review conversation-ingest weekly-review reminder-dispatch vault-backup-push; do
@@ -95,9 +99,10 @@ case "$ENVFILE_ABS" in
   *) echo "install-assistant-jobs: env file must live under $VAULT_ABS/.alfred/private; got $ENVFILE_ABS" >&2; exit 1 ;;
 esac
 
-set -a
-. "$ENVFILE_ABS"
-set +a
+. "$WRAPPERS_ABS/assistant-binding.sh"
+ALFRED_VAULT="$VAULT_ABS"
+ENV_FILE="$ENVFILE_ABS"
+alfred_load_private_env "install-assistant-jobs"
 [ -n "${ALFRED_EXPECTED_VAULT:-}" ] || { echo "install-assistant-jobs: env file must set ALFRED_EXPECTED_VAULT" >&2; exit 1; }
 [ -n "${ALFRED_EXPECTED_LABEL:-}" ] || { echo "install-assistant-jobs: env file must set ALFRED_EXPECTED_LABEL" >&2; exit 1; }
 EXPECTED_VAULT_ABS=$(cd "$ALFRED_EXPECTED_VAULT" 2>/dev/null && pwd -P) || { echo "install-assistant-jobs: ALFRED_EXPECTED_VAULT does not resolve: $ALFRED_EXPECTED_VAULT" >&2; exit 1; }
@@ -110,33 +115,48 @@ case "$TZ" in
 esac
 PATH_LINE="$WRAPPERS_ABS:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
+xml_escape() {
+  local s="$1"
+  s="${s//&/&amp;}"
+  s="${s//</&lt;}"
+  s="${s//>/&gt;}"
+  s="${s//\"/&quot;}"
+  s="${s//\'/&apos;}"
+  printf '%s' "$s"
+}
+
 # Emit one plist to stdout. $1=label-suffix $2=schedule-xml $3=program-args-xml
 plist() {
   cat <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.$LABEL.$1</string>
+  <key>Label</key><string>$(xml_escape "com.$LABEL.$1")</string>
   <key>ProgramArguments</key>
   <array>
 $3
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>ALFRED_VAULT</key><string>$VAULT_ABS</string>
-    <key>ALFRED_ASSISTANT_LABEL</key><string>$LABEL</string>
-    <key>ENV_FILE</key><string>$ENVFILE_ABS</string>
-    <key>PATH</key><string>$PATH_LINE</string>
+    <key>ALFRED_VAULT</key><string>$(xml_escape "$VAULT_ABS")</string>
+    <key>ALFRED_ASSISTANT_LABEL</key><string>$(xml_escape "$LABEL")</string>
+    <key>ENV_FILE</key><string>$(xml_escape "$ENVFILE_ABS")</string>
+    <key>PATH</key><string>$(xml_escape "$PATH_LINE")</string>
   </dict>
 $2
-  <key>StandardOutPath</key><string>/tmp/com.$LABEL.$1.out</string>
-  <key>StandardErrorPath</key><string>/tmp/com.$LABEL.$1.err</string>
+  <key>StandardOutPath</key><string>$(xml_escape "/tmp/com.$LABEL.$1.out")</string>
+  <key>StandardErrorPath</key><string>$(xml_escape "/tmp/com.$LABEL.$1.err")</string>
 </dict>
 </plist>
 PLIST
 }
 
-prog() { printf '    <string>%s</string>\n' "$@"; }
+prog() {
+  local arg
+  for arg in "$@"; do
+    printf '    <string>%s</string>\n' "$(xml_escape "$arg")"
+  done
+}
 calendar() { printf '  <key>StartCalendarInterval</key>\n  <dict><key>Hour</key><integer>%s</integer><key>Minute</key><integer>%s</integer></dict>' "$1" "$2"; }
 weekly_calendar() { printf '  <key>StartCalendarInterval</key>\n  <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>%s</integer><key>Minute</key><integer>%s</integer></dict>' "$1" "$2"; }
 

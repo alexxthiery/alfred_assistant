@@ -264,12 +264,14 @@ exit 0
     ALFRED_CONVERSATION_SOURCE_EXTENSIONS: 'jsonl',
     ALFRED_CONVERSATION_EXCLUDE_DIRS: 'subagents',
     ALFRED_CONVERSATION_EXTRACT: 'claude-jsonl',
+    ALFRED_CONVERSATION_EXTRACT_ONLY: '1',
     TEST_IMPORT_ARGS: importArgs,
     TEST_PROMPT: promptFile,
   });
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(fs.readFileSync(importArgs, 'utf8'), /--extract\nclaude-jsonl/);
+  assert.match(fs.readFileSync(importArgs, 'utf8'), /--extract-only/);
   assert.match(fs.readFileSync(importArgs, 'utf8'), /--exclude-dir\nsubagents/);
   const prompt = fs.readFileSync(promptFile, 'utf8');
   assert.match(prompt, /\.alfred\/private\/conversations\/nanoclaw\/test-assistant\/deltas\/2026-09-15\.jsonl/);

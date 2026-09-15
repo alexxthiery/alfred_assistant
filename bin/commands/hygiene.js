@@ -21,6 +21,7 @@ const { regenerateIndex, appendLog, autoCommit } = require('../lib/page-io.js');
 const { auditSlug } = require('../lib/audit-runtime.js');
 const { loadConfig } = require('../lib/config.js');
 const { applyInboxSourceMigration } = require('../lib/inbox-migration.js');
+const { localityWarningForVault } = require('../lib/locality.js');
 
 const loadSchema = () => _loadSchema(SCHEMA_PATH);
 
@@ -496,6 +497,17 @@ function cmdPreflight(args) {
   } else {
     push('wiki-dir', 'WARN', `${WIKI_DIR} missing`,
       'Run `mkdir -p ' + WIKI_DIR + '`; it will be created on first write anyway.');
+  }
+
+  // 5b. Private/cache locality. Gitignore prevents commits, not cloud sync.
+  {
+    const warning = localityWarningForVault(VAULT_ROOT);
+    if (warning) {
+      push('locality', 'WARN', warning.message,
+        'If this vault stores sensitive conversation/email logs, keep the vault or private runtime directory outside consumer sync roots, or accept that those gitignored files may sync.');
+    } else {
+      push('locality', 'PASS', 'vault path not under a recognized consumer sync root');
+    }
   }
 
   // 6. duckdb (optional — only needed for `wiki sql`).

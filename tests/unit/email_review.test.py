@@ -126,6 +126,17 @@ class Reporting(unittest.TestCase):
         self.assertNotIn('body', records[0])
         self.assertEqual(records[0]['status'], 'reported')
 
+    def test_ledger_records_can_use_explicit_status(self):
+        review = R.select_review_items([
+            msg('10', 'Action required: submit tenancy form', 'Please submit it.'),
+        ], [], asof='2026-09-09', max_questions=3)
+        records = R.ledger_records_for_review(
+            review,
+            reviewed_at='2026-09-09T10:00:00+08:00',
+            status='asked',
+        )
+        self.assertEqual(records[0]['status'], 'asked')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -83,6 +83,20 @@ echo "  tz_city:  $USER_TZ_CITY"
 echo "  persona:  generated AGENTS.md (adopt=$ADOPT_GENERATED_PERSONA)"
 echo ""
 
+LOCALITY_WARNING=$(node - "$TARGET" "$SRC" <<'NODE'
+const target = process.argv[2];
+const src = process.argv[3];
+const { localityWarningForVault } = require(`${src}/bin/lib/locality.js`);
+const warning = localityWarningForVault(target);
+if (warning) console.log(warning.message);
+NODE
+)
+if [ -n "$LOCALITY_WARNING" ]; then
+  echo "[locality] WARN: $LOCALITY_WARNING"
+  echo "  .gitignore prevents git commits, not Dropbox/iCloud/CloudStorage sync."
+  echo ""
+fi
+
 # 1. .alfred.yml
 if [ ! -f "$TARGET/.alfred.yml" ]; then
   echo "[config] WOULD CREATE $TARGET/.alfred.yml"
@@ -91,11 +105,13 @@ if [ ! -f "$TARGET/.alfred.yml" ]; then
   echo "  assistant.name: $ASSISTANT_NAME"
   echo "  email.from: $USER_EMAIL"
   if $APPLY; then
-    sed -e "s|^  slug: user|  slug: $USER_SLUG|" \
-        -e "s|^  name: Anonymous|  name: $USER_NAME|" \
-        -e "s|^  name: Alfred|  name: $ASSISTANT_NAME|" \
-        -e "s|^  from: \"\"|  from: \"$USER_EMAIL\"|" \
-        "$SRC/examples/.alfred.yml.example" > "$TARGET/.alfred.yml"
+    node "$SRC/tools/render-alfred-config.js" \
+      --template "$SRC/examples/.alfred.yml.example" \
+      --user-slug "$USER_SLUG" \
+      --user-name "$USER_NAME" \
+      --assistant-name "$ASSISTANT_NAME" \
+      --email-from "$USER_EMAIL" \
+      > "$TARGET/.alfred.yml"
     echo "[config] wrote $TARGET/.alfred.yml — review/edit before next deploy"
   fi
 else

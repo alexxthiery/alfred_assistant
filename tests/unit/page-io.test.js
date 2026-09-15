@@ -19,6 +19,7 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'pageio-'));
 process.env.WIKI_ROOT = TMP;
 delete process.env.WIKI_NO_AUTO_COMMIT;
 delete process.env.WIKI_AUTOCOMMIT_STAGE_ALL;
+delete process.env.ALFRED_STRICT_DEPLOYED;
 
 const git = (...args) => execFileSync('git', args, { cwd: TMP, encoding: 'utf-8' });
 git('init', '-q');
@@ -26,7 +27,7 @@ git('config', 'user.email', 'test@example.com');
 git('config', 'user.name', 'Test');
 git('commit', '--allow-empty', '-q', '-m', 'root');
 
-const { appendLog, autoCommit, autoCommitDisabled, regenerateIndex, readPageForWrite } =
+const { appendLog, autoCommit, autoCommitDisabled, strictDeployedMode, tamperCheck, regenerateIndex, readPageForWrite } =
   require('../../bin/lib/page-io.js');
 
 const writePage = (slug, title) => {
@@ -50,6 +51,16 @@ test('autoCommitDisabled: honors WIKI_NO_AUTO_COMMIT truthiness', () => {
     assert.equal(autoCommitDisabled(), false, `"${v}" should not disable`);
   }
   delete process.env.WIKI_NO_AUTO_COMMIT;
+});
+
+test('strictDeployedMode: honors ALFRED_STRICT_DEPLOYED truthiness', () => {
+  delete process.env.ALFRED_STRICT_DEPLOYED;
+  assert.equal(strictDeployedMode(), false);
+  process.env.ALFRED_STRICT_DEPLOYED = '1';
+  assert.equal(strictDeployedMode(), true);
+  process.env.ALFRED_STRICT_DEPLOYED = 'false';
+  assert.equal(strictDeployedMode(), false);
+  delete process.env.ALFRED_STRICT_DEPLOYED;
 });
 
 test('readPageForWrite: parses a well-formed page into fm + body', () => {
@@ -121,6 +132,60 @@ test('autoCommit: disabled → no commit, working tree untouched', () => {
   } finally {
     delete process.env.WIKI_NO_AUTO_COMMIT;
   }
+});
+
+test('autoCommit: strict deployed mode refuses WIKI_NO_AUTO_COMMIT', () => {
+  const origExit = process.exit;
+  const origError = console.error;
+  const seen = [];
+  process.env.WIKI_NO_AUTO_COMMIT = '1';
+  process.env.ALFRED_STRICT_DEPLOYED = '1';
+  process.exit = (code) => {
+    const err = new Error(`exit ${code}`);
+    err.code = code;
+    throw err;
+  };
+  console.error = (line) => seen.push(String(line));
+  try {
+    assert.throws(
+      () => autoCommit('test', 'strict-disabled'),
+      (err) => err instanceof Error && err.code === 2,
+    );
+  } finally {
+    process.exit = origExit;
+    console.error = origError;
+    delete process.env.WIKI_NO_AUTO_COMMIT;
+    delete process.env.ALFRED_STRICT_DEPLOYED;
+  }
+  assert.ok(seen.some((line) => line.includes('not allowed when ALFRED_STRICT_DEPLOYED=1')));
+});
+
+test('tamperCheck: strict deployed mode refuses missing git repository', () => {
+  const gitDir = path.join(TMP, '.git');
+  const hiddenGitDir = path.join(TMP, '.git.hidden-for-strict-test');
+  fs.renameSync(gitDir, hiddenGitDir);
+  const origExit = process.exit;
+  const origError = console.error;
+  const seen = [];
+  process.env.ALFRED_STRICT_DEPLOYED = '1';
+  process.exit = (code) => {
+    const err = new Error(`exit ${code}`);
+    err.code = code;
+    throw err;
+  };
+  console.error = (line) => seen.push(String(line));
+  try {
+    assert.throws(
+      () => tamperCheck({ accept: false }),
+      (err) => err instanceof Error && err.code === 2,
+    );
+  } finally {
+    process.exit = origExit;
+    console.error = origError;
+    delete process.env.ALFRED_STRICT_DEPLOYED;
+    fs.renameSync(hiddenGitDir, gitDir);
+  }
+  assert.ok(seen.some((line) => line.includes('refusing write because ALFRED_STRICT_DEPLOYED=1')));
 });
 
 test('autoCommit: git failure is loud but non-throwing, and leaves the write uncommitted', () => {

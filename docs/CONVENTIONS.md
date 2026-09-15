@@ -112,6 +112,8 @@ Every write-class verb (`write`, `patch`, `ingest`, `predict`, `hypothesize`, `c
 
 Tamper-check runs once at the start of every write-class verb. It refuses to proceed if vault content (`wiki/`, `raw/`, `SCHEMA.md`) has been edited outside the CLI since the last auto-commit. The race between the tamper-check and the very write that follows is documented in `AGENTS.md § safe-edit invariants`.
 
+Bound scheduled wrappers enable fail-closed behavior by exporting `ALFRED_STRICT_DEPLOYED=1` after the vault/label binding check. In that mode, write-class verbs refuse missing git state, `WIKI_NO_AUTO_COMMIT`, and tamper-check git failures instead of proceeding. Leave it unset for local development and set `ALFRED_STRICT_DEPLOYED=0` explicitly only for repair sessions where fail-open recovery is useful.
+
 ## Deployed `.bin/`
 
 `<vault>/.bin/` is a runtime copy of the repo's CLI surface, refreshed by `tools/deploy.sh`. It is required for the assistant runtime, but it is not vault content. New vaults should gitignore `.bin/`, and `tools/check-assistant-isolation.js` fails if a git-backed vault tracks `.bin` files.

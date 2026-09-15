@@ -12,7 +12,7 @@
 # Config:
 #   ALFRED_VAULT      vault path (contains AGENTS.md and .bin/)
 #   ALFRED_ASSISTANT_LABEL  assistant label stamped by the scheduler installer
-#   ENV_FILE          file exporting EMAIL_FROM + GMAIL_APP_PASSWORD +
+#   ENV_FILE          vault-private KEY=VALUE file exporting EMAIL_FROM + GMAIL_APP_PASSWORD +
 #                     ALFRED_EXPECTED_VAULT + ALFRED_EXPECTED_LABEL
 #   ALFRED_AGENT_BIN  agent binary; default: claude
 set -euo pipefail
@@ -35,7 +35,7 @@ ENV_FILE="${ENV_FILE:-$ALFRED_VAULT/.alfred/private/env}"
 ALFRED_AGENT_BIN="${ALFRED_AGENT_BIN:-claude}"
 . "$SCRIPT_DIR/assistant-binding.sh"
 alfred_require_private_env_path "run-weekly-review"
-set -a && . "$ENV_FILE" && set +a
+alfred_load_private_env "run-weekly-review"
 alfred_require_assistant_binding "run-weekly-review"
 
 PROMPT='Run the weekly vault review exactly as your persona'\''s Weekly routine specifies. Output ONLY the final email body (<=40 lines, the three sections). No preamble.'

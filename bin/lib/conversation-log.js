@@ -385,6 +385,7 @@ function importConversationFiles(opts = {}) {
     extensions,
     excludeDirs,
     extract,
+    extractOnly = false,
     timeZone = process.env.TZ || 'UTC',
     dryRun = false,
     now = () => new Date().toISOString(),
@@ -393,6 +394,7 @@ function importConversationFiles(opts = {}) {
   if (!vaultRoot) throw new Error('vaultRoot is required');
   if (!sourceDir) throw new Error('--source is required');
   if (extract && !SUPPORTED_EXTRACTORS.has(extract)) throw new Error(`unsupported extractor: ${extract}`);
+  if (extractOnly && !extract) throw new Error('--extract-only requires --extract');
   if (!fs.existsSync(sourceDir)) throw new Error(`source directory does not exist: ${sourceDir}`);
   if (!fs.statSync(sourceDir).isDirectory()) throw new Error(`source is not a directory: ${sourceDir}`);
 
@@ -423,24 +425,32 @@ function importConversationFiles(opts = {}) {
       throw new Error(`source path escaped source directory: ${file}`);
     }
     const sourceBuf = fs.readFileSync(file);
-    const sourceText = sourceBuf.toString('utf8');
-    const redacted = redactSecrets(sourceText);
-    redactions += redacted.redactions;
-
     const dest = path.join(destRoot, sourceRel);
     const destRel = relUnix(vaultReal, dest);
     if (!destRel.startsWith('.alfred/private/conversations/')) {
       throw new Error(`destination is outside private conversations: ${destRel}`);
     }
 
-    const storedSha = sha256(redacted.text);
+    let storedSha = '';
+    let storedBytes = 0;
+    let fileRedactions = 0;
+    let storedText = '';
     let didCopy = false;
-    if (!dryRun) {
+    if (!extractOnly) {
+      const sourceText = sourceBuf.toString('utf8');
+      const redacted = redactSecrets(sourceText);
+      storedText = redacted.text;
+      fileRedactions = redacted.redactions;
+      redactions += fileRedactions;
+      storedSha = sha256(storedText);
+      storedBytes = Buffer.byteLength(storedText, 'utf8');
+    }
+    if (!dryRun && !extractOnly) {
       fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
       assertNotSymlink(dest, 'conversation log destination file');
       const existing = fs.existsSync(dest) ? fs.readFileSync(dest, 'utf8') : null;
       if (existing == null || sha256(existing) !== storedSha) {
-        fs.writeFileSync(dest, redacted.text, { mode: 0o600 });
+        fs.writeFileSync(dest, storedText, { mode: 0o600 });
         copied++;
         didCopy = true;
       } else {
@@ -456,15 +466,16 @@ function importConversationFiles(opts = {}) {
       source_name: sourceSafe,
       session_id: sourceRel.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9._-]+/g, '_'),
       source_rel: sourceRel,
-      vault_rel: destRel,
+      vault_rel: extractOnly ? '' : destRel,
       source_sha256: sha256(sourceBuf),
       stored_sha256: storedSha,
       source_bytes: sourceBuf.length,
-      stored_bytes: Buffer.byteLength(redacted.text, 'utf8'),
+      stored_bytes: storedBytes,
       source_mtime: st.mtime.toISOString(),
       imported_at: importedAt,
-      redactions: redacted.redactions,
+      redactions: fileRedactions,
       changed: dryRun ? null : didCopy,
+      extract_only: !!extractOnly,
     });
   }
 
@@ -500,6 +511,7 @@ function importConversationFiles(opts = {}) {
     copied,
     unchanged,
     redactions,
+    extractOnly: !!extractOnly,
     skippedSymlinks: scan.skippedSymlinks,
     skippedDirs: scan.skippedDirs,
     extraction,
