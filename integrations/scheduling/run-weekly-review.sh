@@ -53,7 +53,8 @@ fi
 : "${EMAIL_FROM:?run-weekly-review: EMAIL_FROM not set (check ENV_FILE)}"
 
 cd "$ALFRED_VAULT"
-"$ALFRED_AGENT_BIN" -p "$PROMPT" \
+alfred_prepare_agent_args wiki-read agenda review audit
+"$ALFRED_AGENT_BIN" "${ALFRED_AGENT_ARGS[@]}" -p "$PROMPT" \
   | "$ALFRED_VAULT/.bin/email-digest" \
       --subject "Vault weekly digest, $(date +%F)" \
       --to "$EMAIL_FROM"

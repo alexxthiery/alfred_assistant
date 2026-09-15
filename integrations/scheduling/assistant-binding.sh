@@ -125,3 +125,45 @@ alfred_require_assistant_binding() {
   # still opt out explicitly by launching the wrapper with ALFRED_STRICT_DEPLOYED=0.
   export ALFRED_STRICT_DEPLOYED="${ALFRED_STRICT_DEPLOYED:-1}"
 }
+
+alfred_prepare_agent_args() {
+  local capability="$1"
+  shift || true
+
+  ALFRED_AGENT_ARGS=()
+  case "$(basename "${ALFRED_AGENT_BIN:-}")" in
+    claude) ;;
+    *) return 0 ;;
+  esac
+
+  case "$capability" in
+    wiki-write)
+      # Headless Claude Code cannot answer interactive permission prompts.
+      # Grant only the wiki CLI path; vault writes still flow through the
+      # CLI's schema, audit, autolink, auto-commit, and binding checks.
+      ALFRED_AGENT_ARGS=(
+        --allowedTools
+        "Bash(.bin/wiki *)"
+        "Bash(./.bin/wiki *)"
+        "Bash($ALFRED_VAULT/.bin/wiki *)"
+      )
+      ;;
+    wiki-read)
+      ALFRED_AGENT_ARGS=(--allowedTools)
+      local verb
+      for verb in "$@"; do
+        ALFRED_AGENT_ARGS+=(
+          "Bash(.bin/wiki ${verb}*)"
+          "Bash(./.bin/wiki ${verb}*)"
+          "Bash($ALFRED_VAULT/.bin/wiki ${verb}*)"
+        )
+      done
+      ;;
+    none)
+      ;;
+    *)
+      echo "alfred_prepare_agent_args: unknown capability: $capability" >&2
+      exit 2
+      ;;
+  esac
+}

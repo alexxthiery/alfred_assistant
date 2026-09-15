@@ -33,10 +33,10 @@ function makeVault(t, scripts) {
   return { tmp, vault };
 }
 
-function makeAgent(t, body) {
+function makeAgent(t, body, name = 'agent') {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alfred-email-agent-'));
   t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
-  const agent = path.join(tmp, 'agent');
+  const agent = path.join(tmp, name);
   writeExecutable(agent, body);
   return agent;
 }
@@ -81,11 +81,13 @@ function runWrapper(vault, agent, extraEnv = {}) {
 test('email review wrapper scans Gmail before invoking the headless agent', (t) => {
   const emailArgs = path.join(os.tmpdir(), `alfred-email-args-${process.pid}-${Date.now()}`);
   const promptFile = path.join(os.tmpdir(), `alfred-email-prompt-${process.pid}-${Date.now()}`);
+  const allowedToolsFile = path.join(os.tmpdir(), `alfred-email-allowed-${process.pid}-${Date.now()}`);
   const telegramFile = path.join(os.tmpdir(), `alfred-email-telegram-${process.pid}-${Date.now()}`);
   const ledgerRecord = path.join(os.tmpdir(), `alfred-email-ledger-record-${process.pid}-${Date.now()}`);
   t.after(() => {
     fs.rmSync(emailArgs, { force: true });
     fs.rmSync(promptFile, { force: true });
+    fs.rmSync(allowedToolsFile, { force: true });
     fs.rmSync(telegramFile, { force: true });
     fs.rmSync(ledgerRecord, { force: true });
   });
@@ -129,19 +131,46 @@ cat > "$TEST_TELEGRAM"
   });
   const agent = makeAgent(t, `#!/usr/bin/env bash
 set -euo pipefail
-[ "$1" = "-p" ]
-printf '%s' "$2" > "$TEST_PROMPT"
+prompt=''
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --allowedTools|--allowed-tools)
+      shift
+      while [ "$#" -gt 0 ] && [ "$1" != "-p" ]; do
+        printf '%s\\n' "$1" >> "$TEST_ALLOWED_TOOLS"
+        shift
+      done
+      ;;
+    -p)
+      shift
+      prompt="$1"
+      shift
+      ;;
+    *)
+      echo "unexpected argument: $1" >&2
+      exit 7
+      ;;
+  esac
+done
+[ -n "$prompt" ] || { echo "missing prompt" >&2; exit 7; }
+printf '%s' "$prompt" > "$TEST_PROMPT"
 printf '%s\\n' "Please confirm whether I should create the Thing todo."
-`);
+`, 'claude');
 
   const result = runWrapper(vault, agent, {
     TEST_EMAIL_ARGS: emailArgs,
     TEST_PROMPT: promptFile,
+    TEST_ALLOWED_TOOLS: allowedToolsFile,
     TEST_TELEGRAM: telegramFile,
     TEST_LEDGER_RECORD: ledgerRecord,
   });
 
   assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(fs.readFileSync(allowedToolsFile, 'utf8').trim().split('\n'), [
+    'Bash(.bin/wiki *)',
+    'Bash(./.bin/wiki *)',
+    `Bash(${vault}/.bin/wiki *)`,
+  ]);
   assert.equal(
     fs.readFileSync(emailArgs, 'utf8'),
     '--days\n1\n--max-questions\n7\n--format\njson\n---\n--record-from-json\n-\n---\n',

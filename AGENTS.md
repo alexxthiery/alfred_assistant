@@ -51,6 +51,7 @@ No file sizes here on purpose: they rot. The durable signal is *which file owns 
 | `docs/PERSONA-ASSEMBLY.md`          | How generated vault personas work, including `persona/agents.d/*.md` overlays and adoption safeguards. |
 | `docs/CONVENTIONS.md`               | Naming, error format, exit codes, where-things-live.      |
 | `docs/WEEKLY-DIGEST.md`, `docs/DAILY-BRIEF.md`, `docs/DAILY-CHECKINS.md`, `docs/CONVERSATION-INGEST.md` | Cron + Telegram/SMTP scheduled routines. |
+| `docs/HEADLESS-SCHEDULED-AGENTS.md` | Permission contracts and tests for wrappers that invoke headless agents. |
 | `docs/CONVERSATION-LOGGING.md`       | Local-only conversation mirrors, compact Claude JSONL deltas, cursor/idempotency, and safety boundaries. |
 | `docs/MULTI-ASSISTANT.md`, `docs/SECURITY.md` | Multi-vault isolation, per-vault secrets, and credential handling. |
 | `docs/RETRIEVAL-HARDENING.md` | Retrieval evals, confidence/explain diagnostics, and the boundary against heavier search machinery. |
@@ -256,7 +257,8 @@ Scheduled jobs are operational infrastructure, not agent memory. Use the pattern
 4. **Register the job** in `bin/lib/jobs.js` so `wiki jobs` and `wiki jobs --check` know the expected label, wrapper, cadence, and whether an agent is involved. Add or update unit coverage in `tests/unit/jobs.test.js`.
 5. **Install through `tools/install-assistant-jobs.sh`** when practical. The committed `com.alfred.*.plist` files are examples; real machines should use generated plists so wrapper paths and env paths are explicit and consistent.
 6. **Deploy before checking live state** if the job depends on `.bin/` or deployed persona docs. Then run `<vault>/.bin/wiki jobs --check`, `plutil -lint` on the installed plist, and `launchctl print gui/$(id -u)/<label>` on macOS. For multi-assistant deployments, run `tools/check-assistant-isolation.js --vault <vault> --env <vault>/.alfred/private/env --label <label>` and, from inside the runtime/container, include `--other-vault <sibling-vault>` for every sibling vault that must be inaccessible.
-7. **Document runtime behavior** in the feature doc (`docs/DAILY-BRIEF.md`, `docs/EMAIL-REVIEW.md`, etc.) and in `integrations/scheduling/README.md`. If a runtime agent must remember the routine, update the relevant `docs/persona/*.template.md` fragment and reassemble `docs/PERSONA.template.md`.
+7. **Headless agent permissions are part of the wrapper contract.** If a scheduled wrapper invokes Claude/Codex/etc. and the prompt allows local tool use, read `docs/HEADLESS-SCHEDULED-AGENTS.md`, use `alfred_prepare_agent_args` from `assistant-binding.sh`, and add a test that names the fake provider `claude` and asserts the actual child argv.
+8. **Document runtime behavior** in the feature doc (`docs/DAILY-BRIEF.md`, `docs/EMAIL-REVIEW.md`, etc.) and in `integrations/scheduling/README.md`. If a runtime agent must remember the routine, update the relevant `docs/persona/*.template.md` fragment and reassemble `docs/PERSONA.template.md`.
 
 ## Pointers
 
@@ -266,6 +268,7 @@ Scheduled jobs are operational infrastructure, not agent memory. Use the pattern
 - **Retrieval confidence/eval discipline** → `docs/RETRIEVAL-HARDENING.md`
 - **NanoClaw runtime boundary and upgrade process** → `docs/NANOCLAW-INTEGRATION.md`, `docs/NANOCLAW-UPGRADE-RUNBOOK.md`, then `docs/NANOCLAW-PATCHES.md`
 - **OS scheduling methodology** → `integrations/scheduling/README.md`
+- **Headless scheduled-agent permission contracts** → `docs/HEADLESS-SCHEDULED-AGENTS.md`
 - **Cron + SMTP weekly digest** → `docs/WEEKLY-DIGEST.md`
 - **Fixture format and the hidden tests/vault coupling** → `tests/fixtures/README.md`
 - **Pre-existing audit findings (gitignored)** → `audit/00-summary.md`, then specific file by tier

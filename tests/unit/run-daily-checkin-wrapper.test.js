@@ -61,7 +61,11 @@ function runWrapper(vault, args, extraEnv = {}) {
 
 test('daily check-in wrapper sends agent output and records a ledger entry', (t) => {
   const sent = path.join(os.tmpdir(), `alfred-checkin-sent-${process.pid}-${Date.now()}`);
-  t.after(() => fs.rmSync(sent, { force: true }));
+  const allowedToolsFile = path.join(os.tmpdir(), `alfred-checkin-allowed-${process.pid}-${Date.now()}`);
+  t.after(() => {
+    fs.rmSync(sent, { force: true });
+    fs.rmSync(allowedToolsFile, { force: true });
+  });
 
   const { tmp, vault } = makeVault(t, {
     wiki: '#!/usr/bin/env bash\necho "recent context"\n',
@@ -71,14 +75,21 @@ cat > "$TEST_SENT_FILE"
 echo sent
 `,
   });
-  const agent = path.join(tmp, 'agent');
+  const agent = path.join(tmp, 'claude');
   writeExecutable(agent, `#!/usr/bin/env bash
 set -euo pipefail
 prompt=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --allowedTools|--allowed-tools)
+      shift
+      while [ "$#" -gt 0 ] && [ "$1" != "-p" ]; do
+        printf '%s\\n' "$1" >> "$TEST_ALLOWED_TOOLS"
+        shift
+      done
+      ;;
     -p) prompt="$2"; shift 2 ;;
-    *) shift ;;
+    *) echo "unexpected argument: $1" >&2; exit 7 ;;
   esac
 done
 case "$prompt" in
@@ -95,9 +106,17 @@ echo "Hi there! Big day or normal day today?"
   const result = runWrapper(vault, ['--slot', 'morning'], {
     ALFRED_AGENT_BIN: agent,
     TEST_SENT_FILE: sent,
+    TEST_ALLOWED_TOOLS: allowedToolsFile,
   });
 
   assert.equal(result.status, 0, result.stderr);
+  const allowed = fs.readFileSync(allowedToolsFile, 'utf8').trim().split('\n');
+  assert.ok(allowed.includes('Bash(.bin/wiki recent*)'));
+  assert.ok(allowed.includes('Bash(.bin/wiki agenda*)'));
+  assert.ok(allowed.includes('Bash(.bin/wiki day*)'));
+  assert.ok(allowed.includes('Bash(.bin/wiki search*)'));
+  assert.ok(allowed.includes(`Bash(${vault}/.bin/wiki search*)`));
+  assert.ok(!allowed.includes('Bash(.bin/wiki *)'), 'check-ins must not receive write-capable wiki access');
   assert.equal(fs.readFileSync(sent, 'utf8'), 'Hi there! Big day or normal day today?\n');
   const ledger = fs.readFileSync(path.join(vault, 'cache', 'daily-checkin', 'checkins.jsonl'), 'utf8')
     .trim()

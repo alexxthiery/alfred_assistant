@@ -139,8 +139,9 @@ PROMPT
 )
 
 AGENT_ERR="$LOG_DIR/agent.stderr"
+alfred_prepare_agent_args wiki-write
 set +e
-MESSAGE="$("$ALFRED_AGENT_BIN" -p "$PROMPT" 2>"$AGENT_ERR")"
+MESSAGE="$("$ALFRED_AGENT_BIN" "${ALFRED_AGENT_ARGS[@]}" -p "$PROMPT" 2>"$AGENT_ERR")"
 agent_rc=$?
 set -e
 if [ "$agent_rc" -ne 0 ]; then
