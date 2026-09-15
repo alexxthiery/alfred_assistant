@@ -20,7 +20,7 @@ const DEFAULTS = Object.freeze({
   assistant: { name: 'Alfred' },
   email: { from: '', to: '' },
   weekly_review: { enabled: false, cron: '0 9 * * 1', timezone: '' },
-  paths: { vault_root: '', bird_bin: '' },
+  paths: { vault_root: '' },
 });
 
 function findConfigFile(startDir) {
@@ -160,8 +160,6 @@ function loadConfig(startDir) {
   } else {
     cfg.paths.vault_root = resolvePathLike(cfg.paths.vault_root, configPath);
   }
-  cfg.paths.bird_bin = resolvePathLike(cfg.paths.bird_bin, configPath);
-
   cfg._configPath = configPath; // null if no file found — caller can warn
   return deepFreeze(cfg);
 }

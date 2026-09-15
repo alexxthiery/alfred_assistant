@@ -21,12 +21,6 @@ const { regenerateIndex, appendLog, autoCommit } = require('../lib/page-io.js');
 const { auditSlug } = require('../lib/audit-runtime.js');
 const { loadConfig } = require('../lib/config.js');
 const { applyInboxSourceMigration } = require('../lib/inbox-migration.js');
-const {
-  ALFRED_BIRD_AUTH_TOKEN_ENV,
-  ALFRED_BIRD_BIN_ENV,
-  ALFRED_BIRD_CT0_ENV,
-  resolveBirdBackend,
-} = require('../lib/twitter-read.js');
 
 const loadSchema = () => _loadSchema(SCHEMA_PATH);
 
@@ -433,7 +427,7 @@ function cmdPreflight(args) {
   const { execSync } = require('child_process');
   const results = [];
   const push = (name, status, msg, hint) => results.push({ name, status, msg, hint });
-  let cfg = { paths: { bird_bin: '' } };
+  let cfg = { paths: {} };
   let cfgError = null;
   try {
     cfg = loadConfig(VAULT_ROOT);
@@ -520,31 +514,7 @@ function cmdPreflight(args) {
       'Install curl. email-digest cannot send mail without it.');
   }
 
-  // 8. Optional live X/Twitter read adapter over bird.
-  {
-    const backend = resolveBirdBackend({
-      env: process.env,
-      config: cfg,
-      which,
-      cwd: VAULT_ROOT,
-    });
-    const authToken = !!process.env[ALFRED_BIRD_AUTH_TOKEN_ENV];
-    const ct0 = !!process.env[ALFRED_BIRD_CT0_ENV];
-    if (!backend) {
-      push('twitter-read', 'WARN', 'bird backend unavailable',
-        'Install `bird`, set ALFRED_BIRD_BIN, or set paths.bird_bin in .alfred.yml to enable .bin/twitter-read.');
-    } else if (authToken !== ct0) {
-      push('twitter-read', 'WARN',
-        `${backend.bin} (${backend.source}); partial assistant cookie env`,
-        `Set both ${ALFRED_BIRD_AUTH_TOKEN_ENV} and ${ALFRED_BIRD_CT0_ENV}, or unset both and let bird use browser cookies / ~/.config/bird/config.json5.`);
-    } else if (process.env[ALFRED_BIRD_BIN_ENV]) {
-      push('twitter-read', 'PASS', `${backend.bin} (${backend.source})`);
-    } else {
-      push('twitter-read', 'PASS', `${backend.bin} (${backend.source})`);
-    }
-  }
-
-  // 9. email-digest credentials + reachability.
+  // 8. email-digest credentials + reachability.
   {
     const hasFrom = !!process.env.EMAIL_FROM;
     const hasPw = !!process.env.GMAIL_APP_PASSWORD;

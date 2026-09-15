@@ -81,7 +81,7 @@ const provider = createProvider(providerName, {
 
 Container restart picks it up (no rebuild needed if source is bind-mounted).
 
-## Patch 3 — Pass through Alfred's mail and optional X/Twitter env vars to the container
+## Patch 3 — Pass through Alfred's mail env vars to the container
 
 **Current status.** Candidate to move out of NanoClaw core. Alfred-specific
 credentials should ideally be passed by per-assistant template/config or handled
@@ -94,13 +94,12 @@ them.
 **Why.** Alfred uses these env vars for two distinct mail flows:
 - `EMAIL_FROM` + `GMAIL_APP_PASSWORD` — `bin/email-digest` SMTP-send (weekly digest + daily morning brief).
 - `EMAIL_FROM` + `GMAIL_IMAP_APP_PASSWORD` — `bin/gmail` IMAP-read (Reflex 4 fallback for email-shaped recall questions).
-- `ALFRED_BIRD_AUTH_TOKEN` + `ALFRED_BIRD_CT0` — `bin/twitter-read` live X/Twitter reads via the optional `bird` backend, for container runtimes that cannot read browser cookies directly.
 
 nanoclaw doesn't pass arbitrary env vars by default — only ones explicit providers contribute.
 
 **Where.** `src/providers/claude.ts` (host side, not container side).
 
-**Patch.** Extend the provider container-config function to read the five keys from `.env` and inject them:
+**Patch.** Extend the provider container-config function to read the mail keys from `.env` and inject them:
 
 ```ts
 registerProviderContainerConfig('claude', () => {
@@ -109,8 +108,6 @@ registerProviderContainerConfig('claude', () => {
     'EMAIL_FROM',
     'GMAIL_APP_PASSWORD',
     'GMAIL_IMAP_APP_PASSWORD',
-    'ALFRED_BIRD_AUTH_TOKEN',
-    'ALFRED_BIRD_CT0',
   ]);
   const env: Record<string, string> = {};
   if (dotenv.ANTHROPIC_BASE_URL) {
@@ -120,8 +117,6 @@ registerProviderContainerConfig('claude', () => {
   if (dotenv.EMAIL_FROM) env.EMAIL_FROM = dotenv.EMAIL_FROM;
   if (dotenv.GMAIL_APP_PASSWORD) env.GMAIL_APP_PASSWORD = dotenv.GMAIL_APP_PASSWORD;
   if (dotenv.GMAIL_IMAP_APP_PASSWORD) env.GMAIL_IMAP_APP_PASSWORD = dotenv.GMAIL_IMAP_APP_PASSWORD;
-  if (dotenv.ALFRED_BIRD_AUTH_TOKEN) env.ALFRED_BIRD_AUTH_TOKEN = dotenv.ALFRED_BIRD_AUTH_TOKEN;
-  if (dotenv.ALFRED_BIRD_CT0) env.ALFRED_BIRD_CT0 = dotenv.ALFRED_BIRD_CT0;
   return { env };
 });
 ```

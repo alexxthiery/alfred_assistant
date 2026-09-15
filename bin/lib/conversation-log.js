@@ -127,7 +127,7 @@ function redactSecrets(input) {
   let redactions = 0;
   const rules = [
     {
-      re: /\b((?:TELEGRAM_BOT_TOKEN|GMAIL_APP_PASSWORD|GMAIL_IMAP_APP_PASSWORD|ALFRED_BIRD_AUTH_TOKEN|ALFRED_BIRD_CT0|ANTHROPIC_API_KEY|OPENAI_API_KEY|ONECLI_API_KEY)\s*=\s*)([^\s]+)/g,
+      re: /\b((?:TELEGRAM_BOT_TOKEN|GMAIL_APP_PASSWORD|GMAIL_IMAP_APP_PASSWORD|ANTHROPIC_API_KEY|OPENAI_API_KEY|ONECLI_API_KEY)\s*=\s*)([^\s]+)/g,
       replacement: (_m, prefix) => `${prefix}[REDACTED]`,
     },
     {

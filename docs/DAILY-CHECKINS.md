@@ -22,7 +22,7 @@ They are deliberately separate from the daily brief:
 7. Appends the sent message to the JSONL ledger.
 
 The wrapper never writes to `wiki/*.md`, never creates todos, and never reads
-email/Gmail/Twitter. Replies are handled later by the normal Telegram runtime.
+email/Gmail. Replies are handled later by the normal Telegram runtime.
 
 ## Message Policy
 

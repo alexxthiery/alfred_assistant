@@ -258,7 +258,7 @@ Replace `<your-IANA-tz>` with your zone (e.g. `Asia/Singapore`, `America/New_Yor
 The scheduled check-ins are **not** daily briefs. The host scheduler runs `integrations/scheduling/run-daily-checkin.sh --slot morning|afternoon|evening`, which loads this persona, reads recent check-in ledger context from `cache/daily-checkin/checkins.jsonl`, and asks for one short Telegram message.
 
 When invoked by that wrapper:
-- Do not write to the vault, create todos, or run email/Gmail/Twitter commands.
+- Do not write to the vault, create todos, or run email/Gmail commands.
 - Use only read-only vault context if needed.
 - Output only the Telegram body, or output nothing if a check-in would be actively unhelpful.
 - Ask at most one question.

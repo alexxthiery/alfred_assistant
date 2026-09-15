@@ -112,7 +112,6 @@ test('DEFAULTS: has all expected top-level sections (regression on dropped keys)
   assert.equal(typeof DEFAULTS.user.slug, 'string');
   assert.equal(typeof DEFAULTS.user.name, 'string');
   assert.equal(typeof DEFAULTS.weekly_review.enabled, 'boolean');
-  assert.equal(typeof DEFAULTS.paths.bird_bin, 'string');
 });
 
 test('DEFAULTS: is frozen (mutation guard)', () => {
@@ -175,39 +174,6 @@ test('loadConfig: explicit ~ in paths.vault_root expands against HOME', () => {
   withEnv({ HOME: '/tmp/fake-home' }, () => {
     const cfg = loadConfig(root);
     assert.equal(cfg.paths.vault_root, '/tmp/fake-home/vault-home');
-  });
-});
-
-test('loadConfig: explicit relative paths.bird_bin resolves against config dir', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-relbird-'));
-  const expected = path.join(root, 'tools', 'bird');
-  writeConfig(root, [
-    'user:',
-    '  slug: sample-user',
-    '  name: Sample User',
-    'paths:',
-    '  bird_bin: ./tools/bird',
-    '',
-  ].join('\n'));
-
-  const cfg = loadConfig(root);
-  assert.equal(cfg.paths.bird_bin, expected);
-});
-
-test('loadConfig: explicit ~ in paths.bird_bin expands against HOME', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-homebird-'));
-  writeConfig(root, [
-    'user:',
-    '  slug: sample-user',
-    '  name: Sample User',
-    'paths:',
-    '  bird_bin: ~/bin/bird',
-    '',
-  ].join('\n'));
-
-  withEnv({ HOME: '/tmp/fake-home' }, () => {
-    const cfg = loadConfig(root);
-    assert.equal(cfg.paths.bird_bin, '/tmp/fake-home/bin/bird');
   });
 });
 

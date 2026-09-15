@@ -100,7 +100,7 @@ You may use read-only wiki commands such as:
   .bin/wiki day ${LOCAL_DATE}
   .bin/wiki search <term>
 
-Do not write to the vault. Do not create todos. Do not run email/Gmail/Twitter commands.
+Do not write to the vault. Do not create todos. Do not run email/Gmail commands.
 
 This is NOT a digest. Output ONLY the Telegram message body, or output nothing if sending a message would be actively unhelpful.
 
