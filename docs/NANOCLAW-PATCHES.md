@@ -1,7 +1,7 @@
 # NanoClaw carried patch inventory
 
 Alfred runs inside a [nanoclaw](https://github.com/your-fork/nanoclaw) Docker container.
-Historically, five host-side edits to NanoClaw enabled Alfred's full flow.
+Historically, six host-side edits to NanoClaw enabled Alfred's full flow.
 This file is now a carried-patch inventory, not the preferred long-term
 architecture.
 
@@ -81,7 +81,45 @@ const provider = createProvider(providerName, {
 
 Container restart picks it up (no rebuild needed if source is bind-mounted).
 
-## Patch 3 — Pass through Alfred's mail env vars to the container
+## Patch 3 — Mark mounted vault Git repos as safe directories
+
+**Current status.** Keep or upstream-candidate. This is runtime-boundary
+plumbing, not Alfred behavior. It is needed when Docker bind mounts expose a
+host-owned vault at `/workspace/extra/<vault>` and Git refuses `status`,
+`add`, or `commit` with "detected dubious ownership".
+
+**Why.** `bin/wiki` auto-commits successful vault writes. If the assistant can
+write files but Git refuses to operate in the mounted vault, the write succeeds
+and the commit fails. That leaves the vault dirty, and the next write is then
+blocked by tamper detection. The fix belongs in the worker startup path so every
+short-lived container is repaired before the assistant can call `wiki`.
+
+**Where.** `container/agent-runner/src/index.ts`.
+
+**Patch.** While discovering `/workspace/extra/*` directories, if a mounted
+directory contains `.git`, add that exact container path to Git's global
+`safe.directory` list unless already present:
+
+```ts
+execFileSync('git', ['config', '--global', '--add', 'safe.directory', dir]);
+```
+
+Do this before provider startup and before any agent tool call can run. The
+setting is container-local; it does not modify the host vault.
+
+**Smoke.** In a disposable worker image with the real vault mounted:
+
+```bash
+git -C /workspace/extra/vault status --porcelain
+# fails before safe.directory with "detected dubious ownership"
+
+git config --global --add safe.directory /workspace/extra/vault
+git -C /workspace/extra/vault status --porcelain
+git -C /workspace/extra/vault add --dry-run -A -- wiki raw
+# both succeed
+```
+
+## Patch 4 — Pass through Alfred's mail env vars to the container
 
 **Current status.** Candidate to move out of NanoClaw core. Alfred-specific
 credentials should ideally be passed by per-assistant template/config or handled
@@ -123,14 +161,14 @@ registerProviderContainerConfig('claude', () => {
 
 If you add more Alfred-side secret env vars in the future, extend the allowlist and the pass-through block in lockstep.
 
-## Patch 4 — Register the claude provider in `providers/index.ts`
+## Patch 5 — Register the claude provider in `providers/index.ts`
 
-**Current status.** Drop if Patch 3 is removed or upstream provider registration
+**Current status.** Drop if Patch 4 is removed or upstream provider registration
 now has the necessary extension point. In NanoClaw `v2.3.0`, `src/providers/claude.ts`
 exists but is intentionally not imported by default; importing it is only
 needed when a Claude host-side container contribution is required.
 
-**Why.** Patch 3 only takes effect if `claude.ts` is imported by the provider barrel.
+**Why.** Patch 4 only takes effect if `claude.ts` is imported by the provider barrel.
 Default nanoclaw doesn't register it (the comment in `providers/index.ts` explains: "providers with no host needs (claude, mock) don't appear here"). Once you start contributing env vars from `claude.ts`, you need to register it.
 
 **Where.** `src/providers/index.ts`.
@@ -141,7 +179,7 @@ Default nanoclaw doesn't register it (the comment in `providers/index.ts` explai
 import './claude.js';
 ```
 
-## Patch 5 — Gate vault-relevant replies until Alfred reads the vault
+## Patch 6 — Gate vault-relevant replies until Alfred reads the vault
 
 **Current status.** Keep unless upstream exposes a provider-neutral way to gate
 delivery on a runtime-specific evidence signal. This is a user-facing
@@ -177,8 +215,8 @@ The existing `NANOCLAW_DISABLE_VAULT_TELEMETRY=1` escape hatch disables this gat
 ## Applying
 
 Each patch is small and idempotent.
-After Patches 3 and 4, rebuild nanoclaw's host (`npm run build`) and restart its launchd / systemd job (`launchctl kickstart -k …`).
-For Patches 1 and 2, restart the container itself (or let it respawn on the next message).
+After Patches 4 and 5, rebuild nanoclaw's host (`npm run build`) and restart its launchd / systemd job (`launchctl kickstart -k …`).
+For Patches 1, 2, and 3, restart the container itself (or let it respawn on the next message).
 Verify with:
 
 ```bash
