@@ -58,6 +58,12 @@ persona/agents.d/
 Keep overlays small. Universal operating rules belong in `docs/persona/`;
 assistant-specific policy belongs in the vault overlay.
 
+Overlays are appended after the shared persona, so they may deliberately
+override shared defaults. If an assistant needs a different relationship style,
+say so explicitly in the overlay instead of hoping a general phrase like "warm"
+will outweigh earlier terse defaults. For example: "This replaces the base
+Voice defaults for direct chat; greetings are allowed."
+
 ## Tests
 
 Run these after persona changes:
@@ -69,4 +75,3 @@ npm run test:unit
 ```
 
 `npm test` remains the full release gate.
-

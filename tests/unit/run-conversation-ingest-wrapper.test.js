@@ -163,6 +163,45 @@ printf '%s\\n' "Should I also remember who runs robotics club?"
   assert.equal(ledger.length, 1);
   assert.equal(ledger[0].recent_file_count, 1);
   assert.equal(ledger[0].telegram_sent, true);
+  assert.equal(ledger[0].operator_only, false);
+});
+
+test('conversation ingest wrapper logs operator-only failures without messaging the user', (t) => {
+  const telegramFile = path.join(os.tmpdir(), `alfred-conv-operator-telegram-${process.pid}-${Date.now()}`);
+  t.after(() => fs.rmSync(telegramFile, { force: true }));
+
+  const { tmp, vault } = makeVault(t, {
+    wiki: '#!/usr/bin/env bash\nexit 0\n',
+    'telegram-send': `#!/usr/bin/env bash
+set -euo pipefail
+cat > "$TEST_TELEGRAM"
+`,
+  });
+  addConversationFile(vault);
+
+  const agent = path.join(tmp, 'agent');
+  writeExecutable(agent, `#!/usr/bin/env bash
+set -euo pipefail
+printf '\\n  %s\\n' 'OPERATOR_ONLY: wiki refused to write because the vault has uncommitted tamper state.'
+`);
+
+  const result = runWrapper(vault, [], {
+    ALFRED_AGENT_BIN: agent,
+    TEST_TELEGRAM: telegramFile,
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(fs.existsSync(telegramFile), false, 'operator-only failures must not be sent to Telegram even with leading whitespace');
+  const log = fs.readFileSync(path.join(vault, 'cache', 'conversation-ingest', 'operator-only.log'), 'utf8');
+  assert.match(log, /^OPERATOR_ONLY: wiki refused to write/m);
+  const ledger = fs.readFileSync(path.join(vault, 'cache', 'conversation-ingest', 'ledger.jsonl'), 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.equal(ledger.length, 1);
+  assert.equal(ledger[0].telegram_sent, false);
+  assert.equal(ledger[0].operator_only, true);
+  assert.match(ledger[0].operator_note, /wiki refused to write/);
 });
 
 test('conversation ingest wrapper is a no-op when there are no recent private conversation files', (t) => {

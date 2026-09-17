@@ -9,7 +9,7 @@ Scheduled jobs do **not** belong to any agent runtime. They run from the OS sche
 | **Daily brief** (07:00) | **No** — deterministic | `run-daily-brief.sh`: composes the brief once and fans it out to `bin/email-digest` (email) and, if `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` are set, `bin/telegram-send` (a Telegram note in the same chat). Channel failures are isolated, logged to `cache/daily-brief/send.log`, and retried once after 3 hours by default. |
 | **Daily check-ins** (07:00 / 17:00 / 22:00) | **Yes** — conversational judgment | `run-daily-checkin.sh --slot morning|afternoon|evening`: asks a headless agent for one short, natural Telegram check-in, using `AGENTS.md`, read-only `wiki` context, and `cache/daily-checkin/checkins.jsonl` to avoid repetition. It never writes to the vault; replies are handled by the normal Telegram runtime. |
 | **Email review** (10:00) | **Yes** — triage + judgment | `run-email-review.sh`: runs `.bin/email-review --days 1 --max-questions 7 --format json` directly from the scheduler wrapper, then passes the metadata-only report to a headless Alfred with `AGENTS.md` + `persona/email-review.md`. The wrapper records the ledger only after the agent path succeeds. The agent is not asked to run Gmail commands, so the job does not depend on a non-interactive shell-command allowlist. It sends only concrete questions or useful updates to Telegram. |
-| **Conversation fact ingestion** (21:30) | **Yes** — conservative extraction | `run-conversation-ingest.sh`: optionally mirrors runtime transcripts with `wiki conversation-log import`, then asks a headless agent to ingest only durable low-risk facts through `.bin/wiki ingest` / `.bin/wiki patch` / `.bin/wiki todo`, following `persona/conversation-ingest.md`. It sends Telegram only for concrete clarification questions. |
+| **Conversation fact ingestion** (21:30) | **Yes** — conservative extraction | `run-conversation-ingest.sh`: optionally mirrors runtime transcripts with `wiki conversation-log import`, then asks a headless agent to ingest only durable low-risk facts through `.bin/wiki ingest` / `.bin/wiki patch` / `.bin/wiki todo`, following `persona/conversation-ingest.md`. It sends Telegram only for concrete clarification questions. Operational failures are maintainer-only: the agent emits `OPERATOR_ONLY:` and the wrapper logs it to `cache/conversation-ingest/operator-only.log` instead of messaging the user. |
 | **Reminder dispatch** (every 15 min) | **No** — deterministic | `run-reminder-dispatch.sh`: `bin/reminder-dispatch \| bin/telegram-send`. Fires vault todos whose `remind_at` is due; idempotent (stamps `reminded_at`). Silent when nothing is due. |
 | **Vault backup push** (daily 22:00) | **No** — deterministic | `tools/vault-backup-push.sh <vault>`: pushes the vault to its git `origin` if ahead. No-op when in sync. For a local vault this **is** the backup — without it the remote silently falls behind. |
 | **Weekly review** (Mon 09:00) | **Yes** — synthesis | `run-weekly-review.sh`: `claude -p "...weekly routine..."` (loads Alfred from `AGENTS.md`) piped to `email-digest`. Swap `claude -p` for `codex exec` if preferred. |
@@ -42,9 +42,15 @@ Use this checklist before adding, changing, or debugging any scheduled Alfred ro
    Claude execution transcript. Add `ALFRED_CONVERSATION_EXTRACT_ONLY=1` when
    you want the compact deltas and cursor without retaining a full redacted raw
    transcript mirror.
-7. **Manifest or it does not exist:** every expected job belongs in `bin/lib/jobs.js`; `wiki jobs --check --label <label>` is the source of truth for drift on multi-assistant hosts.
-8. **Installer first:** prefer `tools/install-assistant-jobs.sh` for real machines. It refuses env files outside the vault private directory, env files internally bound to another vault/label, and env files without `TZ`. The committed `com.alfred.*.plist` files are examples and manual fallbacks.
-9. **Verify after install:** run `plutil -lint`, `launchctl print gui/$(id -u)/com.<label>.<job>` on macOS, and `<vault>/.bin/wiki jobs --check --label <label>`.
+7. **Separate user questions from operator failures:** a scheduled conversational
+   agent may message the user only for ordinary clarification or a useful small
+   update. If a job cannot write because of tamper state, git state, binding,
+   permissions, missing tools, or runtime failures, that is operator-facing
+   infrastructure. The prompt should require an `OPERATOR_ONLY:` response and
+   the wrapper should log it locally instead of sending it through Telegram.
+8. **Manifest or it does not exist:** every expected job belongs in `bin/lib/jobs.js`; `wiki jobs --check --label <label>` is the source of truth for drift on multi-assistant hosts.
+9. **Installer first:** prefer `tools/install-assistant-jobs.sh` for real machines. It refuses env files outside the vault private directory, env files internally bound to another vault/label, and env files without `TZ`. The committed `com.alfred.*.plist` files are examples and manual fallbacks.
+10. **Verify after install:** run `plutil -lint`, `launchctl print gui/$(id -u)/com.<label>.<job>` on macOS, and `<vault>/.bin/wiki jobs --check --label <label>`.
 
 ## Install (macOS / launchd)
 

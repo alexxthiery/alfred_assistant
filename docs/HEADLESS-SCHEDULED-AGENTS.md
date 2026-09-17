@@ -44,6 +44,12 @@ For every scheduled wrapper that invokes a headless agent:
    `claude` and assert the exact `--allowedTools` argv passed to it. Include a
    negative assertion when the job should not receive broad write-capable wiki
    access.
+6. User-visible messages are only for user-facing clarification or useful small
+   updates. Operational blockers — tamper state, dirty git state, binding
+   mismatch, missing permissions, missing CLIs, runtime failures — are
+   maintainer-facing. The wrapper should give the agent an operator-only output
+   convention and test that those messages are logged locally rather than sent
+   to Telegram.
 
 The implementation lives in `integrations/scheduling/assistant-binding.sh`:
 
@@ -87,6 +93,8 @@ class:
   deployed wrapper/helper pair is stale.
 - The wrapper and `assistant-binding.sh` are copied separately; deploy them as a
   pair to the launchd-safe wrapper directory.
+- A child-facing assistant forwards operational/debug text to the child/user
+  instead of writing a maintainer-only log entry.
 
 ## Current Scheduled-Agent Classification
 

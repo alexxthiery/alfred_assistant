@@ -185,6 +185,11 @@ Hard rules:
 - If a useful candidate is ambiguous, sensitive, or interpretive, ask at most one concise clarification question instead of writing it.
 - After each write, read the CLI audit output and fix strict issues through .bin/wiki before finishing.
 - If there is nothing worth ingesting or asking, output nothing.
+- If an operational problem prevents writing (for example tamper state, git
+  ownership, missing permissions, or a CLI/runtime failure), do NOT message the
+  user. Output a single operator-only note beginning with:
+  OPERATOR_ONLY:
+  The wrapper will log it for the maintainer instead of sending Telegram.
 
 Output ONLY a Telegram message body for the user if you need clarification or want to mention a very small useful update. If no user-visible message is needed, output nothing.
 
@@ -205,12 +210,20 @@ if [ "$agent_rc" -ne 0 ]; then
 fi
 
 SENT=0
-if [ -n "$(printf '%s' "$MESSAGE" | tr -d '[:space:]')" ]; then
+OPERATOR_ONLY=0
+OPERATOR_NOTE=""
+MESSAGE_CLASSIFIER="$(MESSAGE="$MESSAGE" node -e 'process.stdout.write((process.env.MESSAGE || "").replace(/^\s+/, ""))')"
+if printf '%s' "$MESSAGE_CLASSIFIER" | grep -q '^OPERATOR_ONLY:'; then
+  OPERATOR_ONLY=1
+  OPERATOR_NOTE="${MESSAGE_CLASSIFIER#OPERATOR_ONLY:}"
+  OPERATOR_NOTE="${OPERATOR_NOTE#"${OPERATOR_NOTE%%[![:space:]]*}"}"
+  printf '%s\n' "$MESSAGE_CLASSIFIER" >> "$LOG_DIR/operator-only.log" 2>/dev/null || true
+elif [ -n "$(printf '%s' "$MESSAGE" | tr -d '[:space:]')" ]; then
   printf '%s\n' "$MESSAGE" | "$ALFRED_VAULT/.bin/telegram-send"
   SENT=1
 fi
 
-LEDGER="$LEDGER" LOCAL_DATE="$LOCAL_DATE" LOCAL_TIME="$LOCAL_TIME" MESSAGE="$MESSAGE" SENT="$SENT" FILE_COUNT="$(printf '%s\n' "$RECENT_FILES" | sed '/^$/d' | wc -l | tr -d ' ')" node <<'NODE'
+LEDGER="$LEDGER" LOCAL_DATE="$LOCAL_DATE" LOCAL_TIME="$LOCAL_TIME" MESSAGE="$MESSAGE" SENT="$SENT" OPERATOR_ONLY="$OPERATOR_ONLY" OPERATOR_NOTE="$OPERATOR_NOTE" FILE_COUNT="$(printf '%s\n' "$RECENT_FILES" | sed '/^$/d' | wc -l | tr -d ' ')" node <<'NODE'
 const fs = require('fs');
 const entry = {
   ran_at_utc: new Date().toISOString(),
@@ -218,8 +231,12 @@ const entry = {
   local_time: process.env.LOCAL_TIME,
   recent_file_count: Number(process.env.FILE_COUNT || 0),
   telegram_sent: process.env.SENT === '1',
+  operator_only: process.env.OPERATOR_ONLY === '1',
   message: process.env.MESSAGE || '',
 };
+if (entry.operator_only) {
+  entry.operator_note = process.env.OPERATOR_NOTE || '';
+}
 fs.appendFileSync(process.env.LEDGER, JSON.stringify(entry) + '\n');
 NODE
 
