@@ -188,6 +188,31 @@ test('tamperCheck: strict deployed mode refuses missing git repository', () => {
   assert.ok(seen.some((line) => line.includes('refusing write because ALFRED_STRICT_DEPLOYED=1')));
 });
 
+test('tamperCheck: strict deployed mode refuses --accept-tamper', () => {
+  const origExit = process.exit;
+  const origError = console.error;
+  const seen = [];
+  process.env.ALFRED_STRICT_DEPLOYED = '1';
+  process.exit = (code) => {
+    const err = new Error(`exit ${code}`);
+    err.code = code;
+    throw err;
+  };
+  console.error = (line) => seen.push(String(line));
+  try {
+    assert.throws(
+      () => tamperCheck({ accept: true }),
+      (err) => err instanceof Error && err.code === 2,
+    );
+  } finally {
+    process.exit = origExit;
+    console.error = origError;
+    delete process.env.ALFRED_STRICT_DEPLOYED;
+  }
+  assert.ok(seen.some((line) => line.includes('--accept-tamper is not allowed')));
+  assert.ok(seen.some((line) => line.includes('maintainer repair action')));
+});
+
 test('autoCommit: git failure is loud but non-throwing, and leaves the write uncommitted', () => {
   const beforePath = process.env.PATH;
   const seen = [];

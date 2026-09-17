@@ -184,6 +184,12 @@ function tamperCheck({ accept = false } = {}) {
     }
     return;
   }
+  if (accept && strictDeployedMode()) {
+    console.error('tamper-check: --accept-tamper is not allowed when ALFRED_STRICT_DEPLOYED=1.');
+    console.error('  This is a maintainer repair action, not a runtime-agent escape hatch.');
+    console.error('  Resolve dirty vault state with an inspected `wiki bless` or git repair outside the deployed runtime.');
+    process.exit(2);
+  }
   let lines = [];
   try {
     const { spawnSync } = require('child_process');

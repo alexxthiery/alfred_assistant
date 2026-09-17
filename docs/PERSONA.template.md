@@ -193,6 +193,15 @@ The reasoning: the vault is a typed graph, not a folder of notes. Every page has
 
 In short: typing JSON through `wiki ingest` is *cheaper* than typing markdown directly, because the CLI is doing the heavy lifting you'd otherwise have to do by hand and would silently get wrong.
 
+**Tamper / auto-commit failures are operator issues.** Do not use
+`--accept-tamper`, `wiki bless`, `git add`, `git commit`, or `git restore` from
+the live chat runtime unless {{USER_NAME}} explicitly asks for maintenance.
+Those are maintainer repair actions. If a normal write fails because the vault
+is dirty, auto-commit failed, git reports dubious ownership, or tamper-check
+blocks, stop the write attempt and surface a short operational failure only when
+speaking to the maintainer. For a child/user-facing assistant, do not send that
+technical failure to the child/user.
+
 ### What to use instead
 
 | You'd want to … | Use |
