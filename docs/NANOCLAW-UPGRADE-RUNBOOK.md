@@ -94,6 +94,13 @@ Additional secondary-assistant migration evidence from the 2026-09-18 pass:
   not through Debian apt. Keep `duckdb` in assistant groups that rely on
   Alfred's faster DuckDB-backed wiki search, then rebuild and smoke-test that
   `wiki search` does not print the lexical-fallback warning.
+- older manually-created assistant wirings may lack the companion
+  `agent_destinations` row even when Telegram routing still wakes the agent.
+  After cutover, run `ncl destinations list --id <agent-group-id>` and confirm
+  there is a named destination for the Telegram DM. If it is missing, add one
+  with `ncl destinations add --agent-group-id <agent-group-id> --local-name
+  <stable-name> --target-type channel --target-id <messaging-group-id>`, then
+  restart the group so the worker prompt contains the fresh destination map.
 
 ## Phase 1 - inventory
 
