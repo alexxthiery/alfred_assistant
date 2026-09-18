@@ -66,11 +66,11 @@ test whether a per-vault mount plus persona PATH guidance removes this patch.
 
 **Where.** `container/agent-runner/src/index.ts`.
 
-**Patch.** After `additionalDirectories` is built, prepend each `<d>/bin` (if it exists) to `PATH` before constructing the provider:
+**Patch.** After `additionalDirectories` is built, prepend each `<d>/.bin` (if it exists) to `PATH` before constructing the provider:
 
 ```ts
 const extraBins = additionalDirectories
-  .map((d) => path.join(d, 'bin'))
+  .map((d) => path.join(d, '.bin'))
   .filter((p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } });
 const augmentedPath = [...extraBins, process.env.PATH || ''].filter(Boolean).join(':');
 const provider = createProvider(providerName, {
