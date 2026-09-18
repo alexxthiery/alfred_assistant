@@ -13,6 +13,7 @@
     "test:gmail": "python3 tests/unit/gmail.test.py && python3 tests/unit/email_review.test.py",
     "doctor": "tools/dev-doctor.js",
     "nanoclaw:gate": "tools/nanoclaw-upgrade-gate.js",
+    "nanoclaw:runtime-check": "tools/check-nanoclaw-assistant-runtime.js",
     "nanoclaw:smoke": "tools/nanoclaw-disposable-smoke.js",
     "nanoclaw:canary-env": "tools/nanoclaw-staging-canary-env.js"
   }

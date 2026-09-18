@@ -40,7 +40,7 @@ Primary docs:
 | Secrets and credentials | [`docs/SECURITY.md`](docs/SECURITY.md) |
 | Conversation logging | [`docs/CONVERSATION-LOGGING.md`](docs/CONVERSATION-LOGGING.md) |
 | Conversation ingestion | [`docs/CONVERSATION-INGEST.md`](docs/CONVERSATION-INGEST.md) |
-| NanoClaw integration and upgrades | [`docs/NANOCLAW-INTEGRATION.md`](docs/NANOCLAW-INTEGRATION.md), [`docs/NANOCLAW-UPGRADE-RUNBOOK.md`](docs/NANOCLAW-UPGRADE-RUNBOOK.md) |
+| NanoClaw integration and upgrades | [`docs/NANOCLAW-INTEGRATION.md`](docs/NANOCLAW-INTEGRATION.md), [`docs/NANOCLAW-UPGRADE-RUNBOOK.md`](docs/NANOCLAW-UPGRADE-RUNBOOK.md), [`docs/NANOCLAW-PROMOTION.md`](docs/NANOCLAW-PROMOTION.md) |
 
 ## Quickstart
 

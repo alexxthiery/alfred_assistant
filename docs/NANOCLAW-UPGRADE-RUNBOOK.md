@@ -3,6 +3,8 @@
 This runbook exists to keep Alfred close to upstream NanoClaw without turning a
 runtime upgrade into a live experiment. The default posture is conservative:
 stage first, test the integration contract, then cut over with rollback ready.
+After staging passes, use `docs/NANOCLAW-PROMOTION.md` for the per-assistant
+production promotion and post-promotion runtime checks.
 
 ## Rule zero
 

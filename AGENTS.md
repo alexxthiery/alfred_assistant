@@ -55,7 +55,7 @@ No file sizes here on purpose: they rot. The durable signal is *which file owns 
 | `docs/CONVERSATION-LOGGING.md`       | Local-only conversation mirrors, compact Claude JSONL deltas, cursor/idempotency, and safety boundaries. |
 | `docs/MULTI-ASSISTANT.md`, `docs/SECURITY.md` | Multi-vault isolation, per-vault secrets, and credential handling. |
 | `docs/RETRIEVAL-HARDENING.md` | Retrieval evals, confidence/explain diagnostics, and the boundary against heavier search machinery. |
-| `docs/NANOCLAW-INTEGRATION.md`, `docs/NANOCLAW-UPGRADE-RUNBOOK.md`, `docs/NANOCLAW-PATCHES.md` | NanoClaw runtime boundary, staging upgrade process, and carried-patch inventory. |
+| `docs/NANOCLAW-INTEGRATION.md`, `docs/NANOCLAW-UPGRADE-RUNBOOK.md`, `docs/NANOCLAW-PROMOTION.md`, `docs/NANOCLAW-PATCHES.md` | NanoClaw runtime boundary, staging upgrade process, per-assistant promotion checks, and carried-patch inventory. |
 | `schemas/wiki-ingest.schema.json`   | JSON-spec field shapes (the input to `wiki ingest`).      |
 | `tests/fixtures/*.json` + `README.md` | Test-by-analogy. Read the README before writing a fixture. |
 | `tests/unit/*.test.js`              | Unit tests on pure helpers in `bin/lib/`.                 |
@@ -115,7 +115,7 @@ These aren't rules that bite you with an error — they're contracts that other 
 - **Persona-lint catches verb drift.** `wiki persona-lint` greps `SCHEMA.md`, `docs/PERSONA.template.md`, `docs/persona/*.template.md`, `docs/SCHEMA.md`, `docs/NANOCLAW-PATCHES.md`, `docs/WEEKLY-DIGEST.md`, `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md` for backtick-wrapped `` `wiki <verb>` `` and refuses verbs not in the dispatch map. If you rename a verb, run persona-lint or expect doc drift.
 - **Scheduled jobs use the same OS-scheduler pattern.** Before touching daily brief, daily check-ins, email review, conversation ingestion, reminders, backups, watchdog, or weekly review, read `integrations/scheduling/README.md`. The durable pattern is: one wrapper, no secrets in plists, launchd/cron as executor, manifest entry in `bin/lib/jobs.js`, installer support in `tools/install-assistant-jobs.sh` when practical, and verification through `wiki jobs --check`. Do not create nanoclaw `schedule_task` duplicates for jobs that are already host-scheduled.
 - **Multi-assistant isolation is a security invariant.** Treat each vault as one security cell. Per-assistant credentials must live under that vault's gitignored `.alfred/private/` directory (normally `.alfred/private/env`), never in a shared host env file. Scheduled wrappers must verify the env file is inside the active vault before sourcing it; `ALFRED_EXPECTED_VAULT` and `ALFRED_EXPECTED_LABEL` must match the active vault/label. Runtime/container setups must mount only the intended vault; use `tools/check-assistant-isolation.js --other-vault <path>` from inside the runtime to prove sibling vaults are not readable/writable.
-- **NanoClaw upgrades go through the gate.** Do not update or deploy the production NanoClaw checkout by memory. Stage upstream first, port only needed Alfred invariants, then run `npm run nanoclaw:gate -- --nanoclaw <staging> --prod <production> --mode fast` while iterating and `--mode full` before canary. The gate is non-destructive, writes per-command logs under `audit/nanoclaw-gates/`, and is the canonical way to prove the Alfred/NanoClaw contract before live Telegram tests.
+- **NanoClaw upgrades go through the gate, then per-assistant promotion checks.** Do not update or deploy the production NanoClaw checkout by memory. Stage upstream first, port only needed Alfred invariants, then run `npm run nanoclaw:gate -- --nanoclaw <staging> --prod <production> --mode fast` while iterating and `--mode full` before canary. The gate is non-destructive, writes per-command logs under `audit/nanoclaw-gates/`, and is the canonical way to prove the Alfred/NanoClaw contract before live Telegram tests. For each live assistant runtime, run `npm run nanoclaw:runtime-check -- ...` before and after promotion; it catches per-assistant drift such as missing destinations, wrong assistant identity, unsafe mounts, and missing DuckDB.
 
 ## Tests
 
@@ -266,7 +266,7 @@ Scheduled jobs are operational infrastructure, not agent memory. Use the pattern
 - **What an agent should do at runtime** → `docs/persona/*.template.md` (source) and `docs/PERSONA.template.md` (assembled compatibility aggregate)
 - **The vault contract** → `docs/SCHEMA.md`
 - **Retrieval confidence/eval discipline** → `docs/RETRIEVAL-HARDENING.md`
-- **NanoClaw runtime boundary and upgrade process** → `docs/NANOCLAW-INTEGRATION.md`, `docs/NANOCLAW-UPGRADE-RUNBOOK.md`, then `docs/NANOCLAW-PATCHES.md`
+- **NanoClaw runtime boundary and upgrade process** → `docs/NANOCLAW-INTEGRATION.md`, `docs/NANOCLAW-UPGRADE-RUNBOOK.md`, `docs/NANOCLAW-PROMOTION.md`, then `docs/NANOCLAW-PATCHES.md`
 - **OS scheduling methodology** → `integrations/scheduling/README.md`
 - **Headless scheduled-agent permission contracts** → `docs/HEADLESS-SCHEDULED-AGENTS.md`
 - **Cron + SMTP weekly digest** → `docs/WEEKLY-DIGEST.md`
