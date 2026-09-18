@@ -1,7 +1,7 @@
 # NanoClaw carried patch inventory
 
 Alfred runs inside a [nanoclaw](https://github.com/your-fork/nanoclaw) Docker container.
-Historically, six host-side edits to NanoClaw enabled Alfred's full flow.
+Historically, seven host-side edits to NanoClaw enabled Alfred's full flow.
 This file is now a carried-patch inventory, not the preferred long-term
 architecture.
 
@@ -129,7 +129,47 @@ git -C /workspace/extra/vault add --dry-run -A -- wiki raw
 # both succeed
 ```
 
-## Patch 4 — Pass through Alfred's mail env vars to the container
+## Patch 4 — Install DuckDB CLI outside apt for per-group images
+
+**Current status.** Keep or upstream-candidate. This is generic container image
+plumbing: Debian apt does not provide the DuckDB CLI package, but Alfred's
+deployed `wiki search` uses the `duckdb` executable when available and falls
+back to slower lexical search when it is missing.
+
+**v2.3 staging state.** Ported in the checkout identified by
+`$NANOCLAW_STAGING` as `renderAgentGroupImageDockerfile()` and
+`renderDuckdbCliInstallDockerfileStep()` in `src/container-runner.ts`, with
+focused coverage in `src/container-runner.test.ts`.
+
+**Why.** Existing assistant group configs may include `duckdb` in
+`packages_apt`. Passing that directly to apt makes per-group image rebuilds
+fail. Removing it lets the rebuild pass but silently degrades vault search
+quality. Treating `duckdb` as a named pseudo-package preserves the operator
+contract: a group that asks for DuckDB gets DuckDB.
+
+**Where.** `src/container-runner.ts`.
+
+**Patch.** Filter `duckdb` out of the apt package list, then install the
+official DuckDB CLI archive with pinned Linux amd64/arm64 SHA256 checksums:
+
+```ts
+const regularAptPackages = aptPackages.filter((pkg) => pkg !== 'duckdb');
+const installDuckdb = aptPackages.includes('duckdb');
+```
+
+The generated Dockerfile should still install normal apt packages via apt,
+then run a checksum-verified `curl`/`unzip` CLI install step for DuckDB.
+
+**Smoke.** Rebuild a per-group image whose package list includes `duckdb`, then
+run:
+
+```bash
+duckdb -version
+wiki search <known-vault-term> --limit 1
+# no "duckdb unavailable; using JS lexical fallback search" warning
+```
+
+## Patch 5 — Pass through Alfred's mail env vars to the container
 
 **Current status.** Candidate to move out of NanoClaw core. Alfred-specific
 credentials should ideally be passed by per-assistant template/config or handled
@@ -171,14 +211,14 @@ registerProviderContainerConfig('claude', () => {
 
 If you add more Alfred-side secret env vars in the future, extend the allowlist and the pass-through block in lockstep.
 
-## Patch 5 — Register the claude provider in `providers/index.ts`
+## Patch 6 — Register the claude provider in `providers/index.ts`
 
-**Current status.** Drop if Patch 4 is removed or upstream provider registration
+**Current status.** Drop if Patch 5 is removed or upstream provider registration
 now has the necessary extension point. In NanoClaw `v2.3.0`, `src/providers/claude.ts`
 exists but is intentionally not imported by default; importing it is only
 needed when a Claude host-side container contribution is required.
 
-**Why.** Patch 4 only takes effect if `claude.ts` is imported by the provider barrel.
+**Why.** Patch 5 only takes effect if `claude.ts` is imported by the provider barrel.
 Default nanoclaw doesn't register it (the comment in `providers/index.ts` explains: "providers with no host needs (claude, mock) don't appear here"). Once you start contributing env vars from `claude.ts`, you need to register it.
 
 **Where.** `src/providers/index.ts`.
@@ -189,7 +229,7 @@ Default nanoclaw doesn't register it (the comment in `providers/index.ts` explai
 import './claude.js';
 ```
 
-## Patch 6 — Gate vault-relevant replies until Alfred reads the vault
+## Patch 7 — Gate vault-relevant replies until Alfred reads the vault
 
 **Current status.** Keep unless upstream exposes a provider-neutral way to gate
 delivery on a runtime-specific evidence signal. This is a user-facing

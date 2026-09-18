@@ -88,10 +88,12 @@ Additional secondary-assistant migration evidence from the 2026-09-18 pass:
   the old one, leaving the old runtime folder and plist available for rollback;
 - the copied secondary-assistant mount allowlist had the obsolete `nonMainReadOnly` key
   removed before launch;
-- the old secondary-assistant per-group package list included `duckdb`, which no longer
-  installs via apt in the v2.3 per-group image path. Remove that package before
-  rebuilding; Alfred's deployed `wiki` falls back to lexical search when the
-  DuckDB CLI is unavailable.
+- the old secondary-assistant per-group package list included `duckdb`. The
+  v2.3 staging branch now treats `duckdb` as a special per-group package:
+  it is installed from the official DuckDB CLI archive with pinned checksums,
+  not through Debian apt. Keep `duckdb` in assistant groups that rely on
+  Alfred's faster DuckDB-backed wiki search, then rebuild and smoke-test that
+  `wiki search` does not print the lexical-fallback warning.
 
 ## Phase 1 - inventory
 
