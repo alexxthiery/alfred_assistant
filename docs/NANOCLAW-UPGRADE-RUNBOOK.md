@@ -76,6 +76,23 @@ Additional staging canary evidence from the same pass:
   `readonly: false`, so mounts became read-only. Staging now carries a focused
   regression test for that behavior.
 
+Additional secondary-assistant migration evidence from the 2026-09-18 pass:
+
+- v2.3 staging now carries `container/agent-runner/src/runtime-mounts.ts`,
+  which discovers `/workspace/extra/*`, prepends mounted vault `.bin`
+  directories to `PATH`, and adds mounted Git repos to Git's
+  `safe.directory` list before agent tool calls;
+- focused runner tests cover mount discovery, `.bin` PATH construction,
+  one-time `safe.directory` configuration, and the combined startup helper;
+- the v2.3 cutover used a new runtime directory rather than overwriting
+  the old one, leaving the old runtime folder and plist available for rollback;
+- the copied secondary-assistant mount allowlist had the obsolete `nonMainReadOnly` key
+  removed before launch;
+- the old secondary-assistant per-group package list included `duckdb`, which no longer
+  installs via apt in the v2.3 per-group image path. Remove that package before
+  rebuilding; Alfred's deployed `wiki` falls back to lexical search when the
+  DuckDB CLI is unavailable.
+
 ## Phase 1 - inventory
 
 1. Record production state:

@@ -62,7 +62,12 @@ if upstream `v2.3.x` can mount/expose agent tools cleanly. Keep only if bare
 `ncl groups config add-mount` plus additional mounts under `/workspace/extra/`;
 test whether a per-vault mount plus persona PATH guidance removes this patch.
 
-**Why.** The vault's CLI lives at `/workspace/extra/<vault>/bin/wiki`. Without this patch, Alfred has to use absolute paths everywhere. The patch makes bare verbs (`wiki list`, `inbox queue`) work.
+**v2.3 staging state.** Ported in the checkout identified by
+`$NANOCLAW_STAGING` as `container/agent-runner/src/runtime-mounts.ts`, wired
+from `container/agent-runner/src/index.ts`, with focused coverage in
+`runtime-mounts.test.ts`.
+
+**Why.** The vault's CLI lives at `/workspace/extra/<vault>/.bin/wiki`. Without this patch, Alfred has to use absolute paths everywhere. The patch makes bare verbs (`wiki list`, `inbox queue`) work.
 
 **Where.** `container/agent-runner/src/index.ts`.
 
@@ -87,6 +92,11 @@ Container restart picks it up (no rebuild needed if source is bind-mounted).
 plumbing, not Alfred behavior. It is needed when Docker bind mounts expose a
 host-owned vault at `/workspace/extra/<vault>` and Git refuses `status`,
 `add`, or `commit` with "detected dubious ownership".
+
+**v2.3 staging state.** Ported in the checkout identified by
+`$NANOCLAW_STAGING` as `container/agent-runner/src/runtime-mounts.ts`, wired
+from `container/agent-runner/src/index.ts`, with focused coverage in
+`runtime-mounts.test.ts`.
 
 **Why.** `bin/wiki` auto-commits successful vault writes. If the assistant can
 write files but Git refuses to operate in the mounted vault, the write succeeds
