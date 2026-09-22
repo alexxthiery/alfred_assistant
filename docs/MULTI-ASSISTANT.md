@@ -278,6 +278,29 @@ gh repo create <owner>/<slug>-vault --private \
 Verify `gh repo view ... --json isPrivate,visibility,url` and keep the backup
 fresh with the scheduled `vault-backup-push` job when desired.
 
+If an assistant runtime or host job must push the vault, do not depend on the
+operator's shared `~/.git-credentials`. Each vault should carry its own
+gitignored credential file and local git config:
+
+```sh
+cp ~/.git-credentials ~/<slug>-vault/.alfred/private/git-credentials
+chmod 600 ~/<slug>-vault/.alfred/private/git-credentials
+git -C ~/<slug>-vault config --unset-all credential.helper || true
+git -C ~/<slug>-vault config credential.helper 'store --file=.alfred/private/git-credentials'
+git -C ~/<slug>-vault check-ignore -v .alfred/private/git-credentials
+```
+
+Then smoke-test the isolated-runtime case, not only the operator shell:
+
+```sh
+HOME=/path/to/assistant-runtime/home \
+  git -C ~/<slug>-vault push --dry-run
+```
+
+For a NanoClaw container, run the same dry-run from inside a throwaway container
+with only that vault mounted. Add `git config --global --add safe.directory` in
+the throwaway container if you bypass NanoClaw's normal startup helper.
+
 ### Starter-copy from another vault
 
 Do not raw-copy markdown from another person's vault. Build a sanitized ingest

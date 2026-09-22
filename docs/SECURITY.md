@@ -11,6 +11,7 @@ Alfred touches two kinds of secret: Gmail app passwords (SMTP send + IMAP read) 
 | Sender address | `EMAIL_FROM` | `<vault>/.alfred/private/env` | both of the above |
 | Telegram bot token | `TELEGRAM_BOT_TOKEN` | `<vault>/.alfred/private/env` | `bin/telegram-send` (reminder dispatch); also the assistant's Telegram runtime |
 | Telegram destination chat id | `TELEGRAM_CHAT_ID` | `<vault>/.alfred/private/env` | `bin/telegram-send` (reminder dispatch) — not a secret, but kept beside the token |
+| GitHub push credential | n/a | `<vault>/.alfred/private/git-credentials` | git backup pushes from host jobs or in-container assistant workflows |
 | Env-file vault binding | `ALFRED_EXPECTED_VAULT` | `<vault>/.alfred/private/env` | scheduled wrappers, `bin/wiki`, `bin/gmail`, `bin/email-review` |
 | Env-file label binding | `ALFRED_EXPECTED_LABEL` | `<vault>/.alfred/private/env` | scheduled wrappers and isolation smoke checks |
 | Anthropic/OneCLI proxy token | injected by the OneCLI gateway | OneCLI keychain | the container's HTTPS proxy |
@@ -42,6 +43,25 @@ is deliberate: credentials are part of one vault's runtime cell, not shared host
 state or executable shell configuration.
 
 **Host-side jobs are exempt from the allowlist.** Scheduled wrappers (`integrations/scheduling/run-*.sh`) run from the OS scheduler, not inside the container, and parse the `ENV_FILE` named in the plist. They require `ALFRED_EXPECTED_VAULT` and `ALFRED_EXPECTED_LABEL` before touching email, Telegram, or vault writes. So `TELEGRAM_CHAT_ID` and `TELEGRAM_BOT_TOKEN` work for `bin/telegram-send` without any container allowlist change. Patch 3 is only needed for secrets the in-container agent must read.
+
+**GitHub backup credentials are vault-private too.** Do not rely on a shared
+host `~/.git-credentials` file for vault backup pushes. Hardened assistant
+runtimes use their own `HOME`, so a push that succeeds from the operator's
+shell can still fail from inside the assistant. Store the Git credential under
+the owning vault's gitignored private directory and point that vault's local git
+config at it by relative path:
+
+```sh
+cp ~/.git-credentials <vault>/.alfred/private/git-credentials
+chmod 600 <vault>/.alfred/private/git-credentials
+git -C <vault> config --unset-all credential.helper || true
+git -C <vault> config credential.helper 'store --file=.alfred/private/git-credentials'
+```
+
+The relative `--file` matters: the same `.git/config` must work both on the
+host (`git -C <vault> ...`) and inside the mounted runtime vault
+(`/workspace/extra/vault`). Prefer a fine-grained token limited to that vault's
+private repository when creating a new credential.
 
 ## The rules
 

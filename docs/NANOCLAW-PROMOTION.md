@@ -87,6 +87,7 @@ script:
     - `duckdb -version`;
     - `command -v wiki`;
     - `wiki search <known-term> --limit 1` without the lexical-fallback warning;
+    - `git push --dry-run` from the mounted vault, using the runtime `HOME`;
     - prove sibling vault paths are not visible.
 
 12. Ask for one live Telegram ping and inspect logs for a delivered message,
