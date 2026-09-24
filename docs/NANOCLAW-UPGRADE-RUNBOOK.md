@@ -142,6 +142,10 @@ For each carried behavior:
 Do not combine unrelated patch ports. The staging history should make it easy
 to drop one carried behavior later.
 
+Before the first commit in a new NanoClaw checkout, turn on the PII guard with
+`git config alfred.piiGuard true` (see `docs/SECURITY.md` rule 6). The fork is
+public; test fixtures must use invented chat ids and names.
+
 ## Phase 3 - gate checks
 
 The normal entry point is the upgrade gate:

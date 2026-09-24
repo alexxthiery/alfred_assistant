@@ -2,7 +2,7 @@
 // Local development safety checks.
 //
 // This is intentionally local: it verifies machine setup that git/CI cannot
-// enforce, especially the git hook and gitignored PII pattern list.
+// enforce, especially the git hooks and gitignored PII pattern list.
 
 'use strict';
 
@@ -18,9 +18,9 @@ function fileExecutable(p) {
   }
 }
 
-function hookLooksInstalled(repoRoot) {
-  const hook = path.join(repoRoot, '.git', 'hooks', 'pre-commit');
-  const expected = path.join(repoRoot, 'tools', 'pre-commit');
+function hookLooksInstalled(repoRoot, name = 'pre-commit') {
+  const hook = path.join(repoRoot, '.git', 'hooks', name);
+  const expected = path.join(repoRoot, 'tools', name);
   if (!fs.existsSync(hook)) return false;
   try {
     if (fs.realpathSync(hook) === fs.realpathSync(expected)) return true;
@@ -28,7 +28,7 @@ function hookLooksInstalled(repoRoot) {
     /* fall through to content check */
   }
   try {
-    return fs.readFileSync(hook, 'utf8').includes('tools/pre-commit');
+    return fs.readFileSync(hook, 'utf8').includes(`tools/${name}`);
   } catch {
     return false;
   }
@@ -58,10 +58,22 @@ function inspectRepo(repoRoot) {
       fix: 'ln -sf ../../tools/pre-commit .git/hooks/pre-commit',
     },
     {
+      name: 'pre-push-hook',
+      ok: hookLooksInstalled(root, 'pre-push'),
+      message: '.git/hooks/pre-push points at tools/pre-push (scans every pushed commit)',
+      fix: 'ln -sf ../../tools/pre-push .git/hooks/pre-push',
+    },
+    {
+      name: 'pii-vault-sources',
+      ok: nonEmptyFile(path.join(root, 'tools', 'pii-vaults.local.txt')),
+      message: 'tools/pii-vaults.local.txt lists the vaults the PII list is rebuilt from',
+      fix: 'list one vault path per line in tools/pii-vaults.local.txt, then run tools/build-pii-list.js',
+    },
+    {
       name: 'pii-local-list',
       ok: nonEmptyFile(path.join(root, 'tools', 'pii-list.local.txt')),
       message: 'tools/pii-list.local.txt exists and is non-empty',
-      fix: 'create tools/pii-list.local.txt with local private patterns; keep it gitignored',
+      fix: 'run tools/build-pii-list.js (generates the gitignored list from your vaults)',
     },
     {
       name: 'pii-scanner',

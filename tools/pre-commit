@@ -6,8 +6,14 @@
 #   # If you have a global core.hooksPath, override per-repo:
 #   git config --local core.hooksPath .git/hooks
 #
+# Also usable from other repos (e.g. the NanoClaw checkout): symlink this
+# file into that repo's .git/hooks/. Scanner + PII list resolve relative to
+# this script's real location; the test stage only runs in alfred_assistant.
+#
 # Runs in two stages:
-#   1. tools/scan-pii.sh on every staged text file — abort if any hit.
+#   1. Rebuild tools/pii-list.local.txt from the vaults (best effort: keeps
+#      the existing list if no vault is readable), then scan the staged
+#      blobs with tools/scan-pii.js — abort on any hit.
 #   2. bin/wiki-test, ONLY if a staged file is under bin/, tests/, schemas/,
 #      or docs/SCHEMA.md (i.e., could affect the fixture suite). Skipped for
 #      doc-only commits to keep them fast.
@@ -15,56 +21,41 @@
 set -euo pipefail
 
 REPO=$(git rev-parse --show-toplevel)
-SCAN="$REPO/tools/scan-pii.sh"
-PII="$REPO/tools/pii-list.local.txt"
+SELF=$(node -p 'require("fs").realpathSync(process.argv[1])' "${BASH_SOURCE[0]}")
+TOOLS=$(dirname "$SELF")
+ALFRED=$(dirname "$TOOLS")
+PII="$TOOLS/pii-list.local.txt"
 
-if [ ! -x "$SCAN" ]; then
-  echo "pre-commit: missing or non-executable $SCAN" >&2
-  exit 1
-fi
+node "$TOOLS/build-pii-list.js" --quiet || \
+  echo "pre-commit: PII list not rebuilt; scanning with the existing one" >&2
 if [ ! -f "$PII" ]; then
   echo "pre-commit: missing $PII (your local PII list — gitignored)" >&2
-  echo "  Build one with the patterns specific to your private content." >&2
+  echo "  List vault paths in $TOOLS/pii-vaults.local.txt, then run tools/build-pii-list.js." >&2
   exit 1
 fi
 
-# Collect staged text files
-STAGED=$(git diff --cached --name-only --diff-filter=ACMR | \
-  while IFS= read -r f; do
-    [ -f "$f" ] || continue
-    # skip binaries with `file` heuristic
-    if file --mime "$f" 2>/dev/null | grep -q 'charset=binary'; then continue; fi
-    echo "$f"
-  done)
-
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR)
 if [ -z "$STAGED" ]; then
   exit 0
 fi
 
-HITS=0
-HIT_OUT=""
-while IFS= read -r f; do
-  # Attribution files exempt from the PII scan: the maintainer's real name
-  # belongs in the copyright/credits by design, so scanning them for "names"
-  # would block the one place a name is supposed to appear.
-  case "$f" in
-    LICENSE|CONTRIBUTORS.md) continue ;;
-  esac
-  out=$("$SCAN" "$REPO/$f" 2>&1 || true)
-  if echo "$out" | grep -q "HIT"; then
-    HITS=1
-    HIT_OUT="${HIT_OUT}${out}\n"
-  fi
-done <<< "$STAGED"
-
-if [ "$HITS" -eq 1 ]; then
-  echo "pre-commit: PII scanner found matches in staged files:" >&2
-  printf '%b' "$HIT_OUT" >&2
+set +e
+HIT_OUT=$(cd "$REPO" && node "$TOOLS/scan-pii.js" --staged 2>&1)
+SCAN_RC=$?
+set -e
+if [ "$SCAN_RC" -ne 0 ]; then
+  echo "pre-commit: PII scanner refused the staged files:" >&2
+  printf '%s\n' "$HIT_OUT" >&2
   echo "" >&2
   echo "Abort. Either:" >&2
   echo "  (a) redact the offending content, or" >&2
-  echo "  (b) if it's a false positive, add the pattern's category exclusion to tools/build-pii-list.sh and regenerate." >&2
+  echo "  (b) if it's a public name (false positive), add it to $TOOLS/pii-allow.local.txt." >&2
   exit 1
+fi
+
+# Tests belong to alfred_assistant only.
+if [ "$(cd "$REPO" && pwd -P)" != "$(cd "$ALFRED" && pwd -P)" ]; then
+  exit 0
 fi
 
 # --- Test suite (unit + fixtures) ---

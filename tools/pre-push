@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# pre-push — refuse to push commits that carry PII or secret shapes.
+#
+# Install (here and in any repo that carries Alfred work, e.g. NanoClaw):
+#   ln -sfn <alfred_assistant>/tools/pre-push .git/hooks/pre-push
+#
+# Second line of defence behind pre-commit: scans the added lines and
+# message of every commit being pushed that no remote already has, so
+# content that skipped pre-commit (--no-verify, rebase, amend, cherry-pick,
+# a repo without the hook) is still caught before it leaves the machine.
+
+set -euo pipefail
+
+SELF=$(node -p 'require("fs").realpathSync(process.argv[1])' "${BASH_SOURCE[0]}")
+TOOLS=$(dirname "$SELF")
+ZERO=0000000000000000000000000000000000000000
+
+node "$TOOLS/build-pii-list.js" --quiet || \
+  echo "pre-push: PII list not rebuilt; scanning with the existing one" >&2
+if [ ! -f "$TOOLS/pii-list.local.txt" ]; then
+  echo "pre-push: missing $TOOLS/pii-list.local.txt; refusing to push unscanned" >&2
+  exit 1
+fi
+
+FAILED=0
+# stdin: <local ref> <local sha> <remote ref> <remote sha>
+while read -r _lref lsha _rref rsha; do
+  [ "$lsha" = "$ZERO" ] && continue   # branch deletion: nothing to scan
+  if [ "$rsha" = "$ZERO" ]; then
+    # New branch: only commits no remote (fork or upstream) already has.
+    RANGE=("$lsha" --not --remotes)
+  else
+    RANGE=("$rsha..$lsha")
+  fi
+  set +e
+  OUT=$(node "$TOOLS/scan-pii.js" --range "${RANGE[@]}" 2>&1)
+  RC=$?
+  set -e
+  if [ "$RC" -ne 0 ]; then
+    FAILED=1
+    printf '%s\n' "$OUT" >&2
+  fi
+done
+
+if [ "$FAILED" -ne 0 ]; then
+  echo "" >&2
+  echo "pre-push: PII scanner refused the push (locations above; matches not shown)." >&2
+  echo "  Rewrite the offending commits, or add a public-name false positive to" >&2
+  echo "  $TOOLS/pii-allow.local.txt and push again." >&2
+  exit 1
+fi
+exit 0

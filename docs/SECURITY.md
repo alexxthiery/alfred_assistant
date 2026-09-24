@@ -88,6 +88,14 @@ These are absolute. Each maps to a real leak that happened.
      | awk -F= '{print $1"="(length($2)>0?"***":"(empty)")}'
    ```
 
+6. **Never copy real identifiers into code, tests, or docs.** A real Telegram chat id once landed in a NanoClaw test fixture and was pushed to a public fork. Invent example values instead.
+   The PII guard enforces this in every repo that carries Alfred work:
+   - `tools/build-pii-list.js` regenerates the gitignored `tools/pii-list.local.txt` from the vaults named in `tools/pii-vaults.local.txt`: entity names, aliases, slugs, real emails and phones, and the values in each vault's `.alfred/private/` files.
+   - `tools/pre-commit` and `tools/pre-push` rebuild the list, then run `tools/scan-pii.js`. The push hook covers commits that skipped pre-commit (`--no-verify`, rebase, cherry-pick).
+   - NanoClaw checkouts use husky, which ignores `.git/hooks`. They opt in with `git config alfred.piiGuard true`; `~/.config/husky/init.sh` then runs Alfred's hooks before husky's own.
+   - Public names that false-positive go in `tools/pii-allow.local.txt`. Run `npm run doctor` to confirm the hooks are installed.
+   A pushed commit stays fetchable by SHA even after its branch is deleted (fork networks share storage). Only GitHub Support can purge it, so the guard has to fire before the push.
+
 ## Rotation and revocation
 
 - **Mint separate app passwords per purpose** (`alfred-digest` for SMTP, `alfred-imap-read` for IMAP) at <https://myaccount.google.com/apppasswords>. Gmail does not actually scope app passwords by function, but distinct named entries let you revoke one without breaking the other. Revoking the IMAP password must not take down the morning brief.

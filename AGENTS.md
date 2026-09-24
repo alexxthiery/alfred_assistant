@@ -94,7 +94,7 @@ Every verb's handler lives in exactly one module. To change a verb's behavior, o
 1. **Never edit `wiki/*.md` files in any vault outside `bin/wiki`.** The CLI enforces invariants (auto-commit, audit, autolink, schema validation). Touching files directly bypasses all of that and leaves the vault inconsistent.
 2. **Zero runtime dependencies.** No `npm install` of anything that lands in production code. Node stdlib only. (Dev tooling can shell out to `curl`, `git`, `duckdb` — those are runtime requirements of the host environment, not npm deps.)
 3. **`./bin/wiki-test` must stay green.** Run it (or `npm test` for unit + fixtures) before claiming any code change is done. Pre-commit hook also enforces this.
-4. **Never commit secrets.** The pre-commit hook scans staged files via `tools/scan-pii.sh` and refuses on hits. If a real PII match shows up, redact it; don't suppress the scanner.
+4. **Never commit secrets.** The pre-commit hook scans staged files, and the pre-push hook scans every commit being pushed, via `tools/scan-pii.js` (vault-derived PII list from `tools/build-pii-list.js` + generic secret shapes), and refuses on hits. If a real PII match shows up, redact it; don't suppress the scanner. Never paste real IDs, names, or slugs from a vault into tests or doc examples; invent them.
 5. **`docs/SCHEMA.md` is canonical.** A copy lives in `tests/vault/SCHEMA.md` and in `examples/example-vault/SCHEMA.md` — those are mirrors. Edit `docs/SCHEMA.md`, then mirror.
 6. **No `_AI_box` codename in committed code.** It was the project's internal name during development; cleared in B01. If you see it, that's a regression.
 7. **No emojis in code, commits, or docs** unless the user explicitly requests them.
