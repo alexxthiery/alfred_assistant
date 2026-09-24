@@ -85,12 +85,12 @@ test('parseAgendaOnThisDayOutput: empty day', () => {
 
 test('parseAgendaWindowOutput: parses exact-date agenda rows', () => {
   const stdout = [
-    '2026-05-30  [[pickleball-2026-05-30]]',
+    '2026-05-30  [[tennis-2026-05-30]]',
     '2026-05-30 09:00  [[aircon-visit]]  @ home',
     '(ignored line)',
   ].join('\n');
   assert.deepEqual(parseAgendaWindowOutput(stdout), [
-    { when: '2026-05-30', slug: 'pickleball-2026-05-30' },
+    { when: '2026-05-30', slug: 'tennis-2026-05-30' },
     { when: '2026-05-30', slug: 'aircon-visit' },
   ]);
 });

@@ -571,7 +571,7 @@ Date fields on observations: `since`, `until`, `on`, `asOf` (any subset). Empty 
 
 ```json
 {
-  "slug": "trip-vietnam-2026-05",
+  "slug": "trip-atlantis-2026-05",
   "title": "Trip — Atlantis, May 2026",
   "tags": ["event", "travel", "family"],
   "when": "2026-05-04",
