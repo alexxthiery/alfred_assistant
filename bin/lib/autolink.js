@@ -66,11 +66,17 @@ function buildTitleEntries(pages) {
       .filter((v) => v && v.length >= 4 && !/^\s*$/.test(v));
     for (const v of variants) {
       const escaped = v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      map.push({ slug, pattern: new RegExp(`\\b${escaped}\\b`, 'g'), title: v });
+      // Unicode-aware boundaries: `\b` is ASCII-only, so it never matched an
+      // alias ending in an accented letter ("Poincaré") and let a short alias
+      // match inside an accented word ("Dufr" in "Dufrêne").
+      map.push({ slug, pattern: new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, 'gu'), title: v });
     }
   }
   return map;
 }
+
+const NEXT_CAP_RE = /^ \p{Lu}/u;
+const PREV_CAP_RE = /\p{Lu}[\p{L}'’.-]* $/u;
 
 function autolinkBody(body, ownSlug, titleMap, ownTerms = []) {
   // V1 self-subject guard: phrases that NAME the page being processed (its own
@@ -122,6 +128,12 @@ function autolinkBody(body, ownSlug, titleMap, ownTerms = []) {
         // longer slug "hjb-value-function-log-h". Only link a WHOLE token run,
         // never a hyphen-delimited fragment of a longer one.
         if (text[idx - 1] === '-' || text[end] === '-') continue;
+        // Name-run guard: a capitalized single-word alias ("Tobin") next to
+        // another capitalized word is part of a longer name ("Tobin Ashgrove")
+        // that names someone else. Leaving it unlinked is the safe state; a
+        // sentence-initial word ("Later Tobin") also trips it, and the missed
+        // link resurfaces via `unlinked-mentions` / review instead.
+        if (/^\p{Lu}\S*$/u.test(m[0]) && (NEXT_CAP_RE.test(text.slice(end)) || PREV_CAP_RE.test(text.slice(0, idx)))) continue;
         // Inside a markdown link target [text](target) → skip.
         if (/\]\([^)]*$/.test(text.slice(0, idx))) continue;
         // Self-subject guard: don't link a phrase that names THIS page.

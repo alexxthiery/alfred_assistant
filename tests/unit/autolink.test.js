@@ -290,3 +290,57 @@ test('autolinkBody: a distinctive alias still links on a NON-own card (no over-c
   assert.equal(out.injections, 1);
   assert.ok(out.body.includes('[[sibling-card]]'));
 });
+
+// ─── name-run guard + Unicode boundaries ───────────────────────────────────
+// Real mislink: alias "Tobin" on tobin-varga rewrote "Tobin Ashgrove" into
+// "[[tobin-varga]] Ashgrove". A single-word alias that is part of a longer
+// capitalized name run names someone else; leaving it unlinked is the safe state.
+
+const tobin = () => buildTitleEntries([
+  { slug: 'tobin-varga', fm: { title: 'Tobin Varga', tags: ['person'], aliases: ['Tobin', 'Varga'] } },
+]);
+
+test('autolinkBody: single-word alias followed by a capitalized word is not linked', () => {
+  const out = autolinkBody('Signatories include Mira Kessel, Tobin Ashgrove, and others.\n', 'some-note', tobin());
+  assert.equal(out.injections, 0);
+  assert.ok(out.body.includes('Tobin Ashgrove'));
+});
+
+test('autolinkBody: single-word alias preceded by a capitalized word is not linked', () => {
+  const out = autolinkBody('A talk by Ann Varga on bridges.\n', 'note', tobin());
+  assert.equal(out.injections, 0);
+});
+
+test('autolinkBody: single-word alias standing alone still links', () => {
+  const out = autolinkBody('I met with Tobin about the grant.\n', 'note', tobin());
+  assert.equal(out.injections, 1);
+  assert.ok(out.body.includes('met with [[tobin-varga]] about'));
+});
+
+test('autolinkBody: full multi-word title still links inside a list of names', () => {
+  const out = autolinkBody('Authors: Tobin Varga, Mira Kessel.\n', 'paper', tobin());
+  assert.ok(out.body.includes('[[tobin-varga]], Mira'));
+});
+
+test('autolinkBody: later standalone mention links after a skipped name run', () => {
+  const out = autolinkBody('Tobin Ashgrove signed. He later thanked Tobin.\n', 'note', tobin());
+  assert.equal(out.injections, 1);
+  assert.ok(out.body.includes('Tobin Ashgrove signed'));
+  assert.ok(out.body.includes('thanked [[tobin-varga]].'));
+});
+
+test('autolinkBody: sentence-initial capital before a first name stays unlinked (accepted trade-off)', () => {
+  // Indistinguishable from "Ann Varga" without NLP; a missed link is safe.
+  const out = autolinkBody('Later Tobin replied.\n', 'note', tobin());
+  assert.equal(out.injections, 0);
+});
+
+test('buildTitleEntries: alias ending in an accented letter matches (Unicode boundary)', () => {
+  const [e] = buildTitleEntries([{ slug: 'henri-poincare', fm: { title: 'Poincaré' } }]);
+  assert.ok(e.pattern.test('the Poincaré conjecture'));
+});
+
+test('buildTitleEntries: alias does not match inside an accented word', () => {
+  const [e] = buildTitleEntries([{ slug: 'dufr-co', fm: { title: 'Dufr' } }]);
+  assert.equal(e.pattern.test('Renée Dufrêne-Ölander'), false);
+});
