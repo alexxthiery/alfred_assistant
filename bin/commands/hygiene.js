@@ -22,6 +22,7 @@ const { auditSlug } = require('../lib/audit-runtime.js');
 const { loadConfig } = require('../lib/config.js');
 const { applyInboxSourceMigration } = require('../lib/inbox-migration.js');
 const { localityWarningForVault } = require('../lib/locality.js');
+const { applyUnlinks } = require('../lib/unlink.js');
 
 const loadSchema = () => _loadSchema(SCHEMA_PATH);
 
@@ -172,7 +173,52 @@ function cmdAudit(args) {
 // never fabricates a wrong target (the case where autolink REPLACED text rather
 // than just bracketing it; those it reports and leaves for manual repair).
 // Read-only by default; --apply writes (single commit).
+// --unlink <spec.json>: revert specific links to their original words. The
+// spec comes from a reviewed list (e.g. autolink mislinks recovered from vault
+// history): [{ slug, line, offset, target, original }]. Stale entries skip.
+function fixLinksUnlink(args) {
+  let spec;
+  try { spec = JSON.parse(fs.readFileSync(args.unlink, 'utf8')); } catch (e) {
+    console.error(`error: cannot read --unlink spec ${args.unlink}: ${e.message}`);
+    process.exit(1);
+  }
+  if (!Array.isArray(spec)) { console.error('error: --unlink spec must be a JSON array'); process.exit(1); }
+  const bySlug = new Map();
+  for (const e of spec) {
+    if (!e || typeof e.slug !== 'string' || typeof e.line !== 'string' || !Number.isInteger(e.offset)
+      || typeof e.target !== 'string' || typeof e.original !== 'string') {
+      console.error(`error: bad --unlink entry ${JSON.stringify(e).slice(0, 120)}`);
+      process.exit(1);
+    }
+    if (!bySlug.has(e.slug)) bySlug.set(e.slug, []);
+    bySlug.get(e.slug).push(e);
+  }
+  const changes = [];
+  let skippedCount = 0;
+  for (const [slug, entries] of bySlug) {
+    if (!fs.existsSync(wikiPath(slug))) { console.error(`SKIP     ${slug}: page not found`); skippedCount += entries.length; continue; }
+    const { fm, body } = parseFrontmatter(fs.readFileSync(wikiPath(slug), 'utf8'));
+    const out = applyUnlinks(body, entries);
+    for (const s of out.skipped) console.error(`SKIP     ${slug}: [[${s.entry.target}]] (${s.reason})`);
+    skippedCount += out.skipped.length;
+    if (!out.applied) continue;
+    for (const e of entries.filter((x) => !out.skipped.some((s) => s.entry === x))) {
+      console.log(`unlink   ${slug}: [[${e.target}]] -> "${e.original}"`);
+    }
+    changes.push({ slug, fm, body: out.body, applied: out.applied });
+  }
+  const total = changes.reduce((n, c) => n + c.applied, 0);
+  if (!args.apply) { console.log(`\n(dry-run; ${total} link(s) in ${changes.length} page(s), ${skippedCount} skipped. Re-run with --apply.)`); return; }
+  for (const c of changes) {
+    c.fm.updated = nowISO();
+    fs.writeFileSync(wikiPath(c.slug), serializeFrontmatter(c.fm, c.body));
+  }
+  if (changes.length) { regenerateIndex(); appendLog('fix-links', `unlinked ${total} link(s) in ${changes.length} page(s)`); }
+  console.log(`fix-links: unlinked ${total} link(s) in ${changes.length} page(s)${skippedCount ? `, ${skippedCount} skipped` : ''}.`);
+}
+
 function cmdFixLinks(args) {
+  if (args.unlink) return fixLinksUnlink(args);
   const NEST = /\[\[([^[\]]*)\[\[([^[\]]*)\]\]([^[\]]*)\]\]/;
   const fixable = [];
   const skipped = [];

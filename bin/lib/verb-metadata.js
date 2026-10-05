@@ -290,7 +290,7 @@ const RAW_VERBS = [
   { name: 'reindex',  section: 'HYGIENE', lines: ['  reindex                                   regenerate index.md'] },
   { name: 'bless',    section: 'HYGIENE', lines: ['  bless                                     accept + commit out-of-band vault changes (clears a tamper-check block)'] },
   { name: 'groom',    section: 'HYGIENE', lines: ['  groom --mechanical [--dry-run]            auto-fix symmetric relations, bidirectional autolink, report stubs'] },
-  { name: 'fix-links', section: 'HYGIENE', lines: ['  fix-links [--apply]                       repair nested-wikilink corruption [[A[[B]]C]] -> [[ABC]] (only when target resolves)'] },
+  { name: 'fix-links', section: 'HYGIENE', lines: ['  fix-links [--apply]                       repair nested-wikilink corruption [[A[[B]]C]] -> [[ABC]] (only when target resolves)', '  fix-links --unlink <spec.json> [--apply]  revert listed links to their original words (stale lines skipped)'] },
   {
     name: 'audit', section: 'HYGIENE',
     lines: ['  audit <slug> | --all [--rule <name>] [--json]   mechanical quality score per page or vault-wide'],
