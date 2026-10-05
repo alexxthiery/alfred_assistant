@@ -1,0 +1,13 @@
+{
+  "exitCode": 0,
+  "stdoutContains": [
+    "- Renée Dufrêne-Ölander (2 pages)",
+    "- Göttingen (2 pages)"
+  ],
+  "stdoutNotContains": [
+    "- Dufr (2 pages)",
+    "- Renée Dufr (2 pages)",
+    "- Zoë Brückner-Ilić (2 pages)",
+    "- Zoë Br (2 pages)"
+  ]
+}

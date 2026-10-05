@@ -34,6 +34,7 @@ const { parseRelations, parseObservations, extractWikilinks, aliasesOf, stripSup
 const { detectSecrets } = require('./secrets.js');
 const { FUTURE_TENSE_RE, EPISTEMIC_RE } = require('./capture-classifier.js');
 const { isISODate, isISO8601DateTime } = require('./date.js');
+const { slugifyText } = require('./text.js');
 
 // HR-OOB-C: lowercase + hyphenate to produce the slug a string would resolve
 // to (mirrors bin/wiki slug conventions: lowercase, whitespace→hyphen,
@@ -1135,7 +1136,9 @@ function auditVault({ pages, schema, knownVerbs }) {
 
   // hot-text-mention: capitalized 2+ word phrases in prose, appearing across
   // 2+ pages, with no canonical stub.
-  const HOT_RE = /\b((?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}))\b/g;
+  // Unicode letters + hyphenated surnames (ASCII classes split "Dufrêne").
+  const HOT_W = '\\p{Lu}[\\p{Ll}\\p{M}]+(?:-\\p{Lu}[\\p{Ll}\\p{M}]+)*';
+  const HOT_RE = new RegExp(`(?<![\\p{L}\\p{M}\\p{N}_])(${HOT_W}(?:\\s+${HOT_W}){1,3})(?![\\p{L}\\p{M}\\p{N}_])`, 'gu');
   const STOPWORDS = new Set(['New York', 'Hong Kong', 'San Francisco']);
   const slugSet = new Set(pages.map((p) => p.slug));
   const phraseCounts = new Map();
@@ -1152,7 +1155,7 @@ function auditVault({ pages, schema, knownVerbs }) {
       const phrase = m[1].trim();
       if (phrase.length < 6) continue;
       if (STOPWORDS.has(phrase)) continue;
-      const slugified = phrase.toLowerCase().replace(/\s+/g, '-');
+      const slugified = slugifyText(phrase);
       if (slugSet.has(slugified)) continue;
       if (!phraseCounts.has(phrase)) phraseCounts.set(phrase, new Set());
       phraseCounts.get(phrase).add(p.slug);

@@ -1,0 +1,11 @@
+{
+  "_comment": "wiki review keeps accented/hyphenated names whole, and treats an accented mention as known once its ASCII-slug page exists.",
+  "setup": [
+    ["write", "accent-a", "--title", "Accent A", "--type", "note", "--content", "Joint work with Renée Dufrêne-Ölander near Göttingen on rough flows.", "--no-anchor"],
+    ["write", "accent-b", "--title", "Accent B", "--type", "note", "--content", "Then later, Renée Dufrêne-Ölander lectured in Göttingen again.", "--no-anchor"],
+    ["write", "accent-c", "--title", "Accent C", "--type", "note", "--content", "Talks by Zoë Brückner-Ilić covered transport.", "--no-anchor"],
+    ["write", "accent-d", "--title", "Accent D", "--type", "note", "--content", "Notes from Zoë Brückner-Ilić on transport.", "--no-anchor"],
+    ["write", "zoe-bruckner-ilic", "--title", "zoe-bruckner-ilic", "--type", "entity", "--tags", "person", "--content", "- [fact] Fictional test person. ^[test]"]
+  ],
+  "cmd": ["review", "--asof", "2026-07-31"]
+}

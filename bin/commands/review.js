@@ -12,6 +12,7 @@ const { forEachPage, wikiPath, SCHEMA_PATH } = require('../lib/vault.js');
 const { aliasesOf, parseRelations, parseObservations, stripSupersededObservationLines } = require('../lib/graph.js');
 const { loadSchema: _loadSchema } = require('../lib/schema.js');
 const { OBSERVATION_BLOAT_THRESHOLD } = require('../lib/audit.js');
+const { nameKey } = require('../lib/text.js');
 
 const loadSchema = () => _loadSchema(SCHEMA_PATH);
 
@@ -104,13 +105,15 @@ function cmdReview(args) {
   const addKnown = (s) => {
     if (!s) return;
     const raw = String(s);
-    known.add(raw.toLowerCase());
+    // nameKey folds accents and hyphens so "Dufrêne-Ölander" in prose matches
+    // the ASCII slug `renee-dufrene-olander`.
+    known.add(nameKey(raw));
     const tokens = raw
-      .replace(/([a-z])([A-Z])/g, '$1 $2')
-      .split(/[^A-Za-z0-9]+/)
+      .replace(/(\p{Ll})(\p{Lu})/gu, '$1 $2')
+      .split(/[^\p{L}\p{M}\p{N}]+/u)
       .filter((t) => t.length >= 4);
     if (tokens.length >= 2) {
-      for (const t of tokens) knownComponents.add(t.toLowerCase());
+      for (const t of tokens) knownComponents.add(nameKey(t));
     }
   };
   for (const p of all) {
@@ -121,7 +124,7 @@ function cmdReview(args) {
     for (const a of aliases) addKnown(a);
   }
   const schema = loadSchema();
-  for (const t of (schema.tags || [])) known.add(String(t).toLowerCase());
+  for (const t of (schema.tags || [])) known.add(nameKey(t));
 
   const sections = [];
 
@@ -131,7 +134,10 @@ function cmdReview(args) {
   const candidateMap = new Map(); // key: lower-cased form → { display, pageSnippets: Map<slug, sentence> }
   // Capitalized sequences, optionally connected by short lowercase joiners
   // ("of", "and", "for") so we can capture "University of Warwick" as one token.
-  const CAND_RE = /\b([A-Z][a-zA-Z]{2,}(?:\s(?:of|and|for|de|du|la|le|von|van|der|des)\s[A-Z][a-zA-Z]{2,}|\s[A-Z][a-zA-Z]{2,})*)\b/g;
+  // Unicode letters + hyphenated surnames: an ASCII class cut "Dufrêne-Ölander"
+  // down to "Dufr" and dropped "Königsberg" entirely.
+  const W = '\\p{Lu}[\\p{L}\\p{M}]{2,}(?:-\\p{Lu}[\\p{L}\\p{M}]+)*';
+  const CAND_RE = new RegExp(`(?<![\\p{L}\\p{M}\\p{N}_])(${W}(?:\\s(?:of|and|for|de|du|la|le|von|van|der|des)\\s${W}|\\s${W})*)(?![\\p{L}\\p{M}\\p{N}_])`, 'gu');
 
   for (const p of all) {
     // Strip wikilinks, code fences, frontmatter-like lines, and provenance markers.
@@ -162,10 +168,10 @@ function cmdReview(args) {
         const cleaned = display.replace(/['’]s$/, '');
         const isMultiWord = /\s/.test(cleaned);
         const firstWord = cleaned.split(' ')[0];
-        const key = cleaned.toLowerCase();
+        const key = nameKey(cleaned);
         if (cleaned.length < 4) continue;
         if (REVIEW_STOPWORDS.has(cleaned) || REVIEW_STOPWORDS.has(firstWord)) continue;
-        if (known.has(key) || known.has(firstWord.toLowerCase())) continue;
+        if (known.has(key) || known.has(nameKey(firstWord))) continue;
         if (!isMultiWord && knownComponents.has(key)) continue;
         // Skip if it's just a number/date-ish token.
         if (/^\d/.test(cleaned)) continue;

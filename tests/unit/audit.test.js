@@ -1484,3 +1484,23 @@ test('auditVault: edge-aptness does not judge a hookless endpoint or a non-linea
   assert.equal(perPage.find((p) => p.slug === 'a').issues.some((i) => i.rule === 'edge-aptness'), false);
   assert.equal(perPage.find((p) => p.slug === 'c').issues.some((i) => i.rule === 'edge-aptness'), false);
 });
+
+test('auditVault: hot-text-mention keeps accented hyphenated names whole', () => {
+  const pages = [
+    mkPage('a', 'Work by Renée Dufrêne-Ölander on flows.'),
+    mkPage('b', 'And then Renée Dufrêne-Ölander extended it.'),
+  ];
+  const phrases = auditVault({ pages, ...deps() }).hotMentions.map((h) => h.phrase);
+  assert.ok(phrases.includes('Renée Dufrêne-Ölander'), `got ${JSON.stringify(phrases)}`);
+  assert.equal(phrases.some((p) => p === 'Ren' || p.endsWith(' Dufr')), false);
+});
+
+test('auditVault: hot-text-mention matches an accented phrase to its ASCII slug', () => {
+  const pages = [
+    mkPage('a', 'Work by Renée Dufrêne on flows.'),
+    mkPage('b', 'And then Renée Dufrêne extended it.'),
+    mkPage('renee-dufrene', '', { title: 'Renée Dufrêne' }),
+  ];
+  const phrases = auditVault({ pages, ...deps() }).hotMentions.map((h) => h.phrase);
+  assert.equal(phrases.includes('Renée Dufrêne'), false);
+});
