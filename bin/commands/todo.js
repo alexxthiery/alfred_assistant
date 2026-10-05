@@ -10,6 +10,7 @@ const fs = require('fs');
 const { WIKI_DIR, nowISO, wikiPath, forEachPage } = require('../lib/vault.js');
 const { serializeFrontmatter } = require('../lib/frontmatter.js');
 const { isISODate } = require('../lib/date.js');
+const { slugifyText } = require('../lib/text.js');
 const { validateExtraFieldValue } = require('../lib/maintenance.js');
 const { readPageForWrite, regenerateIndex, appendLog } = require('../lib/page-io.js');
 const { validateForWrite, validateBody } = require('../lib/write-validate.js');
@@ -38,7 +39,7 @@ function cmdTodo(args) {
 }
 
 function todoSlugify(title) {
-  const base = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+  const base = slugifyText(title).slice(0, 60).replace(/-+$/, '');
   return `todo-${base || 'untitled'}`;
 }
 

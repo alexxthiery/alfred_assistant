@@ -435,3 +435,26 @@ test('scoreSlugCandidates: whole-word overlap still matches (B1 keeps real hits)
   assert.equal(out.length, 1);
   assert.equal(out[0].confidence, 0.7);
 });
+
+// Accent-safe resolve: `wiki resolve` is the duplicate check before page
+// creation, so an accented query must find the existing ASCII-slug page.
+
+test('scoreSlugCandidates: accented query matches ASCII slug exactly', () => {
+  const pages = [{ slug: 'renee-dufrene-olander', title: 'renee-dufrene-olander', aliases: [] }];
+  const out = scoreSlugCandidates('Renée Dufrêne-Ölander', pages);
+  assert.equal(out[0].slug, 'renee-dufrene-olander');
+  assert.equal(out[0].confidence, 1.0);
+});
+
+test('scoreSlugCandidates: ASCII query matches accented title', () => {
+  const pages = [{ slug: 'person-rd', title: 'Renée Dufrêne', aliases: [] }];
+  const out = scoreSlugCandidates('Renee Dufrene', pages);
+  assert.equal(out[0].confidence, 0.95);
+});
+
+test('scoreSlugCandidates: accented alias and accented substring both match', () => {
+  const pages = [{ slug: 'person-zb', title: 'Z. Bruckner', aliases: ['Zoë Brückner'] }];
+  assert.equal(scoreSlugCandidates('zoe bruckner', pages)[0].confidence, 0.9);
+  const sub = [{ slug: 'gottingen-lab', title: 'Göttingen Lab', aliases: [] }];
+  assert.equal(scoreSlugCandidates('the gottingen lab group', sub)[0].confidence, 0.7);
+});

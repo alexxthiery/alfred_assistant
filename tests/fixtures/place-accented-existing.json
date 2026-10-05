@@ -1,0 +1,7 @@
+{
+  "_comment": "wiki place finds an existing ASCII-slug page for an accented query (duplicate guard).",
+  "setup": [
+    ["write", "renee-dufrene", "--title", "renee-dufrene", "--type", "entity", "--tags", "person", "--content", "- [fact] Fictional test person. ^[test]"]
+  ],
+  "cmd": ["place", "Renée Dufrêne"]
+}

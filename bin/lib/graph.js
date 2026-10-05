@@ -11,6 +11,8 @@
 
 'use strict';
 
+const { foldDiacritics, nameKey, slugifyText } = require('./text.js');
+
 // HR12: normalize fm.aliases to an array. Frontmatter may carry it as an
 // array, a string (single alias), or be missing entirely. Each call site
 // previously rewrote the same three-arm ternary. Callers wanting a mutable
@@ -193,8 +195,11 @@ function wordBoundaryContains(haystack, needle) {
 
 function scoreSlugCandidates(query, pages, opts = {}) {
   const matches = [];
-  const qLower = String(query).toLowerCase();
-  const qNorm = qLower.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  // Compare folded forms: `resolve` is the duplicate check before creating a
+  // page, and "Dufrêne-Ölander" must find the existing `renee-dufrene-olander`.
+  const qLower = foldDiacritics(String(query).toLowerCase());
+  const qKey = nameKey(query);
+  const qNorm = slugifyText(query);
   const excludeSlug = opts.excludeSlug || null;
 
   for (const page of pages) {
@@ -206,11 +211,11 @@ function scoreSlugCandidates(query, pages, opts = {}) {
       matches.push({ slug, confidence: 1.0, reason: 'exact slug' });
       continue;
     }
-    if (title && title.toLowerCase() === qLower) {
+    if (title && nameKey(title) === qKey) {
       matches.push({ slug, confidence: 0.95, reason: `exact title "${title}"` });
       continue;
     }
-    const aliasHit = aliasList.find((a) => a.toLowerCase() === qLower);
+    const aliasHit = aliasList.find((a) => nameKey(a) === qKey);
     if (aliasHit) {
       matches.push({ slug, confidence: 0.9, reason: `alias "${aliasHit}"` });
       continue;
@@ -224,7 +229,7 @@ function scoreSlugCandidates(query, pages, opts = {}) {
     // intra-word noise.
     const allNames = [title, ...aliasList].filter(Boolean);
     const subHit = allNames.find((n) => {
-      const nl = n.toLowerCase();
+      const nl = foldDiacritics(n.toLowerCase());
       return wordBoundaryContains(qLower, nl) || wordBoundaryContains(nl, qLower);
     });
     if (subHit && subHit.length >= 3) {
@@ -234,7 +239,7 @@ function scoreSlugCandidates(query, pages, opts = {}) {
     let bestLev = Infinity, bestName = null;
     for (const n of allNames) {
       if (Math.abs(n.length - query.length) > 3) continue;
-      const d = levenshtein(n.toLowerCase(), qLower);
+      const d = levenshtein(foldDiacritics(n.toLowerCase()), qLower);
       if (d < bestLev) { bestLev = d; bestName = n; }
     }
     if (bestLev <= 2 && bestName) {

@@ -8,6 +8,7 @@ const path = require('path');
 const crypto = require('crypto');
 const https = require('https');
 const http = require('http');
+const { slugifyText } = require('./lib/text.js');
 const { URL } = require('url');
 
 // HR11: detectVaultRoot is shared with bin/lib/vault.js via bin/lib/vault-root.js
@@ -27,11 +28,7 @@ const todayDate = () => nowISO().slice(0, 10);
 
 function slugify(filename) {
   const base = path.basename(filename, path.extname(filename));
-  return base
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 80) || 'untitled';
+  return slugifyText(base).slice(0, 80).replace(/-+$/, '') || 'untitled';
 }
 
 function uniqueSlug(dir, slug) {

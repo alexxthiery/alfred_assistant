@@ -1,0 +1,7 @@
+{
+  "exitCode": 0,
+  "stdoutContains": ["todo-reserver-le-cafe-a-gottingen"],
+  "wikiAssertions": {
+    "todo-reserver-le-cafe-a-gottingen": { "bodyContains": ["2026-08-01"] }
+  }
+}

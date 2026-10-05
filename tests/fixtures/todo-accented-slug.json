@@ -1,0 +1,4 @@
+{
+  "_comment": "todo add folds accents into the slug instead of dropping letters (café -> cafe, not caf-).",
+  "cmd": ["todo", "add", "Réserver le café à Göttingen", "--due", "2026-08-01"]
+}

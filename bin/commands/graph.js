@@ -12,6 +12,7 @@ const { VAULT_ROOT, wikiPath, listWikiPages, readPage, forEachPage } = require('
 const { parseFrontmatter } = require('../lib/frontmatter.js');
 const { aliasesOf, backlinkRegex, extractWikilinks, parseObservations, parseRelations, stripSupersededObservationLines } = require('../lib/graph.js');
 const { resolveSlugCandidates } = require('../lib/resolve.js');
+const { foldDiacritics, nameKey } = require('../lib/text.js');
 const { buildTitleMap, autolinkSlug } = require('../lib/autolink-runtime.js');
 const { regenerateIndex, appendLog } = require('../lib/page-io.js');
 
@@ -372,16 +373,18 @@ function cmdPlace(args) {
   if (!query) { console.error('Usage: wiki place "concept or title"'); process.exit(1); }
 
   // 1. Find existing matches via resolve (re-use logic)
-  const qLower = query.toLowerCase();
+  // Folded keys so an accented query finds the existing ASCII-slug page.
+  const qLower = nameKey(query);
   const matches = [];
   forEachPage(({ slug, fm }) => {
     const title = (fm.title || '').trim();
+    const titleKey = nameKey(title);
     const aliases = aliasesOf(fm);
-    if (slug === query || (title && title.toLowerCase() === qLower)) {
+    if (slug === query || nameKey(slug) === qLower || (title && titleKey === qLower)) {
       matches.push({ slug, confidence: 1.0, reason: 'exact match' });
-    } else if (aliases.find((a) => a.toLowerCase() === qLower)) {
+    } else if (aliases.find((a) => nameKey(a) === qLower)) {
       matches.push({ slug, confidence: 0.9, reason: 'alias match' });
-    } else if (title && (title.toLowerCase().includes(qLower) || qLower.includes(title.toLowerCase())) && title.length >= 3) {
+    } else if (title && (titleKey.includes(qLower) || qLower.includes(titleKey)) && title.length >= 3) {
       matches.push({ slug, confidence: 0.7, reason: `substring of title "${title}"` });
     }
   });
@@ -400,12 +403,12 @@ function cmdPlace(args) {
   const queryTokensSet = new Set(queryTokens);
   const similar = {};
   forEachPage(({ slug, fm, body }) => {
-    const title = (fm.title || '').toLowerCase();
+    const title = foldDiacritics(fm.title || '').toLowerCase();
     const titleTokens = title.split(/[^a-z0-9]+/).filter(Boolean);
     let score = 0;
     for (const t of titleTokens) if (queryTokensSet.has(t)) score += 3;
     // Body contains any query token?
-    const activeBodyLower = stripSupersededObservationLines(body).toLowerCase();
+    const activeBodyLower = foldDiacritics(stripSupersededObservationLines(body)).toLowerCase();
     for (const t of queryTokens) {
       if (activeBodyLower.includes(t)) { score += 1; break; }
     }
